@@ -1,0 +1,23 @@
+<%- include('partials/header') %>
+<section class="panel narrow">
+  <h1>Edit member</h1>
+  <form method="post" action="/members/<%= member.id %>" class="stack">
+    <%- include('partials/csrf') %>
+    <label>Name <input name="name" value="<%= member.name %>" required></label>
+    <label>Phone <input name="phone" value="<%= member.phone || '' %>"></label>
+    <label>Date of birth <input name="dob" type="date" value="<%= member.dob || '' %>"></label>
+    <label>Status
+      <select name="status">
+        <option value="active" <%= member.status === 'active' ? 'selected' : '' %>>Active</option>
+        <option value="inactive" <%= member.status === 'inactive' ? 'selected' : '' %>>Inactive</option>
+      </select>
+    </label>
+    <label>Opening arrears <input name="opening_arrears" type="number" step="0.01" value="<%= member.opening_arrears %>"></label>
+    <label>Notes <textarea name="notes"><%= member.notes || '' %></textarea></label>
+    <div class="actions">
+      <button type="submit">Save changes</button>
+      <a class="button secondary" href="/members">Cancel</a>
+    </div>
+  </form>
+</section>
+<%- include('partials/footer') %>

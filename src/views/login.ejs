@@ -1,0 +1,13 @@
+<%- include('partials/header') %>
+<section class="auth">
+  <h1>Sign in</h1>
+  <p>Use your executive account to manage receipts, expenses, reconciliation, and reports.</p>
+  <% if (error) { %><div class="alert"><%= error %></div><% } %>
+  <form method="post" action="/login" class="stack">
+    <%- include('partials/csrf') %>
+    <label>Email <input name="email" type="email" required autofocus></label>
+    <label>Password <input name="password" type="password" required></label>
+    <button type="submit">Sign in</button>
+  </form>
+</section>
+<%- include('partials/footer') %>

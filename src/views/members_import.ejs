@@ -1,0 +1,50 @@
+<%- include('partials/header') %>
+<section class="panel narrow">
+  <h1>Import members</h1>
+  <p style="color: var(--muted); margin-bottom: 16px;">
+    Upload a <strong>.csv</strong> or <strong>.xlsx</strong> file with member data.
+    The importer matches columns by header name — column order does not matter.
+  </p>
+
+  <div style="background: var(--accent-soft); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 18px; font-size: 13px;">
+    <strong>Expected columns (any order):</strong>
+    <ul style="margin: 6px 0 0 18px; padding: 0;">
+      <li><strong>Name</strong> — required (or "Full Name", "Member Name")</li>
+      <li><strong>Phone</strong> — optional (or "Mobile", "Contact", "Telephone")</li>
+      <li><strong>DOB</strong> — optional (or "Date of Birth", "Birthday") — formats: YYYY-MM-DD, DD/MM/YYYY, or Excel serial</li>
+      <li><strong>Opening Arrears</strong> — optional (or "Arrears", "Balance", "Owing") — amount owed before go-live</li>
+      <li><strong>Status</strong> — optional, defaults to "active"</li>
+    </ul>
+  </div>
+
+  <form method="post" action="/members/import" enctype="multipart/form-data" class="stack">
+    <label>File (.csv or .xlsx)
+      <input name="file" type="file" accept=".csv,.xlsx,.xls,.txt" required>
+    </label>
+    <button type="submit">Upload and import</button>
+  </form>
+
+  <% if (result) { %>
+    <div style="margin-top: 20px; padding: 14px; border-radius: 8px; border: 1px solid <%= result.errors && result.errors.length ? '#f7bbb5' : '#a5d6a7' %>; background: <%= result.errors && result.errors.length ? '#fde8e6' : '#e8f5e9' %>;">
+      <strong><%= result.imported %> members imported/updated.</strong>
+      <% if (result.skipped) { %><br><%= result.skipped %> rows skipped.<% } %>
+      <% if (result.mapping) { %><br>Columns matched: <%= result.mapping.join(', ') %>.<% } %>
+      <% if (result.errors && result.errors.length) { %>
+        <ul style="margin: 8px 0 0 18px; padding: 0; color: var(--danger); font-size: 13px;">
+          <% result.errors.slice(0, 10).forEach((err) => { %><li><%= err %></li><% }) %>
+          <% if (result.errors.length > 10) { %><li>...and <%= result.errors.length - 10 %> more</li><% } %>
+        </ul>
+      <% } %>
+    </div>
+  <% } %>
+
+  <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line);">
+    <h2>CSV template</h2>
+    <p style="color: var(--muted); font-size: 13px; margin-bottom: 8px;">Copy this into a spreadsheet or text file and save as .csv:</p>
+    <pre style="background: #f8f9fa; padding: 12px; border-radius: 6px; font-size: 12px; overflow-x: auto;">Name,Phone,Date of Birth,Opening Arrears
+Kofi Mensah,0241234567,1975-03-12,500
+Ama Owusu,0551234567,1990-08-25,0
+Kwame Asante,0201234567,1965-11-03,1200</pre>
+  </div>
+</section>
+<%- include('partials/footer') %>

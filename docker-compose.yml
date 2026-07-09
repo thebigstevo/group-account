@@ -1,0 +1,17 @@
+services:
+  accounts:
+    build: .
+    container_name: ksji-accounts
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      DB_PATH: /app/storage/accounts.db
+      SESSION_SECRET: change-this-long-random-secret
+      N8N_API_TOKEN: change-this-n8n-token
+    volumes:
+      - accounts_data:/app/storage
+
+volumes:
+  accounts_data:

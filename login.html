@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KSJI Accounts</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">KSJI Accounts</a>
+    
+  </header>
+  <main class="page">
+
+<section class="auth">
+  <h1>Sign in</h1>
+  <p>Use your executive account to manage receipts, expenses, reconciliation, and reports.</p>
+  
+  <form method="post" action="/login" class="stack">
+    <input type="hidden" name="_csrf" value="88a4390c0f8e1136e11cc131e721fdcbe364f01bd11d0add">
+
+    <label>Email <input name="email" type="email" required autofocus></label>
+    <label>Password <input name="password" type="password" required></label>
+    <button type="submit">Sign in</button>
+  </form>
+</section>
+  </main>
+</body>
+</html>
+

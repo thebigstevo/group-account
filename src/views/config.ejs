@@ -1,0 +1,145 @@
+<%- include('partials/header') %>
+<section class="page-title">
+  <div>
+    <span class="eyebrow">System setup</span>
+    <h1>Configuration</h1>
+    <p>Set the rules executives should not have to remember while entering transactions.</p>
+  </div>
+  <a class="button secondary" href="/dues">Dues setup</a>
+</section>
+
+<section class="grid two">
+  <div class="panel">
+    <h2>Welfare split rules</h2>
+    <table>
+      <thead><tr><th>Year</th><th>Category</th><th class="num">Assessment amount</th><th class="num">Welfare amount</th><th>Status</th></tr></thead>
+      <tbody>
+        <% splits.forEach((split) => { %>
+          <tr>
+            <td><%= split.year %></td>
+            <td><%= split.category %></td>
+            <td class="num"><%= formatMoney(split.assessment_amount) %></td>
+            <td class="num"><%= formatMoney(split.welfare_amount) %></td>
+            <td><span class="badge <%= split.active ? 'success' : 'soft' %>"><%= split.active ? 'Active' : 'Inactive' %></span></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <h2>Set welfare split</h2>
+    <form method="post" action="/config/payment-splits" class="stack">
+      <%- include('partials/csrf') %>
+      <label>Year <input name="year" type="number" value="<%= year %>" required></label>
+      <label>Category
+        <select name="category">
+          <option>Assessment</option>
+          <option>Welfare</option>
+        </select>
+      </label>
+      <label>Full assessment amount <input name="assessment_amount" type="number" step="0.01" value="700" required></label>
+      <label>Welfare part of that amount <input name="welfare_amount" type="number" step="0.01" value="300" required></label>
+      <button type="submit">Save split</button>
+    </form>
+  </div>
+</section>
+
+<section class="grid two">
+  <div class="panel">
+    <h2>Transaction categories</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>Kind</th><th>Status</th></tr></thead>
+        <tbody>
+          <% categories.forEach((category) => { %>
+            <tr>
+              <td><%= category.name %></td>
+              <td><span class="badge"><%= category.kind %></span></td>
+              <td><span class="badge <%= category.active ? 'success' : 'soft' %>"><%= category.active ? 'Active' : 'Inactive' %></span></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Add category</h2>
+    <form method="post" action="/config/categories" class="stack">
+      <%- include('partials/csrf') %>
+      <label>Name <input name="name" required placeholder="Transport, Harvest, Welfare support"></label>
+      <label>Kind
+        <select name="kind">
+          <option value="income">Income</option>
+          <option value="expense">Expense</option>
+        </select>
+      </label>
+      <label>Sort order <input name="sort_order" type="number" value="100"></label>
+      <button type="submit">Save category</button>
+    </form>
+  </div>
+</section>
+
+<section class="grid two">
+  <div class="panel">
+    <h2>Accounts</h2>
+    <table>
+      <thead><tr><th>Name</th><th>Type</th><th class="num">Opening balance</th><th>Status</th></tr></thead>
+      <tbody>
+        <% accounts.forEach((account) => { %>
+          <tr>
+            <td><%= account.name %></td>
+            <td><%= account.type %></td>
+            <td class="num"><%= formatMoney(account.opening_balance) %></td>
+            <td><span class="badge <%= account.active ? 'success' : 'soft' %>"><%= account.active ? 'Active' : 'Inactive' %></span></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <h2>Update accounts</h2>
+    <% accounts.forEach((account) => { %>
+      <form method="post" action="/config/accounts/<%= account.id %>" class="stack compact-form">
+        <%- include('partials/csrf') %>
+        <label>Name <input name="name" value="<%= account.name %>" required></label>
+        <label>Opening balance <input name="opening_balance" type="number" step="0.01" value="<%= account.opening_balance %>"></label>
+        <label class="check"><input name="active" type="checkbox" value="1" <%= account.active ? 'checked' : '' %>> Active</label>
+        <button type="submit">Save <%= account.name %></button>
+      </form>
+    <% }) %>
+
+    <h2 style="margin-top: 24px;">Add account</h2>
+    <form method="post" action="/config/accounts" class="stack compact-form">
+      <%- include('partials/csrf') %>
+      <label>Name <input name="name" required placeholder="e.g. Second Bank Account"></label>
+      <label>Type
+        <select name="type" required>
+          <option value="cash">Cash</option>
+          <option value="bank">Bank</option>
+          <option value="mobile_money">Mobile Money</option>
+        </select>
+      </label>
+      <label>Opening balance <input name="opening_balance" type="number" step="0.01" value="0"></label>
+      <button type="submit">Add account</button>
+    </form>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Current dues rules</h2>
+  <table>
+    <thead><tr><th>Year</th><th>Label</th><th>Age band</th><th class="num">Assessment</th><th class="num">Welfare</th></tr></thead>
+    <tbody>
+      <% rules.forEach((rule) => { %>
+        <tr>
+          <td><%= rule.year %></td>
+          <td><%= rule.label %></td>
+          <td><%= rule.min_age ?? '' %> - <%= rule.max_age ?? '' %></td>
+          <td class="num"><%= formatMoney(rule.annual_assessment) %></td>
+          <td class="num"><%= formatMoney(rule.welfare_portion) %></td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+</section>
+<%- include('partials/footer') %>

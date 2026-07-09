@@ -1,0 +1,62 @@
+<%- include('partials/header') %>
+<section class="grid two">
+  <div class="panel">
+    <h1>Users</h1>
+    <table>
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody>
+        <% users.forEach((row) => { %>
+          <tr>
+            <td><%= row.name %></td>
+            <td><%= row.email %></td>
+            <td><%= row.role %></td>
+            <td><%= row.active ? 'Active' : 'Inactive' %></td>
+            <td>
+              <% if (row.id !== user.id) { %>
+                <form method="post" action="/users/<%= row.id %>/toggle" style="display: inline;">
+                  <%- include('partials/csrf') %>
+                  <button type="submit" style="padding: 2px 6px; font-size: 0.85em;"><%= row.active ? 'Deactivate' : 'Activate' %></button>
+                </form>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <h2>Add user</h2>
+    <form method="post" action="/users" class="stack">
+      <%- include('partials/csrf') %>
+      <label>Name <input name="name" required></label>
+      <label>Email <input name="email" type="email" required></label>
+      <label>Password <input name="password" type="password" required minlength="8"></label>
+      <label>Role
+        <select name="role">
+          <option value="finance_secretary">Finance Secretary</option>
+          <option value="treasurer">Treasurer</option>
+          <option value="viewer">Executive Viewer</option>
+          <option value="auditor">Auditor</option>
+          <option value="admin">Admin</option>
+        </select>
+      </label>
+      <button type="submit">Add user</button>
+    </form>
+
+    <h2 style="margin-top: 24px;">Reset user password</h2>
+    <form method="post" class="stack" id="reset-form">
+      <%- include('partials/csrf') %>
+      <label>User
+        <select id="reset-user-select" onchange="document.getElementById('reset-form').action='/users/' + this.value + '/reset-password'">
+          <option value="">Select a user</option>
+          <% users.filter(u => u.id !== user.id).forEach((row) => { %>
+            <option value="<%= row.id %>"><%= row.name %> (<%= row.email %>)</option>
+          <% }) %>
+        </select>
+      </label>
+      <label>New password <input name="new_password" type="password" required minlength="8"></label>
+      <button type="submit">Reset password</button>
+    </form>
+  </div>
+</section>
+<%- include('partials/footer') %>

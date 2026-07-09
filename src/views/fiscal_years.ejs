@@ -1,0 +1,91 @@
+<%- include('partials/header') %>
+<section class="page-title">
+  <div>
+    <span class="eyebrow">Year management</span>
+    <h1>Fiscal years</h1>
+    <p>Open a new year to begin recording transactions. Close a year to lock it and carry arrears forward.</p>
+  </div>
+</section>
+
+<section class="grid two">
+  <div class="panel">
+    <h2>Year status</h2>
+    <% if (years.length === 0) { %>
+      <p style="color: var(--muted);">No fiscal years created yet. Open one to get started.</p>
+    <% } else { %>
+      <table>
+        <thead><tr><th>Year</th><th>Status</th><th>Opened</th><th>Closed</th><th>Notes</th></tr></thead>
+        <tbody>
+          <% years.forEach((fy) => { %>
+            <tr>
+              <td><strong><%= fy.year %></strong></td>
+              <td><span class="badge <%= fy.status === 'open' ? 'success' : 'soft' %>"><%= fy.status %></span></td>
+              <td><%= fy.opened_at ? fy.opened_at.slice(0, 10) : '' %></td>
+              <td><%= fy.closed_at ? fy.closed_at.slice(0, 10) : '' %></td>
+              <td><%= fy.notes || '' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    <% } %>
+  </div>
+
+  <div class="panel">
+    <h2>Open a new year</h2>
+    <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">
+      This creates the year's accounting period. Dues rules and payment splits from the previous year are copied automatically.
+    </p>
+    <form method="post" action="/fiscal-years/open" class="stack">
+      <%- include('partials/csrf') %>
+      <label>Year <input name="year" type="number" value="<%= currentYear %>" required></label>
+      <button type="submit">Open year</button>
+    </form>
+
+    <% const openYears = years.filter(y => y.status === 'open'); %>
+    <% if (openYears.length > 0) { %>
+      <h2 style="margin-top: 24px;">Close a year</h2>
+      <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">
+        Closing a year will:
+      </p>
+      <ul style="color: var(--muted); font-size: 13px; margin: 0 0 12px 18px; padding: 0;">
+        <li>Lock all transactions in that year (no new entries, no reversals)</li>
+        <li>Calculate each member's outstanding balance</li>
+        <li>Set that balance as their opening arrears for the next year</li>
+      </ul>
+      <div style="background: var(--warn-soft); border: 1px solid #f3d188; padding: 10px; border-radius: 6px; margin-bottom: 12px; font-size: 13px; color: var(--warn);">
+        <strong>This action cannot be undone.</strong> Make sure all transactions are entered and reconciled before closing.
+      </div>
+      <form method="post" action="/fiscal-years/close" class="stack">
+        <%- include('partials/csrf') %>
+        <label>Year to close
+          <select name="year" required>
+            <% openYears.forEach((fy) => { %>
+              <option value="<%= fy.year %>"><%= fy.year %></option>
+            <% }) %>
+          </select>
+        </label>
+        <label>Notes (optional) <input name="notes" placeholder="End of year close"></label>
+        <button type="submit" style="background: var(--warn);">Close year permanently</button>
+      </form>
+    <% } %>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>How it works</h2>
+  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; margin-top: 12px;">
+    <div>
+      <strong style="color: var(--accent);">1. Open year</strong>
+      <p style="font-size: 13px;">Creates the period. Copies dues rules and payment splits from last year so you can adjust them.</p>
+    </div>
+    <div>
+      <strong style="color: var(--accent);">2. Work through the year</strong>
+      <p style="font-size: 13px;">Enter receipts, expenses, transfers. Reconcile accounts monthly. Run reports.</p>
+    </div>
+    <div>
+      <strong style="color: var(--accent);">3. Close year</strong>
+      <p style="font-size: 13px;">Locks the year. Each member's outstanding balance becomes their opening arrears for next year.</p>
+    </div>
+  </div>
+</section>
+<%- include('partials/footer') %>

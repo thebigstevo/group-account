@@ -1,0 +1,107 @@
+<%- include('partials/header') %>
+<section class="hero">
+  <div>
+    <h1>Download reports</h1>
+    <p>Generate and download formal financial reports as CSV files. Open in Excel or Google Sheets for printing or sharing.</p>
+  </div>
+</section>
+
+<section class="grid two">
+  <div class="panel">
+    <h2>Income & Expenditure</h2>
+    <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">Income by category less expenditure by category, showing surplus or deficit for the period.</p>
+    <form method="get" action="/download/income-expenditure" class="stack">
+      <div class="row">
+        <label>Year <input name="year" type="number" value="<%= year %>" required></label>
+        <label>Month (blank = full year)
+          <select name="month">
+            <option value="">Full Year</option>
+            <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach((name, index) => { %>
+              <option value="<%= index + 1 %>"><%= name %></option>
+            <% }) %>
+          </select>
+        </label>
+      </div>
+      <button type="submit">Download</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>Receipts & Payments</h2>
+    <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">All cash movements per account — opening balance, receipts by category, payments by category, closing balance.</p>
+    <form method="get" action="/download/receipts-payments" class="stack">
+      <div class="row">
+        <label>Year <input name="year" type="number" value="<%= year %>" required></label>
+        <label>Month (blank = full year)
+          <select name="month">
+            <option value="">Full Year</option>
+            <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach((name, index) => { %>
+              <option value="<%= index + 1 %>"><%= name %></option>
+            <% }) %>
+          </select>
+        </label>
+      </div>
+      <button type="submit">Download</button>
+    </form>
+  </div>
+</section>
+
+<section class="grid two">
+  <div class="panel">
+    <h2>Welfare Fund Statement</h2>
+    <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">Welfare collections from members, payouts made, and outstanding welfare liability.</p>
+    <form method="get" action="/download/welfare-fund" class="stack">
+      <div class="row">
+        <label>Year <input name="year" type="number" value="<%= year %>" required></label>
+        <label>Month (blank = full year)
+          <select name="month">
+            <option value="">Full Year</option>
+            <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach((name, index) => { %>
+              <option value="<%= index + 1 %>"><%= name %></option>
+            <% }) %>
+          </select>
+        </label>
+      </div>
+      <button type="submit">Download</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>Statement of Financial Position</h2>
+    <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">Assets (account balances), liabilities (welfare fund payable), and net assets as at end of period.</p>
+    <form method="get" action="/download/financial-position" class="stack">
+      <div class="row">
+        <label>Year <input name="year" type="number" value="<%= year %>" required></label>
+        <label>Month (blank = year end)
+          <select name="month">
+            <option value="">Year End (31 Dec)</option>
+            <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach((name, index) => { %>
+              <option value="<%= index + 1 %>"><%= name %></option>
+            <% }) %>
+          </select>
+        </label>
+      </div>
+      <button type="submit">Download</button>
+    </form>
+  </div>
+</section>
+
+<section class="panel narrow">
+  <h2>Member Statement</h2>
+  <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">Individual member's transactions, dues summary, and outstanding balance for a year. Useful for sending to members.</p>
+  <form method="get" action="/download/member-statement" class="stack">
+    <div class="row">
+      <label>Member
+        <select name="member_id" required>
+          <option value="">Select a member</option>
+          <% members.forEach((member) => { %>
+            <option value="<%= member.id %>"><%= member.name %></option>
+          <% }) %>
+        </select>
+      </label>
+      <label>Year <input name="year" type="number" value="<%= year %>" required></label>
+    </div>
+    <button type="submit">Download</button>
+  </form>
+</section>
+<%- include('partials/footer') %>

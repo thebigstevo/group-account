@@ -1,0 +1,109 @@
+<%- include('partials/header') %>
+<section class="hero hero-panel">
+  <div>
+    <span class="eyebrow">Today</span>
+    <h1>Finance overview</h1>
+    <p>Cash, Bank, Mobile Money, welfare liability, and current work needing attention.</p>
+  </div>
+  <div class="hero-actions">
+    <a class="button" href="/transactions">Enter transaction</a>
+    <a class="button secondary" href="/reports">Monthly report</a>
+  </div>
+</section>
+
+<section class="metrics">
+  <% summary.balances.forEach((account) => { %>
+    <div class="metric account-card">
+      <span><%= account.name %> balance</span>
+      <strong><%= formatMoney(account.balance) %></strong>
+    </div>
+  <% }) %>
+  <div class="metric">
+    <span>Income</span>
+    <strong><%= formatMoney(summary.income) %></strong>
+  </div>
+  <div class="metric">
+    <span>Expenses</span>
+    <strong><%= formatMoney(summary.expenses) %></strong>
+  </div>
+  <div class="metric warning">
+    <span>Welfare liability</span>
+    <strong><%= formatMoney(summary.welfareLiability) %></strong>
+  </div>
+  <div class="metric success">
+    <span>Spendable estimate</span>
+    <strong><%= formatMoney(summary.spendableBalance) %></strong>
+  </div>
+</section>
+
+<section class="grid two balanced">
+  <div class="panel">
+    <div class="section-head">
+      <div>
+        <h2>Work queue</h2>
+        <p>Items to look at before the next executive update.</p>
+      </div>
+    </div>
+    <div class="task-list">
+      <a href="/transactions" class="task-item">
+        <strong><%= unreconciledCount %></strong>
+        <span>Uncleared transactions</span>
+      </a>
+      <a href="/reports" class="task-item">
+        <strong><%= arrearsCount %></strong>
+        <span>Members with arrears</span>
+      </a>
+      <a href="/members" class="task-item">
+        <strong><%= memberCount %></strong>
+        <span>Active members</span>
+      </a>
+      <a href="/reconciliation" class="task-item">
+        <strong><%= lastReconciliation || 'None' %></strong>
+        <span>Latest reconciliation</span>
+      </a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="section-head">
+      <div>
+        <h2>Quick actions</h2>
+        <p>Common tasks for finance officers.</p>
+      </div>
+    </div>
+    <div class="quick-grid">
+      <a class="quick-action" href="/transactions">Receive payment</a>
+      <a class="quick-action" href="/transactions">Record expense</a>
+      <a class="quick-action" href="/reconciliation">Reconcile account</a>
+      <a class="quick-action" href="/config">Update rules</a>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <div>
+      <h2>Recent transactions</h2>
+      <p>Latest posted receipts, expenses, and transfers.</p>
+    </div>
+    <a href="/transactions" class="text-link">View all</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Date</th><th>Type</th><th>Member</th><th>Account</th><th>Category</th><th class="num">Amount</th></tr></thead>
+      <tbody>
+        <% recent.forEach((row) => { %>
+          <tr>
+            <td><%= row.tx_date %></td>
+            <td><span class="badge"><%= row.tx_type.replace('_', ' ') %></span></td>
+            <td><%= row.member_name || '' %></td>
+            <td><%= row.account_name || '' %></td>
+            <td><%= row.category %></td>
+            <td class="num"><%= formatMoney(row.amount) %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</section>
+<%- include('partials/footer') %>
