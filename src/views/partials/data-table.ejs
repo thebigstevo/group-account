@@ -1,0 +1,32 @@
+<!--
+  Include with: <%- include('partials/data-table', { tableId, columns, searchPlaceholder }) %>
+  The actual table data is rendered by the parent view's <tbody>.
+  This partial provides the wrapper, search input, and table headers.
+-->
+<div class="data-table-wrapper">
+  <% if (typeof searchPlaceholder !== 'undefined') { %>
+    <div class="data-table-controls">
+      <input type="text"
+             data-table-search="<%= tableId %>"
+             placeholder="<%= searchPlaceholder %>"
+             class="data-table-search"
+             aria-label="Search table">
+    </div>
+  <% } %>
+  <div class="data-table-scroll">
+    <table id="<%= tableId %>" class="data-table" data-datatable>
+      <thead>
+        <tr>
+          <% columns.forEach(function(col) { %>
+            <th data-sortable="<%= col.key %>"<%= col.sticky ? ' class="sticky-col"' : '' %>>
+              <%= col.label %>
+            </th>
+          <% }) %>
+        </tr>
+      </thead>
+      <tbody>
+        <%- typeof body !== 'undefined' ? body : '' %>
+      </tbody>
+    </table>
+  </div>
+</div>

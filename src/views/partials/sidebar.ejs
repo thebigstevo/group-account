@@ -1,0 +1,83 @@
+<%
+  const user = locals.user || {};
+  const currentPath = locals.currentPath || '/';
+  const role = user.role || 'viewer';
+
+  // Helper to determine if a link is active
+  function isActive(path) {
+    if (path === '/') return currentPath === '/';
+    return currentPath === path || currentPath.startsWith(path + '/');
+  }
+
+  // Truncate name to 20 chars with ellipsis
+  function truncateName(name) {
+    if (!name) return '';
+    return name.length > 20 ? name.substring(0, 20) + '…' : name;
+  }
+
+  // Role display label
+  function roleLabel(r) {
+    const labels = {
+      admin: 'Admin',
+      finance_secretary: 'Finance Sec.',
+      treasurer: 'Treasurer',
+      viewer: 'Viewer',
+      auditor: 'Auditor'
+    };
+    return labels[r] || r;
+  }
+%>
+
+<aside class="sidebar" id="sidebar">
+  <!-- Brand Header -->
+  <div class="sidebar__brand">
+    <img src="/public/logo.png" alt="" style="height:24px;width:auto;margin-right:8px;vertical-align:middle;" onerror="this.style.display='none'">
+    <span>Treasurio</span>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="sidebar__nav" aria-label="Main navigation">
+    <!-- Operations Group -->
+    <div class="sidebar__group">
+      <div class="sidebar__group-title">Operations</div>
+      <a href="/" class="sidebar__link<%= isActive('/') ? ' active' : '' %>">Dashboard</a>
+      <a href="/transactions" class="sidebar__link<%= isActive('/transactions') ? ' active' : '' %>">Transactions</a>
+      <a href="/members" class="sidebar__link<%= isActive('/members') ? ' active' : '' %>">Members</a>
+    </div>
+
+    <!-- Reporting Group -->
+    <div class="sidebar__group">
+      <div class="sidebar__group-title">Reporting</div>
+      <a href="/reports" class="sidebar__link<%= isActive('/reports') ? ' active' : '' %>">Reports</a>
+      <a href="/reconciliation" class="sidebar__link<%= isActive('/reconciliation') ? ' active' : '' %>">Reconciliation</a>
+      <a href="/download-reports" class="sidebar__link<%= isActive('/download-reports') ? ' active' : '' %>">Downloads</a>
+    </div>
+
+    <!-- Administration Group (role-based) -->
+    <% if (['admin', 'finance_secretary', 'treasurer'].includes(role)) { %>
+    <div class="sidebar__group">
+      <div class="sidebar__group-title">Administration</div>
+      <a href="/config" class="sidebar__link<%= isActive('/config') ? ' active' : '' %>">Config</a>
+      <a href="/dues" class="sidebar__link<%= isActive('/dues') ? ' active' : '' %>">Dues</a>
+      <a href="/fiscal-years" class="sidebar__link<%= isActive('/fiscal-years') ? ' active' : '' %>">Fiscal Years</a>
+      <a href="/users" class="sidebar__link<%= isActive('/users') ? ' active' : '' %>">Users</a>
+      <a href="/audit" class="sidebar__link<%= isActive('/audit') ? ' active' : '' %>">Audit</a>
+    </div>
+    <% } else if (role === 'auditor') { %>
+    <div class="sidebar__group">
+      <div class="sidebar__group-title">Administration</div>
+      <a href="/audit" class="sidebar__link<%= isActive('/audit') ? ' active' : '' %>">Audit</a>
+    </div>
+    <% } %>
+  </nav>
+
+  <!-- User Info -->
+  <div class="sidebar__user">
+    <span class="sidebar__user-name" title="<%= user.name || '' %>"><%= truncateName(user.name) %></span>
+    <span class="badge badge--primary"><%= roleLabel(role) %></span>
+    <a href="/logout" class="sidebar__link" style="padding:0;border:none;font-size:var(--font-size-caption);">Sign out</a>
+  </div>
+</aside>
+
+<!-- Backdrop for mobile drawer -->
+<div class="sidebar__backdrop" id="sidebar-backdrop"></div>

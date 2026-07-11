@@ -3,37 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title><%= title %></title>
+  <meta name="description" content="Treasurio — Group & Club Financial Management">
+  <title><%= typeof locals.title !== 'undefined' && locals.title ? locals.title + ' – Treasurio' : 'Treasurio' %></title>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/">
-      <span class="brand-mark">K</span>
-      <span>
-        <strong>KSJI Accounts</strong>
-        <small>Finance desk</small>
-      </span>
-    </a>
-    <% if (user) { %>
-      <nav>
-        <a class="<%= currentPath === '/' ? 'active' : '' %>" href="/">Dashboard</a>
-        <a class="<%= currentPath.startsWith('/transactions') ? 'active' : '' %>" href="/transactions">Transactions</a>
-        <a class="<%= currentPath.startsWith('/members') ? 'active' : '' %>" href="/members">Members</a>
-        <a class="<%= currentPath.startsWith('/reports') ? 'active' : '' %>" href="/reports">Reports</a>
-        <a class="<%= currentPath.startsWith('/reconciliation') ? 'active' : '' %>" href="/reconciliation">Reconcile</a>
-        <a class="<%= currentPath.startsWith('/download') ? 'active' : '' %>" href="/download-reports">Downloads</a>
-        <% if (['admin','finance_secretary','treasurer'].includes(user.role)) { %><a class="<%= currentPath.startsWith('/config') || currentPath.startsWith('/dues') || currentPath.startsWith('/fiscal') ? 'active' : '' %>" href="/config">Config</a><% } %>
-        <% if (['admin','finance_secretary'].includes(user.role)) { %><a class="<%= currentPath.startsWith('/fiscal') ? 'active' : '' %>" href="/fiscal-years">Years</a><% } %>
-        <% if (user.role === 'admin') { %><a class="<%= currentPath.startsWith('/users') ? 'active' : '' %>" href="/users">Users</a><% } %>
-        <% if (user.role === 'admin' || user.role === 'auditor') { %><a class="<%= currentPath.startsWith('/audit') ? 'active' : '' %>" href="/audit">Audit</a><% } %>
-      </nav>
-      <form action="/logout" method="post" class="logout">
-        <%- include('./csrf') %>
-        <span class="user-chip"><%= user.name %><small><%= user.role.replace('_', ' ') %></small></span>
-        <a class="text-link" href="/change-password">Password</a>
-        <button type="submit">Sign out</button>
-      </form>
-    <% } %>
-  </header>
-  <main class="page">
+  <!-- Skip navigation link (first focusable element) -->
+  <a href="#main-content" class="skip-nav">Skip to content</a>
+
+  <!-- Mobile top bar (visible ≤768px) -->
+  <%- include('topbar-mobile') %>
+
+  <!-- Sidebar navigation (left panel on desktop, drawer on mobile) -->
+  <%- include('sidebar') %>
+
+  <!-- Main content area -->
+  <main id="main-content" class="main-content" role="main">

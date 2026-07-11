@@ -1,61 +1,102 @@
 <%- include('partials/header') %>
+<% locals.title = 'Users' %>
+
+<% if (locals.errors && locals.errors.length) { %>
+<div class="error-summary" role="alert" aria-live="assertive">
+  <h2>There were errors with your submission</h2>
+  <ul>
+    <% locals.errors.forEach(function(err) { %>
+      <li><%= err %></li>
+    <% }) %>
+  </ul>
+</div>
+<% } %>
+
 <section class="grid two">
   <div class="panel">
     <h1>Users</h1>
-    <table>
-      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
-      <tbody>
-        <% users.forEach((row) => { %>
-          <tr>
-            <td><%= row.name %></td>
-            <td><%= row.email %></td>
-            <td><%= row.role %></td>
-            <td><%= row.active ? 'Active' : 'Inactive' %></td>
-            <td>
-              <% if (row.id !== user.id) { %>
-                <form method="post" action="/users/<%= row.id %>/toggle" style="display: inline;">
-                  <%- include('partials/csrf') %>
-                  <button type="submit" style="padding: 2px 6px; font-size: 0.85em;"><%= row.active ? 'Deactivate' : 'Activate' %></button>
-                </form>
-              <% } %>
-            </td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          <% users.forEach(function(row) { %>
+            <tr>
+              <td><%= row.name %></td>
+              <td><%= row.email %></td>
+              <td><span class="badge"><%= row.role.replace('_', ' ') %></span></td>
+              <td><span class="badge <%= row.active ? 'badge--success' : 'badge--soft' %>"><%= row.active ? 'Active' : 'Inactive' %></span></td>
+              <td>
+                <% if (row.id !== user.id) { %>
+                  <form method="post" action="/users/<%= row.id %>/toggle" style="display: inline;">
+                    <%- include('partials/csrf') %>
+                    <button class="btn btn--secondary btn--sm" type="submit"><%= row.active ? 'Deactivate' : 'Activate' %></button>
+                  </form>
+                <% } %>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
   </div>
   <div class="panel">
     <h2>Add user</h2>
-    <form method="post" action="/users" class="stack">
+    <form method="post" action="/users" class="stack" data-validate>
       <%- include('partials/csrf') %>
-      <label>Name <input name="name" required></label>
-      <label>Email <input name="email" type="email" required></label>
-      <label>Password <input name="password" type="password" required minlength="8"></label>
-      <label>Role
-        <select name="role">
-          <option value="finance_secretary">Finance Secretary</option>
-          <option value="treasurer">Treasurer</option>
-          <option value="viewer">Executive Viewer</option>
-          <option value="auditor">Auditor</option>
-          <option value="admin">Admin</option>
-        </select>
-      </label>
-      <button type="submit">Add user</button>
+      <fieldset class="fieldset">
+        <legend>User details <span class="required-legend">* Required</span></legend>
+
+        <div class="form-group">
+          <label for="user-name">Name *</label>
+          <input id="user-name" name="name" required value="<%= (locals.values && locals.values.name) || '' %>">
+        </div>
+
+        <div class="form-group">
+          <label for="user-email">Email *</label>
+          <input id="user-email" name="email" type="email" required value="<%= (locals.values && locals.values.email) || '' %>">
+        </div>
+
+        <div class="form-group">
+          <label for="user-password">Password *</label>
+          <input id="user-password" name="password" type="password" required minlength="8">
+        </div>
+
+        <div class="form-group">
+          <label for="user-role">Role</label>
+          <select id="user-role" name="role">
+            <option value="finance_secretary">Finance Secretary</option>
+            <option value="treasurer">Treasurer</option>
+            <option value="viewer">Executive Viewer</option>
+            <option value="auditor">Auditor</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Add user</button>
     </form>
 
-    <h2 style="margin-top: 24px;">Reset user password</h2>
-    <form method="post" class="stack" id="reset-form">
+    <h2 style="margin-top: var(--space-6);">Reset user password</h2>
+    <form method="post" class="stack" id="reset-form" data-validate>
       <%- include('partials/csrf') %>
-      <label>User
-        <select id="reset-user-select" onchange="document.getElementById('reset-form').action='/users/' + this.value + '/reset-password'">
-          <option value="">Select a user</option>
-          <% users.filter(u => u.id !== user.id).forEach((row) => { %>
-            <option value="<%= row.id %>"><%= row.name %> (<%= row.email %>)</option>
-          <% }) %>
-        </select>
-      </label>
-      <label>New password <input name="new_password" type="password" required minlength="8"></label>
-      <button type="submit">Reset password</button>
+      <fieldset class="fieldset">
+        <legend>Password reset <span class="required-legend">* Required</span></legend>
+
+        <div class="form-group">
+          <label for="reset-user-select">User *</label>
+          <select id="reset-user-select" name="user_id" required onchange="document.getElementById('reset-form').action='/users/' + this.value + '/reset-password'">
+            <option value="">Select a user</option>
+            <% users.filter(function(u) { return u.id !== user.id; }).forEach(function(row) { %>
+              <option value="<%= row.id %>"><%= row.name %> (<%= row.email %>)</option>
+            <% }) %>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="reset-new-password">New password *</label>
+          <input id="reset-new-password" name="new_password" type="password" required minlength="8">
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Reset password</button>
     </form>
   </div>
 </section>

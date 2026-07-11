@@ -1,17 +1,45 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${PGDATABASE:-treasurio}
+      POSTGRES_USER: ${PGUSER:-treasurio}
+      POSTGRES_PASSWORD: ${PGPASSWORD:-changeme}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-treasurio}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - treasurio-net
+    restart: unless-stopped
+
   accounts:
     build: .
-    container_name: ksji-accounts
-    restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:${APP_PORT:-3100}:3000"
     environment:
-      PORT: "3000"
-      DB_PATH: /app/storage/accounts.db
-      SESSION_SECRET: change-this-long-random-secret
-      N8N_API_TOKEN: change-this-n8n-token
-    volumes:
-      - accounts_data:/app/storage
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${PGDATABASE:-treasurio}
+      PGUSER: ${PGUSER:-treasurio}
+      PGPASSWORD: ${PGPASSWORD:-changeme}
+      SESSION_SECRET: ${SESSION_SECRET}
+      N8N_API_TOKEN: ${N8N_API_TOKEN}
+      GROUP_NAME: ${GROUP_NAME:-My Group}
+      GROUP_CURRENCY: ${GROUP_CURRENCY:-GHS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - treasurio-net
+    restart: unless-stopped
+
+networks:
+  treasurio-net:
 
 volumes:
-  accounts_data:
+  pgdata:

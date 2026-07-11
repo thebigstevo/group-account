@@ -1,13 +1,28 @@
 <%- include('partials/header') %>
+<% locals.title = 'Sign In' %>
+
 <section class="auth">
   <h1>Sign in</h1>
   <p>Use your executive account to manage receipts, expenses, reconciliation, and reports.</p>
-  <% if (error) { %><div class="alert"><%= error %></div><% } %>
-  <form method="post" action="/login" class="stack">
+
+  <% if (locals.error) { %><div class="alert" role="alert"><%= error %></div><% } %>
+
+  <form method="post" action="/login" class="stack" data-validate>
     <%- include('partials/csrf') %>
-    <label>Email <input name="email" type="email" required autofocus></label>
-    <label>Password <input name="password" type="password" required></label>
-    <button type="submit">Sign in</button>
+    <fieldset class="fieldset">
+      <legend>Credentials <span class="required-legend">* Required</span></legend>
+
+      <div class="form-group">
+        <label for="login-email">Email *</label>
+        <input id="login-email" name="email" type="email" required autofocus value="<%= (locals.values && locals.values.email) || '' %>">
+      </div>
+
+      <div class="form-group">
+        <label for="login-password">Password *</label>
+        <input id="login-password" name="password" type="password" required>
+      </div>
+    </fieldset>
+    <button class="btn btn--primary" type="submit">Sign in</button>
   </form>
 </section>
 <%- include('partials/footer') %>

@@ -1,4 +1,6 @@
 <%- include('partials/header') %>
+<% locals.title = 'Fiscal Years' %>
+
 <section class="page-title">
   <div>
     <span class="eyebrow">Year management</span>
@@ -7,65 +9,94 @@
   </div>
 </section>
 
+<% if (locals.errors && locals.errors.length) { %>
+<div class="error-summary" role="alert" aria-live="assertive">
+  <h2>There were errors with your submission</h2>
+  <ul>
+    <% locals.errors.forEach(function(err) { %>
+      <li><%= err %></li>
+    <% }) %>
+  </ul>
+</div>
+<% } %>
+
 <section class="grid two">
   <div class="panel">
     <h2>Year status</h2>
     <% if (years.length === 0) { %>
-      <p style="color: var(--muted);">No fiscal years created yet. Open one to get started.</p>
+      <p class="text-muted">No fiscal years created yet. Open one to get started.</p>
     <% } else { %>
-      <table>
-        <thead><tr><th>Year</th><th>Status</th><th>Opened</th><th>Closed</th><th>Notes</th></tr></thead>
-        <tbody>
-          <% years.forEach((fy) => { %>
-            <tr>
-              <td><strong><%= fy.year %></strong></td>
-              <td><span class="badge <%= fy.status === 'open' ? 'success' : 'soft' %>"><%= fy.status %></span></td>
-              <td><%= fy.opened_at ? fy.opened_at.slice(0, 10) : '' %></td>
-              <td><%= fy.closed_at ? fy.closed_at.slice(0, 10) : '' %></td>
-              <td><%= fy.notes || '' %></td>
-            </tr>
-          <% }) %>
-        </tbody>
-      </table>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Year</th><th>Status</th><th>Opened</th><th>Closed</th><th>Notes</th></tr></thead>
+          <tbody>
+            <% years.forEach(function(fy) { %>
+              <tr>
+                <td><strong><%= fy.year %></strong></td>
+                <td><span class="badge <%= fy.status === 'open' ? 'badge--success' : 'badge--soft' %>"><%= fy.status %></span></td>
+                <td><%= fy.opened_at ? fy.opened_at.slice(0, 10) : '' %></td>
+                <td><%= fy.closed_at ? fy.closed_at.slice(0, 10) : '' %></td>
+                <td><%= fy.notes || '' %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
     <% } %>
   </div>
 
   <div class="panel">
     <h2>Open a new year</h2>
-    <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">
+    <p class="text-muted text-sm">
       This creates the year's accounting period. Dues rules and payment splits from the previous year are copied automatically.
     </p>
-    <form method="post" action="/fiscal-years/open" class="stack">
+    <form method="post" action="/fiscal-years/open" class="stack" data-validate>
       <%- include('partials/csrf') %>
-      <label>Year <input name="year" type="number" value="<%= currentYear %>" required></label>
-      <button type="submit">Open year</button>
+      <fieldset class="fieldset">
+        <legend>Open year <span class="required-legend">* Required</span></legend>
+        <div class="form-group">
+          <label for="open-year">Year *</label>
+          <input id="open-year" name="year" type="number" value="<%= (locals.values && locals.values.year) || currentYear %>" required>
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Open year</button>
     </form>
 
-    <% const openYears = years.filter(y => y.status === 'open'); %>
+    <% const openYears = years.filter(function(y) { return y.status === 'open'; }); %>
     <% if (openYears.length > 0) { %>
-      <h2 style="margin-top: 24px;">Close a year</h2>
-      <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">
+      <h2 style="margin-top: var(--space-6);">Close a year</h2>
+      <p class="text-muted text-sm">
         Closing a year will:
       </p>
-      <ul style="color: var(--muted); font-size: 13px; margin: 0 0 12px 18px; padding: 0;">
+      <ul class="text-muted text-sm" style="margin: 0 0 var(--space-3) var(--space-4); padding: 0;">
         <li>Lock all transactions in that year (no new entries, no reversals)</li>
         <li>Calculate each member's outstanding balance</li>
         <li>Set that balance as their opening arrears for the next year</li>
       </ul>
-      <div style="background: var(--warn-soft); border: 1px solid #f3d188; padding: 10px; border-radius: 6px; margin-bottom: 12px; font-size: 13px; color: var(--warn);">
+      <div class="warning-box">
         <strong>This action cannot be undone.</strong> Make sure all transactions are entered and reconciled before closing.
       </div>
-      <form method="post" action="/fiscal-years/close" class="stack">
+      <form method="post" action="/fiscal-years/close" class="stack" data-validate>
         <%- include('partials/csrf') %>
-        <label>Year to close
-          <select name="year" required>
-            <% openYears.forEach((fy) => { %>
-              <option value="<%= fy.year %>"><%= fy.year %></option>
-            <% }) %>
-          </select>
-        </label>
-        <label>Notes (optional) <input name="notes" placeholder="End of year close"></label>
-        <button type="submit" style="background: var(--warn);">Close year permanently</button>
+        <fieldset class="fieldset">
+          <legend>Close year</legend>
+          <div class="form-group">
+            <label for="close-year">Year to close *</label>
+            <select id="close-year" name="year" required>
+              <% openYears.forEach(function(fy) { %>
+                <option value="<%= fy.year %>"><%= fy.year %></option>
+              <% }) %>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="close-notes">Notes (optional)</label>
+            <input id="close-notes" name="notes" placeholder="End of year close">
+          </div>
+        </fieldset>
+        <button class="btn btn--danger" type="submit"
+          data-modal-confirm
+          data-modal-title="Close Fiscal Year"
+          data-modal-body="Are you sure you want to permanently close this fiscal year? This will lock all transactions and carry forward arrears. This action cannot be undone.">Close year permanently</button>
       </form>
     <% } %>
   </div>
@@ -73,18 +104,18 @@
 
 <section class="panel">
   <h2>How it works</h2>
-  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; margin-top: 12px;">
+  <div class="steps-grid">
     <div>
-      <strong style="color: var(--accent);">1. Open year</strong>
-      <p style="font-size: 13px;">Creates the period. Copies dues rules and payment splits from last year so you can adjust them.</p>
+      <strong class="text-primary">1. Open year</strong>
+      <p class="text-sm">Creates the period. Copies dues rules and payment splits from last year so you can adjust them.</p>
     </div>
     <div>
-      <strong style="color: var(--accent);">2. Work through the year</strong>
-      <p style="font-size: 13px;">Enter receipts, expenses, transfers. Reconcile accounts monthly. Run reports.</p>
+      <strong class="text-primary">2. Work through the year</strong>
+      <p class="text-sm">Enter receipts, expenses, transfers. Reconcile accounts monthly. Run reports.</p>
     </div>
     <div>
-      <strong style="color: var(--accent);">3. Close year</strong>
-      <p style="font-size: 13px;">Locks the year. Each member's outstanding balance becomes their opening arrears for next year.</p>
+      <strong class="text-primary">3. Close year</strong>
+      <p class="text-sm">Locks the year. Each member's outstanding balance becomes their opening arrears for next year.</p>
     </div>
   </div>
 </section>

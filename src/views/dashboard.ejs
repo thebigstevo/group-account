@@ -1,98 +1,118 @@
 <%- include('partials/header') %>
-<section class="hero hero-panel">
+<% locals.title = 'Dashboard' %>
+
+
+<% if (locals.error) { %>
+<section class="panel">
+  <div class="error-state" role="alert" aria-live="assertive">
+    <h2>Unable to load financial data</h2>
+    <p>Financial data is temporarily unavailable. Please try again later or contact your administrator if the problem persists.</p>
+  </div>
+</section>
+<% } else { %>
+
+<!-- Page heading -->
+<section class="page-title">
   <div>
-    <span class="eyebrow">Today</span>
-    <h1>Finance overview</h1>
-    <p>Cash, Bank, Mobile Money, welfare liability, and current work needing attention.</p>
-  </div>
-  <div class="hero-actions">
-    <a class="button" href="/transactions">Enter transaction</a>
-    <a class="button secondary" href="/reports">Monthly report</a>
+    <span class="eyebrow"><%= groupName %></span>
+    <h1>Dashboard</h1>
+    <p>Financial overview, work queue, and recent activity.</p>
   </div>
 </section>
 
-<section class="metrics">
+<!-- Quick-action buttons (between heading and metrics) -->
+<section class="quick-actions">
+  <a class="btn btn--primary" href="/transactions">Record Receipt</a>
+  <a class="btn btn--primary" href="/transactions">Record Expense</a>
+  <a class="btn btn--secondary" href="/reconciliation">Reconcile</a>
+  <a class="btn btn--secondary" href="/reports">View Reports</a>
+</section>
+
+<!-- Metric cards: account balances, income, expenses, welfare liability, spendable -->
+<section class="metric-grid">
   <% summary.balances.forEach((account) => { %>
-    <div class="metric account-card">
-      <span><%= account.name %> balance</span>
-      <strong><%= formatMoney(account.balance) %></strong>
-    </div>
+  <div class="metric-card">
+    <span class="metric-card__label"><%= account.name %> balance</span>
+    <strong class="metric-card__value"><%= formatMoney(account.balance) %></strong>
+  </div>
   <% }) %>
-  <div class="metric">
-    <span>Income</span>
-    <strong><%= formatMoney(summary.income) %></strong>
+  <div class="metric-card">
+    <span class="metric-card__label">Total income</span>
+    <strong class="metric-card__value"><%= formatMoney(summary.income) %></strong>
   </div>
-  <div class="metric">
-    <span>Expenses</span>
-    <strong><%= formatMoney(summary.expenses) %></strong>
+  <div class="metric-card">
+    <span class="metric-card__label">Total expenses</span>
+    <strong class="metric-card__value"><%= formatMoney(summary.expenses) %></strong>
   </div>
-  <div class="metric warning">
-    <span>Welfare liability</span>
-    <strong><%= formatMoney(summary.welfareLiability) %></strong>
+  <div class="metric-card metric-card--warning">
+    <span class="metric-card__label">Welfare liability</span>
+    <strong class="metric-card__value"><%= formatMoney(summary.welfareLiability) %></strong>
   </div>
-  <div class="metric success">
-    <span>Spendable estimate</span>
-    <strong><%= formatMoney(summary.spendableBalance) %></strong>
+  <div class="metric-card metric-card--success">
+    <span class="metric-card__label">Spendable estimate</span>
+    <strong class="metric-card__value"><%= formatMoney(summary.spendableBalance) %></strong>
   </div>
 </section>
 
-<section class="grid two balanced">
+<!-- Two-column responsive grid: work queue + recent transactions -->
+<section class="dashboard-grid">
+  <!-- Work queue card list -->
   <div class="panel">
     <div class="section-head">
       <div>
         <h2>Work queue</h2>
-        <p>Items to look at before the next executive update.</p>
+        <p>Items needing attention.</p>
       </div>
     </div>
-    <div class="task-list">
-      <a href="/transactions" class="task-item">
-        <strong><%= unreconciledCount %></strong>
-        <span>Uncleared transactions</span>
+    <div class="work-queue">
+      <a href="/transactions" class="work-queue__item">
+        <strong class="work-queue__count"><%= unreconciledCount %></strong>
+        <span class="work-queue__label">Uncleared transactions</span>
       </a>
-      <a href="/reports" class="task-item">
-        <strong><%= arrearsCount %></strong>
-        <span>Members with arrears</span>
+      <a href="/reports" class="work-queue__item">
+        <strong class="work-queue__count"><%= arrearsCount %></strong>
+        <span class="work-queue__label">Members with arrears</span>
       </a>
-      <a href="/members" class="task-item">
-        <strong><%= memberCount %></strong>
-        <span>Active members</span>
+      <a href="/members" class="work-queue__item">
+        <strong class="work-queue__count"><%= memberCount %></strong>
+        <span class="work-queue__label">Active members</span>
       </a>
-      <a href="/reconciliation" class="task-item">
-        <strong><%= lastReconciliation || 'None' %></strong>
-        <span>Latest reconciliation</span>
+      <a href="/reconciliation" class="work-queue__item">
+        <strong class="work-queue__count"><%= lastReconciliation || 'None' %></strong>
+        <span class="work-queue__label">Latest reconciliation</span>
       </a>
     </div>
   </div>
 
+  <!-- Recent transactions (Data_Table limited to 10) -->
   <div class="panel">
     <div class="section-head">
       <div>
-        <h2>Quick actions</h2>
-        <p>Common tasks for finance officers.</p>
+        <h2>Recent transactions</h2>
+        <p>Latest posted activity.</p>
       </div>
+      <a href="/transactions" class="btn btn--secondary">View all</a>
     </div>
-    <div class="quick-grid">
-      <a class="quick-action" href="/transactions">Receive payment</a>
-      <a class="quick-action" href="/transactions">Record expense</a>
-      <a class="quick-action" href="/reconciliation">Reconcile account</a>
-      <a class="quick-action" href="/config">Update rules</a>
+    <% if (recent.length === 0) { %>
+    <div class="empty-state">
+      <p>No transactions have been recorded yet.</p>
+      <a class="btn btn--primary" href="/transactions">Record your first transaction</a>
     </div>
-  </div>
-</section>
-
-<section class="panel">
-  <div class="section-head">
-    <div>
-      <h2>Recent transactions</h2>
-      <p>Latest posted receipts, expenses, and transfers.</p>
-    </div>
-    <a href="/transactions" class="text-link">View all</a>
-  </div>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Date</th><th>Type</th><th>Member</th><th>Account</th><th>Category</th><th class="num">Amount</th></tr></thead>
-      <tbody>
-        <% recent.forEach((row) => { %>
+    <% } else { %>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Member</th>
+            <th>Account</th>
+            <th>Category</th>
+            <th class="num">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% recent.forEach((row) => { %>
           <tr>
             <td><%= row.tx_date %></td>
             <td><span class="badge"><%= row.tx_type.replace('_', ' ') %></span></td>
@@ -101,9 +121,13 @@
             <td><%= row.category %></td>
             <td class="num"><%= formatMoney(row.amount) %></td>
           </tr>
-        <% }) %>
-      </tbody>
-    </table>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+    <% } %>
   </div>
 </section>
+
+<% } %>
 <%- include('partials/footer') %>

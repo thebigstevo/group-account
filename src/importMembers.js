@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-const { db, audit } = require('./db');
+const dal = require('./dal');
 
 // --- Column header aliases (case-insensitive, partial match) ---
 const COLUMN_MAP = {
@@ -173,7 +173,7 @@ function parseXlsx(buffer, sheetName) {
 }
 
 // --- Import logic ---
-function importMembers(buffer, filename, userId) {
+async function importMembers(buffer, filename, userId) {
   const ext = path.extname(filename || '').toLowerCase();
   let rows;
 
@@ -194,20 +194,11 @@ function importMembers(buffer, filename, userId) {
     return { imported: 0, skipped: 0, errors: ['Could not find a "Name" column. Expected headers: Name, Phone, DOB, Opening Arrears.'] };
   }
 
-  const upsert = db.prepare(`
-    INSERT INTO members (name, opening_arrears, phone, dob, status)
-    VALUES (?, ?, ?, ?, 'active')
-    ON CONFLICT(name) DO UPDATE SET
-      opening_arrears = CASE WHEN excluded.opening_arrears != 0 THEN excluded.opening_arrears ELSE members.opening_arrears END,
-      phone = CASE WHEN excluded.phone IS NOT NULL THEN excluded.phone ELSE members.phone END,
-      dob = CASE WHEN excluded.dob IS NOT NULL THEN excluded.dob ELSE members.dob END
-  `);
-
   let imported = 0;
   let skipped = 0;
   const errors = [];
 
-  const run = db.transaction(() => {
+  await dal.transaction(async (client) => {
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       const name = String(row[mapping.name] || '').trim();
@@ -233,7 +224,14 @@ function importMembers(buffer, filename, userId) {
       }
 
       try {
-        upsert.run(name, arrears, phone, dob);
+        await client.query(`
+          INSERT INTO members (name, opening_arrears, phone, dob, status)
+          VALUES ($1, $2, $3, $4, 'active')
+          ON CONFLICT(name) DO UPDATE SET
+            opening_arrears = CASE WHEN EXCLUDED.opening_arrears != 0 THEN EXCLUDED.opening_arrears ELSE members.opening_arrears END,
+            phone = CASE WHEN EXCLUDED.phone IS NOT NULL THEN EXCLUDED.phone ELSE members.phone END,
+            dob = CASE WHEN EXCLUDED.dob IS NOT NULL THEN EXCLUDED.dob ELSE members.dob END
+        `, [name, arrears, phone, dob]);
         imported++;
       } catch (err) {
         errors.push(`Row ${i + 1} (${name}): ${err.message}`);
@@ -242,8 +240,7 @@ function importMembers(buffer, filename, userId) {
     }
   });
 
-  run();
-  audit(userId, 'import', 'members', null, `${imported} members from ${filename}`);
+  await dal.audit(userId, 'import', 'members', null, `${imported} members from ${filename}`);
   return { imported, skipped, errors, mapping: Object.keys(mapping) };
 }
 

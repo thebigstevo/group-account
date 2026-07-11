@@ -1,7 +1,9 @@
+'use strict';
+
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-const { db, audit } = require('./db');
+const dal = require('./dal');
 
 const workbookPath = process.env.WORKBOOK_PATH || process.argv[2];
 if (!workbookPath) {
@@ -119,32 +121,39 @@ function readSheetRows(entries, sheetName) {
   });
 }
 
-const entries = unzipEntries(workbookPath);
-const rows = readSheetRows(entries, 'Members');
-const dataRows = rows.slice(1).filter((row) => row[0]);
+async function importWorkbook() {
+  const entries = unzipEntries(workbookPath);
+  const rows = readSheetRows(entries, 'Members');
+  const dataRows = rows.slice(1).filter((row) => row[0]);
 
-const upsert = db.prepare(`
-  INSERT INTO members (name, opening_arrears, phone, dob, status)
-  VALUES (?, ?, ?, ?, 'active')
-  ON CONFLICT(name) DO UPDATE SET
-    opening_arrears = excluded.opening_arrears,
-    phone = excluded.phone,
-    dob = excluded.dob
-`);
+  let imported = 0;
 
-let imported = 0;
-const importMany = db.transaction(() => {
-  for (const row of dataRows) {
-    upsert.run(
-      String(row[0] || '').trim(),
-      Number(row[1] || 0),
-      row[2] ? String(row[2]).trim() : null,
-      row[3] ? excelDate(row[3]) : null
-    );
-    imported += 1;
-  }
+  await dal.transaction(async (client) => {
+    for (const row of dataRows) {
+      const name = String(row[0] || '').trim();
+      const openingArrears = Number(row[1] || 0);
+      const phone = row[2] ? String(row[2]).trim() : null;
+      const dob = row[3] ? excelDate(row[3]) : null;
+
+      await client.query(
+        `INSERT INTO members (name, opening_arrears, phone, dob, status)
+         VALUES ($1, $2, $3, $4, 'active')
+         ON CONFLICT(name) DO UPDATE SET
+           opening_arrears = EXCLUDED.opening_arrears,
+           phone = EXCLUDED.phone,
+           dob = EXCLUDED.dob`,
+        [name, openingArrears, phone, dob]
+      );
+      imported += 1;
+    }
+  });
+
+  await dal.audit(null, 'import', 'workbook', null, `${imported} members from ${workbookPath}`);
+  console.log(`Imported or updated ${imported} members.`);
+  await dal.shutdown();
+}
+
+importWorkbook().catch((err) => {
+  console.error('Import failed:', err.message);
+  process.exit(1);
 });
-
-importMany();
-audit(null, 'import', 'workbook', null, `${imported} members from ${workbookPath}`);
-console.log(`Imported or updated ${imported} members.`);

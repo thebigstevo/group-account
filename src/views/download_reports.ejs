@@ -1,5 +1,7 @@
 <%- include('partials/header') %>
-<section class="hero">
+<% locals.title = 'Downloads' %>
+
+<section class="page-title">
   <div>
     <h1>Download reports</h1>
     <p>Generate and download formal financial reports as CSV files. Open in Excel or Google Sheets for printing or sharing.</p>
@@ -8,40 +10,54 @@
 
 <section class="grid two">
   <div class="panel">
-    <h2>Income & Expenditure</h2>
-    <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">Income by category less expenditure by category, showing surplus or deficit for the period.</p>
-    <form method="get" action="/download/income-expenditure" class="stack">
-      <div class="row">
-        <label>Year <input name="year" type="number" value="<%= year %>" required></label>
-        <label>Month (blank = full year)
-          <select name="month">
-            <option value="">Full Year</option>
-            <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach((name, index) => { %>
-              <option value="<%= index + 1 %>"><%= name %></option>
-            <% }) %>
-          </select>
-        </label>
-      </div>
-      <button type="submit">Download</button>
+    <h2>Income &amp; Expenditure</h2>
+    <p class="text-muted text-sm">Income by category less expenditure by category, showing surplus or deficit for the period.</p>
+    <form method="get" action="/download/income-expenditure" class="stack" data-validate>
+      <fieldset class="fieldset">
+        <legend>Report parameters <span class="required-legend">* Required</span></legend>
+        <div class="row">
+          <div class="form-group">
+            <label for="ie-year">Year *</label>
+            <input id="ie-year" name="year" type="number" value="<%= year %>" required>
+          </div>
+          <div class="form-group">
+            <label for="ie-month">Month (blank = full year)</label>
+            <select id="ie-month" name="month">
+              <option value="">Full Year</option>
+              <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach(function(name, index) { %>
+                <option value="<%= index + 1 %>"><%= name %></option>
+              <% }) %>
+            </select>
+          </div>
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Download</button>
     </form>
   </div>
 
   <div class="panel">
-    <h2>Receipts & Payments</h2>
-    <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">All cash movements per account — opening balance, receipts by category, payments by category, closing balance.</p>
-    <form method="get" action="/download/receipts-payments" class="stack">
-      <div class="row">
-        <label>Year <input name="year" type="number" value="<%= year %>" required></label>
-        <label>Month (blank = full year)
-          <select name="month">
-            <option value="">Full Year</option>
-            <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach((name, index) => { %>
-              <option value="<%= index + 1 %>"><%= name %></option>
-            <% }) %>
-          </select>
-        </label>
-      </div>
-      <button type="submit">Download</button>
+    <h2>Receipts &amp; Payments</h2>
+    <p class="text-muted text-sm">All cash movements per account — opening balance, receipts by category, payments by category, closing balance.</p>
+    <form method="get" action="/download/receipts-payments" class="stack" data-validate>
+      <fieldset class="fieldset">
+        <legend>Report parameters <span class="required-legend">* Required</span></legend>
+        <div class="row">
+          <div class="form-group">
+            <label for="rp-year">Year *</label>
+            <input id="rp-year" name="year" type="number" value="<%= year %>" required>
+          </div>
+          <div class="form-group">
+            <label for="rp-month">Month (blank = full year)</label>
+            <select id="rp-month" name="month">
+              <option value="">Full Year</option>
+              <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach(function(name, index) { %>
+                <option value="<%= index + 1 %>"><%= name %></option>
+              <% }) %>
+            </select>
+          </div>
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Download</button>
     </form>
   </div>
 </section>
@@ -49,59 +65,80 @@
 <section class="grid two">
   <div class="panel">
     <h2>Welfare Fund Statement</h2>
-    <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">Welfare collections from members, payouts made, and outstanding welfare liability.</p>
-    <form method="get" action="/download/welfare-fund" class="stack">
-      <div class="row">
-        <label>Year <input name="year" type="number" value="<%= year %>" required></label>
-        <label>Month (blank = full year)
-          <select name="month">
-            <option value="">Full Year</option>
-            <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach((name, index) => { %>
-              <option value="<%= index + 1 %>"><%= name %></option>
-            <% }) %>
-          </select>
-        </label>
-      </div>
-      <button type="submit">Download</button>
+    <p class="text-muted text-sm">Welfare collections from members, payouts made, and outstanding welfare liability.</p>
+    <form method="get" action="/download/welfare-fund" class="stack" data-validate>
+      <fieldset class="fieldset">
+        <legend>Report parameters <span class="required-legend">* Required</span></legend>
+        <div class="row">
+          <div class="form-group">
+            <label for="wf-year">Year *</label>
+            <input id="wf-year" name="year" type="number" value="<%= year %>" required>
+          </div>
+          <div class="form-group">
+            <label for="wf-month">Month (blank = full year)</label>
+            <select id="wf-month" name="month">
+              <option value="">Full Year</option>
+              <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach(function(name, index) { %>
+                <option value="<%= index + 1 %>"><%= name %></option>
+              <% }) %>
+            </select>
+          </div>
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Download</button>
     </form>
   </div>
 
   <div class="panel">
     <h2>Statement of Financial Position</h2>
-    <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">Assets (account balances), liabilities (welfare fund payable), and net assets as at end of period.</p>
-    <form method="get" action="/download/financial-position" class="stack">
-      <div class="row">
-        <label>Year <input name="year" type="number" value="<%= year %>" required></label>
-        <label>Month (blank = year end)
-          <select name="month">
-            <option value="">Year End (31 Dec)</option>
-            <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach((name, index) => { %>
-              <option value="<%= index + 1 %>"><%= name %></option>
-            <% }) %>
-          </select>
-        </label>
-      </div>
-      <button type="submit">Download</button>
+    <p class="text-muted text-sm">Assets (account balances), liabilities (welfare fund payable), and net assets as at end of period.</p>
+    <form method="get" action="/download/financial-position" class="stack" data-validate>
+      <fieldset class="fieldset">
+        <legend>Report parameters <span class="required-legend">* Required</span></legend>
+        <div class="row">
+          <div class="form-group">
+            <label for="fp-year">Year *</label>
+            <input id="fp-year" name="year" type="number" value="<%= year %>" required>
+          </div>
+          <div class="form-group">
+            <label for="fp-month">Month (blank = year end)</label>
+            <select id="fp-month" name="month">
+              <option value="">Year End (31 Dec)</option>
+              <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach(function(name, index) { %>
+                <option value="<%= index + 1 %>"><%= name %></option>
+              <% }) %>
+            </select>
+          </div>
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Download</button>
     </form>
   </div>
 </section>
 
 <section class="panel narrow">
   <h2>Member Statement</h2>
-  <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">Individual member's transactions, dues summary, and outstanding balance for a year. Useful for sending to members.</p>
-  <form method="get" action="/download/member-statement" class="stack">
-    <div class="row">
-      <label>Member
-        <select name="member_id" required>
-          <option value="">Select a member</option>
-          <% members.forEach((member) => { %>
-            <option value="<%= member.id %>"><%= member.name %></option>
-          <% }) %>
-        </select>
-      </label>
-      <label>Year <input name="year" type="number" value="<%= year %>" required></label>
-    </div>
-    <button type="submit">Download</button>
+  <p class="text-muted text-sm">Individual member's transactions, dues summary, and outstanding balance for a year. Useful for sending to members.</p>
+  <form method="get" action="/download/member-statement" class="stack" data-validate>
+    <fieldset class="fieldset">
+      <legend>Statement parameters <span class="required-legend">* Required</span></legend>
+      <div class="row">
+        <div class="form-group">
+          <label for="ms-member">Member *</label>
+          <select id="ms-member" name="member_id" required>
+            <option value="">Select a member</option>
+            <% members.forEach(function(member) { %>
+              <option value="<%= member.id %>"><%= member.name %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="ms-year">Year *</label>
+          <input id="ms-year" name="year" type="number" value="<%= year %>" required>
+        </div>
+      </div>
+    </fieldset>
+    <button class="btn btn--primary" type="submit">Download</button>
   </form>
 </section>
 <%- include('partials/footer') %>

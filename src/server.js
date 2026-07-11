@@ -4,10 +4,11 @@ const path = require('path');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const crypto = require('crypto');
-const { port, sessionSecret, n8nApiToken, requireSecret, secureCookies } = require('./config');
-const { db, audit } = require('./db');
+const config = require('./config');
+const { port, sessionSecret, n8nApiToken, requireSecret, secureCookies, groupName, groupCurrency } = config;
+const dal = require('./dal');
 const { verifyPassword, hashPassword } = require('./security');
-const SQLiteSessionStore = require('./sessionStore');
+const pgSession = require('connect-pg-simple')(session);
 const {
   accountBalances,
   arrearsReport,
@@ -54,6 +55,16 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Health check endpoint (before rate limiter and auth)
+app.get('/health', async (req, res) => {
+  try {
+    await dal.queryOne('SELECT 1');
+    res.json({ status: 'ok', database: 'connected' });
+  } catch (err) {
+    res.status(503).json({ status: 'error', database: 'unreachable' });
+  }
+});
+
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -68,7 +79,11 @@ if (requireSecret && sessionSecret === 'dev-secret-change-in-production') {
 }
 
 app.use(session({
-  store: new SQLiteSessionStore(db),
+  store: new pgSession({
+    pool: dal.pool,
+    tableName: 'sessions',
+    pruneSessionInterval: 3600
+  }),
   secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
@@ -79,6 +94,15 @@ app.use(session({
     maxAge: 24 * 60 * 60 * 1000
   }
 }));
+
+// Session store error handling — respond HTTP 503 if session DB is unreachable
+app.use((err, req, res, next) => {
+  if (err && err.message && err.message.toLowerCase().includes('session')) {
+    console.error('Session store error:', err.message);
+    return res.status(503).render('error', { message: 'Service temporarily unavailable. Please try again later.' });
+  }
+  next(err);
+});
 
 function generateCsrfToken(session) {
   if (!session._csrf) session._csrf = crypto.randomBytes(24).toString('hex');
@@ -100,11 +124,18 @@ app.use((req, res, next) => {
   res.locals.csrfToken = generateCsrfToken(req.session);
   res.locals.user = req.session.user || null;
   res.locals.currentPath = req.path;
-  res.locals.title = 'KSJI Accounts';
-  res.locals.formatMoney = (value) => Number(value || 0).toLocaleString('en-GH', {
+  res.locals.title = 'Treasurio';
+  res.locals.groupName = config.groupName;
+  res.locals.groupCurrency = config.groupCurrency;
+  res.locals.formatMoney = (value) => Number(value || 0).toLocaleString(undefined, {
     style: 'currency',
-    currency: 'GHS'
+    currency: config.groupCurrency
   });
+  // Flash message mechanism: read from session and pass to locals, then clear
+  if (req.session && req.session.flash) {
+    res.locals.flash = req.session.flash;
+    delete req.session.flash;
+  }
   next();
 });
 app.use(validateCsrf);
@@ -132,10 +163,19 @@ function apiToken(req, res, next) {
   next();
 }
 
-function isYearClosed(txDate) {
+/**
+ * Wrap an async route handler to catch errors and pass them to Express error handling.
+ */
+function asyncHandler(fn) {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+}
+
+async function isYearClosed(txDate) {
   const year = Number(String(txDate || '').slice(0, 4));
   if (!year) return false;
-  const fy = db.prepare('SELECT status FROM fiscal_years WHERE year = ?').get(year);
+  const fy = await dal.queryOne('SELECT status FROM fiscal_years WHERE year = $1', [year]);
   return fy && fy.status === 'closed';
 }
 
@@ -162,43 +202,60 @@ const loginLimiter = rateLimit({
 
 app.get('/login', (req, res) => res.render('login', { error: null }));
 
-app.post('/login', loginLimiter, (req, res) => {
-  const user = db.prepare('SELECT * FROM users WHERE email = ? AND active = 1').get(req.body.email);
+app.post('/login', loginLimiter, asyncHandler(async (req, res) => {
+  const user = await dal.queryOne('SELECT * FROM users WHERE email = $1 AND active = true', [req.body.email]);
   if (!user || !verifyPassword(req.body.password, user.password_hash)) {
-    audit(null, 'login_failed', 'user', null, req.body.email, { ip_address: getClientIp(req) });
-    return res.status(401).render('login', { error: 'Invalid email or password.' });
+    await dal.audit(null, 'login_failed', 'user', null, req.body.email, { ip_address: getClientIp(req) });
+    return res.status(401).render('login', { error: 'Invalid email or password.', values: { email: req.body.email } });
   }
   req.session.user = { id: user.id, name: user.name, email: user.email, role: user.role };
-  audit(user.id, 'login', 'user', user.id, user.email, { ip_address: getClientIp(req) });
+  await dal.audit(user.id, 'login', 'user', user.id, user.email, { ip_address: getClientIp(req) });
   res.redirect('/');
-});
+}));
 
 app.post('/logout', requireLogin, (req, res) => {
   req.session.destroy(() => res.redirect('/login'));
 });
 
-app.get('/', requireLogin, (req, res) => {
-  const summary = reportSummary();
-  const recent = db.prepare(`
-    SELECT t.*, m.name AS member_name, a.name AS account_name
-    FROM transactions t
-    LEFT JOIN members m ON m.id = t.member_id
-    LEFT JOIN accounts a ON a.id = t.account_id
-    WHERE t.status = 'posted'
-    ORDER BY t.tx_date DESC, t.id DESC
-    LIMIT 8
-  `).all();
-  const memberCount = db.prepare("SELECT COUNT(*) AS count FROM members WHERE status = 'active'").get().count;
-  const unreconciledCount = db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE status = 'posted' AND reconciled = 0").get().count;
-  const arrearsCount = arrearsReport(currentYear()).filter((row) => row.balance > 0).length;
-  const lastReconciliation = db.prepare('SELECT MAX(period_end) AS date FROM reconciliations').get().date;
-  res.render('dashboard', { summary, recent, memberCount, unreconciledCount, arrearsCount, lastReconciliation });
-});
+app.get('/', requireLogin, asyncHandler(async (req, res) => {
+  try {
+    const summary = await reportSummary();
+    const recent = await dal.query(`
+      SELECT t.*, m.name AS member_name, a.name AS account_name
+      FROM transactions t
+      LEFT JOIN members m ON m.id = t.member_id
+      LEFT JOIN accounts a ON a.id = t.account_id
+      WHERE t.status = 'posted'
+      ORDER BY t.tx_date DESC, t.id DESC
+      LIMIT 10
+    `);
+    const memberCountRow = await dal.queryOne("SELECT COUNT(*) AS count FROM members WHERE status = 'active'");
+    const memberCount = Number(memberCountRow.count);
+    const unreconciledRow = await dal.queryOne("SELECT COUNT(*) AS count FROM transactions WHERE status = 'posted' AND reconciled = false");
+    const unreconciledCount = Number(unreconciledRow.count);
+    const arrearsData = await arrearsReport(currentYear());
+    const arrearsCount = arrearsData.filter((row) => row.balance > 0).length;
+    const lastRecRow = await dal.queryOne('SELECT MAX(period_end) AS date FROM reconciliations');
+    const lastReconciliation = lastRecRow ? lastRecRow.date : null;
+    res.render('dashboard', { summary, recent, memberCount, unreconciledCount, arrearsCount, lastReconciliation });
+  } catch (err) {
+    console.error('Dashboard data load error:', err.message);
+    res.render('dashboard', {
+      error: true,
+      summary: { balances: [], income: 0, expenses: 0, welfareLiability: 0, spendableBalance: 0 },
+      recent: [],
+      memberCount: 0,
+      unreconciledCount: 0,
+      arrearsCount: 0,
+      lastReconciliation: null
+    });
+  }
+}));
 
-app.get('/members', requireLogin, (req, res) => {
-  const members = db.prepare('SELECT * FROM members ORDER BY name').all();
+app.get('/members', requireLogin, asyncHandler(async (req, res) => {
+  const members = await dal.query('SELECT * FROM members ORDER BY name');
   res.render('members', { members });
-});
+}));
 
 app.get('/members/import', allow('admin', 'finance_secretary'), (req, res) => {
   res.render('members_import', { result: null });
@@ -218,7 +275,7 @@ app.post('/members/import', allow('admin', 'finance_secretary'), (req, res) => {
     chunks.push(chunk);
   });
 
-  req.on('end', () => {
+  req.on('end', async () => {
     const body = Buffer.concat(chunks);
     const contentType = req.get('content-type') || '';
     const boundaryMatch = contentType.match(/boundary=(.+)/);
@@ -254,7 +311,7 @@ app.post('/members/import', allow('admin', 'finance_secretary'), (req, res) => {
     }
 
     try {
-      const result = importMembers(fileBuffer, filename, req.session.user.id);
+      const result = await importMembers(fileBuffer, filename, req.session.user.id);
       res.render('members_import', { result });
     } catch (err) {
       res.render('members_import', { result: { imported: 0, skipped: 0, errors: [err.message] } });
@@ -262,27 +319,40 @@ app.post('/members/import', allow('admin', 'finance_secretary'), (req, res) => {
   });
 });
 
-app.get('/members/:id/edit', allow('admin', 'finance_secretary'), (req, res) => {
-  const member = db.prepare('SELECT * FROM members WHERE id = ?').get(Number(req.params.id));
+app.get('/members/:id/edit', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+  const member = await dal.queryOne('SELECT * FROM members WHERE id = $1', [Number(req.params.id)]);
   if (!member) return res.status(404).render('error', { message: 'Member not found.' });
   res.render('member_edit', { member });
-});
+}));
 
-app.post('/members', allow('admin', 'finance_secretary'), (req, res) => {
-  const result = db.prepare(`
+app.post('/members', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+  // Validate required field
+  if (!req.body.name || !req.body.name.trim()) {
+    const members = await dal.query('SELECT * FROM members ORDER BY name');
+    return res.status(400).render('members', { members, errors: ['Name is required.'], values: req.body });
+  }
+  const result = await dal.run(`
     INSERT INTO members (name, phone, dob, status, opening_arrears, notes)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(req.body.name, req.body.phone || null, req.body.dob || null, req.body.status || 'active', Number(req.body.opening_arrears || 0), req.body.notes || null);
-  audit(req.session.user.id, 'create', 'member', result.lastInsertRowid, req.body.name);
+    VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING id
+  `, [req.body.name, req.body.phone || null, req.body.dob || null, req.body.status || 'active', Number(req.body.opening_arrears || 0), req.body.notes || null]);
+  await dal.audit(req.session.user.id, 'create', 'member', result.rows[0].id, req.body.name);
+  req.session.flash = { type: 'success', message: 'Member added successfully.' };
   res.redirect('/members');
-});
+}));
 
-app.post('/members/:id', allow('admin', 'finance_secretary'), (req, res) => {
-  const result = db.prepare(`
+app.post('/members/:id', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+  // Validate required field
+  if (!req.body.name || !req.body.name.trim()) {
+    const member = await dal.queryOne('SELECT * FROM members WHERE id = $1', [Number(req.params.id)]);
+    if (!member) return res.status(404).render('error', { message: 'Member not found.' });
+    return res.status(400).render('member_edit', { member, errors: ['Name is required.'], values: req.body });
+  }
+  const result = await dal.run(`
     UPDATE members
-    SET name = ?, phone = ?, dob = ?, status = ?, opening_arrears = ?, notes = ?
-    WHERE id = ?
-  `).run(
+    SET name = $1, phone = $2, dob = $3, status = $4, opening_arrears = $5, notes = $6
+    WHERE id = $7
+  `, [
     req.body.name,
     req.body.phone || null,
     req.body.dob || null,
@@ -290,213 +360,258 @@ app.post('/members/:id', allow('admin', 'finance_secretary'), (req, res) => {
     Number(req.body.opening_arrears || 0),
     req.body.notes || null,
     Number(req.params.id)
-  );
-  if (result.changes === 0) return res.status(404).render('error', { message: 'Member not found.' });
-  audit(req.session.user.id, 'update', 'member', Number(req.params.id), req.body.name);
+  ]);
+  if (result.rowCount === 0) return res.status(404).render('error', { message: 'Member not found.' });
+  await dal.audit(req.session.user.id, 'update', 'member', Number(req.params.id), req.body.name);
+  req.session.flash = { type: 'success', message: 'Member updated successfully.' };
   res.redirect('/members');
-});
+}));
 
 app.get('/change-password', requireLogin, (req, res) => {
-  res.render('change_password', { error: null, success: null });
+  const success = (res.locals.flash && res.locals.flash.type === 'success') ? res.locals.flash.message : null;
+  res.render('change_password', { error: null, success });
 });
 
-app.post('/change-password', requireLogin, (req, res) => {
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.user.id);
+app.post('/change-password', requireLogin, asyncHandler(async (req, res) => {
+  const user = await dal.queryOne('SELECT * FROM users WHERE id = $1', [req.session.user.id]);
   if (!user || !verifyPassword(req.body.current_password, user.password_hash)) {
-    return res.render('change_password', { error: 'Current password is incorrect.', success: null });
+    return res.render('change_password', { error: 'Current password is incorrect.', success: null, errors: ['Current password is incorrect.'], values: req.body });
   }
   if (!req.body.new_password || req.body.new_password.length < 8) {
-    return res.render('change_password', { error: 'New password must be at least 8 characters.', success: null });
+    return res.render('change_password', { error: 'New password must be at least 8 characters.', success: null, errors: ['New password must be at least 8 characters.'], values: req.body });
   }
   if (req.body.new_password !== req.body.confirm_password) {
-    return res.render('change_password', { error: 'New passwords do not match.', success: null });
+    return res.render('change_password', { error: 'New passwords do not match.', success: null, errors: ['New passwords do not match.'], values: req.body });
   }
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(req.body.new_password), user.id);
-  audit(user.id, 'password_change', 'user', user.id, user.email);
-  res.render('change_password', { error: null, success: 'Password changed successfully.' });
-});
+  await dal.run('UPDATE users SET password_hash = $1 WHERE id = $2', [hashPassword(req.body.new_password), user.id]);
+  await dal.audit(user.id, 'password_change', 'user', user.id, user.email);
+  req.session.flash = { type: 'success', message: 'Password changed successfully.' };
+  res.redirect('/change-password');
+}));
 
-app.get('/config', allow('admin', 'finance_secretary', 'treasurer'), (req, res) => {
-  const accounts = db.prepare('SELECT * FROM accounts ORDER BY id').all();
-  const splits = db.prepare('SELECT * FROM payment_splits ORDER BY year DESC, category').all();
-  const rules = db.prepare('SELECT * FROM dues_rules ORDER BY year DESC, min_age').all();
-  const categories = db.prepare('SELECT * FROM transaction_categories ORDER BY kind, sort_order, name').all();
+app.get('/config', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  const accounts = await dal.query('SELECT * FROM accounts ORDER BY id');
+  const splits = await dal.query('SELECT * FROM payment_splits ORDER BY year DESC, category');
+  const rules = await dal.query('SELECT * FROM dues_rules ORDER BY year DESC, min_age');
+  const categories = await dal.query('SELECT * FROM transaction_categories ORDER BY kind, sort_order, name');
   res.render('config', { accounts, splits, rules, categories, year: currentYear() });
-});
+}));
 
-app.post('/config/payment-splits', allow('admin', 'finance_secretary'), (req, res) => {
-  db.prepare(`
+app.post('/config/payment-splits', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+  await dal.run(`
     INSERT INTO payment_splits (year, category, assessment_amount, welfare_amount, active)
-    VALUES (?, ?, ?, ?, 1)
+    VALUES ($1, $2, $3, $4, true)
     ON CONFLICT(year, category) DO UPDATE SET
-      assessment_amount = excluded.assessment_amount,
-      welfare_amount = excluded.welfare_amount,
-      active = 1
-  `).run(
+      assessment_amount = EXCLUDED.assessment_amount,
+      welfare_amount = EXCLUDED.welfare_amount,
+      active = true
+  `, [
     Number(req.body.year),
     req.body.category,
     Number(req.body.assessment_amount || 0),
     Number(req.body.welfare_amount || 0)
-  );
-  audit(req.session.user.id, 'upsert', 'payment_split', null, `${req.body.year} ${req.body.category}`);
+  ]);
+  await dal.audit(req.session.user.id, 'upsert', 'payment_split', null, `${req.body.year} ${req.body.category}`);
+  req.session.flash = { type: 'success', message: 'Payment split saved successfully.' };
   res.redirect('/config');
-});
+}));
 
-app.post('/config/accounts', allow('admin', 'treasurer'), (req, res) => {
-  const result = db.prepare('INSERT INTO accounts (name, type, opening_balance) VALUES (?, ?, ?)').run(
+app.post('/config/accounts', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  if (!req.body.name || !req.body.name.trim()) {
+    const accounts = await dal.query('SELECT * FROM accounts ORDER BY id');
+    const splits = await dal.query('SELECT * FROM payment_splits ORDER BY year DESC, category');
+    const rules = await dal.query('SELECT * FROM dues_rules ORDER BY year DESC, min_age');
+    const categories = await dal.query('SELECT * FROM transaction_categories ORDER BY kind, sort_order, name');
+    return res.status(400).render('config', { accounts, splits, rules, categories, year: currentYear(), errors: ['Account name is required.'], values: req.body });
+  }
+  const result = await dal.run(`
+    INSERT INTO accounts (name, type, opening_balance) VALUES ($1, $2, $3)
+    RETURNING id
+  `, [
     req.body.name,
     req.body.type,
     Number(req.body.opening_balance || 0)
-  );
-  audit(req.session.user.id, 'create', 'account', result.lastInsertRowid, req.body.name);
+  ]);
+  await dal.audit(req.session.user.id, 'create', 'account', result.rows[0].id, req.body.name);
+  req.session.flash = { type: 'success', message: 'Account added successfully.' };
   res.redirect('/config');
-});
+}));
 
-app.post('/config/accounts/:id', allow('admin', 'treasurer'), (req, res) => {
-  db.prepare(`
+app.post('/config/accounts/:id', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  await dal.run(`
     UPDATE accounts
-    SET name = ?, opening_balance = ?, active = ?
-    WHERE id = ?
-  `).run(
+    SET name = $1, opening_balance = $2, active = $3
+    WHERE id = $4
+  `, [
     req.body.name,
     Number(req.body.opening_balance || 0),
-    req.body.active ? 1 : 0,
+    req.body.active ? true : false,
     Number(req.params.id)
-  );
-  audit(req.session.user.id, 'update', 'account', Number(req.params.id), req.body.name);
+  ]);
+  await dal.audit(req.session.user.id, 'update', 'account', Number(req.params.id), req.body.name);
+  req.session.flash = { type: 'success', message: 'Account updated successfully.' };
   res.redirect('/config');
-});
+}));
 
-app.post('/config/categories', allow('admin', 'finance_secretary', 'treasurer'), (req, res) => {
-  db.prepare(`
+app.post('/config/categories', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  if (!req.body.name || !req.body.name.trim()) {
+    const accounts = await dal.query('SELECT * FROM accounts ORDER BY id');
+    const splits = await dal.query('SELECT * FROM payment_splits ORDER BY year DESC, category');
+    const rules = await dal.query('SELECT * FROM dues_rules ORDER BY year DESC, min_age');
+    const categories = await dal.query('SELECT * FROM transaction_categories ORDER BY kind, sort_order, name');
+    return res.status(400).render('config', { accounts, splits, rules, categories, year: currentYear(), errors: ['Category name is required.'], values: req.body });
+  }
+  await dal.run(`
     INSERT INTO transaction_categories (name, kind, active, sort_order)
-    VALUES (?, ?, 1, ?)
+    VALUES ($1, $2, true, $3)
     ON CONFLICT(name) DO UPDATE SET
-      kind = excluded.kind,
-      active = 1,
-      sort_order = excluded.sort_order
-  `).run(req.body.name, req.body.kind, Number(req.body.sort_order || 100));
-  audit(req.session.user.id, 'upsert', 'transaction_category', null, `${req.body.kind}: ${req.body.name}`);
+      kind = EXCLUDED.kind,
+      active = true,
+      sort_order = EXCLUDED.sort_order
+  `, [req.body.name, req.body.kind, Number(req.body.sort_order || 100)]);
+  await dal.audit(req.session.user.id, 'upsert', 'transaction_category', null, `${req.body.kind}: ${req.body.name}`);
+  req.session.flash = { type: 'success', message: 'Category saved successfully.' };
   res.redirect('/config');
-});
+}));
 
-app.get('/fiscal-years', allow('admin', 'finance_secretary', 'treasurer'), (req, res) => {
-  const years = db.prepare('SELECT * FROM fiscal_years ORDER BY year DESC').all();
+app.get('/fiscal-years', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  const years = await dal.query('SELECT * FROM fiscal_years ORDER BY year DESC');
   const currentYearValue = currentYear();
   const currentYearExists = years.some(y => y.year === currentYearValue);
   res.render('fiscal_years', { years, currentYear: currentYearValue, currentYearExists });
-});
+}));
 
-app.post('/fiscal-years/open', allow('admin', 'finance_secretary'), (req, res) => {
+app.post('/fiscal-years/open', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
   const year = Number(req.body.year);
   if (!year || year < 2000 || year > 2100) {
-    return res.status(400).render('error', { message: 'Invalid year.' });
+    const years = await dal.query('SELECT * FROM fiscal_years ORDER BY year DESC');
+    return res.status(400).render('fiscal_years', { years, currentYear: currentYear(), errors: ['Invalid year. Must be between 2000 and 2100.'], values: req.body });
   }
 
-  const existing = db.prepare('SELECT * FROM fiscal_years WHERE year = ?').get(year);
+  const existing = await dal.queryOne('SELECT * FROM fiscal_years WHERE year = $1', [year]);
   if (existing) {
-    return res.status(400).render('error', { message: `Year ${year} is already ${existing.status}.` });
+    const years = await dal.query('SELECT * FROM fiscal_years ORDER BY year DESC');
+    return res.status(400).render('fiscal_years', { years, currentYear: currentYear(), errors: [`Year ${year} is already ${existing.status}.`], values: req.body });
   }
 
-  db.prepare('INSERT INTO fiscal_years (year, status) VALUES (?, \'open\')').run(year);
+  await dal.run("INSERT INTO fiscal_years (year, status) VALUES ($1, 'open')", [year]);
 
   // Copy dues rules from previous year if none exist for this year
-  const rulesExist = db.prepare('SELECT COUNT(*) AS count FROM dues_rules WHERE year = ?').get(year).count;
-  if (rulesExist === 0) {
-    const prevRules = db.prepare('SELECT * FROM dues_rules WHERE year = ? AND active = 1').all(year - 1);
-    const insertRule = db.prepare('INSERT INTO dues_rules (year, label, min_age, max_age, annual_assessment, welfare_portion) VALUES (?, ?, ?, ?, ?, ?)');
-    prevRules.forEach(r => insertRule.run(year, r.label, r.min_age, r.max_age, r.annual_assessment, r.welfare_portion));
+  const rulesExistRow = await dal.queryOne('SELECT COUNT(*) AS count FROM dues_rules WHERE year = $1', [year]);
+  if (Number(rulesExistRow.count) === 0) {
+    const prevRules = await dal.query('SELECT * FROM dues_rules WHERE year = $1 AND active = true', [year - 1]);
+    for (const r of prevRules) {
+      await dal.run(
+        'INSERT INTO dues_rules (year, label, min_age, max_age, annual_assessment, welfare_portion) VALUES ($1, $2, $3, $4, $5, $6)',
+        [year, r.label, r.min_age, r.max_age, r.annual_assessment, r.welfare_portion]
+      );
+    }
   }
 
   // Copy payment splits from previous year if none exist
-  const splitsExist = db.prepare('SELECT COUNT(*) AS count FROM payment_splits WHERE year = ?').get(year).count;
-  if (splitsExist === 0) {
-    const prevSplits = db.prepare('SELECT * FROM payment_splits WHERE year = ? AND active = 1').all(year - 1);
-    const insertSplit = db.prepare('INSERT INTO payment_splits (year, category, assessment_amount, welfare_amount) VALUES (?, ?, ?, ?)');
-    prevSplits.forEach(s => insertSplit.run(year, s.category, s.assessment_amount, s.welfare_amount));
+  const splitsExistRow = await dal.queryOne('SELECT COUNT(*) AS count FROM payment_splits WHERE year = $1', [year]);
+  if (Number(splitsExistRow.count) === 0) {
+    const prevSplits = await dal.query('SELECT * FROM payment_splits WHERE year = $1 AND active = true', [year - 1]);
+    for (const s of prevSplits) {
+      await dal.run(
+        'INSERT INTO payment_splits (year, category, assessment_amount, welfare_amount) VALUES ($1, $2, $3, $4)',
+        [year, s.category, s.assessment_amount, s.welfare_amount]
+      );
+    }
   }
 
-  audit(req.session.user.id, 'open', 'fiscal_year', year, `Opened year ${year}`);
+  await dal.audit(req.session.user.id, 'open', 'fiscal_year', year, `Opened year ${year}`);
+  req.session.flash = { type: 'success', message: `Fiscal year ${year} opened successfully.` };
   res.redirect('/fiscal-years');
-});
+}));
 
-app.post('/fiscal-years/close', allow('admin'), (req, res) => {
+app.post('/fiscal-years/close', allow('admin'), asyncHandler(async (req, res) => {
   const year = Number(req.body.year);
-  const fy = db.prepare('SELECT * FROM fiscal_years WHERE year = ?').get(year);
+  const fy = await dal.queryOne('SELECT * FROM fiscal_years WHERE year = $1', [year]);
   if (!fy || fy.status !== 'open') {
-    return res.status(400).render('error', { message: `Year ${year} is not open.` });
+    const years = await dal.query('SELECT * FROM fiscal_years ORDER BY year DESC');
+    return res.status(400).render('fiscal_years', { years, currentYear: currentYear(), errors: [`Year ${year} is not open.`], values: req.body });
   }
 
   // Calculate closing arrears for each active member and carry forward
-  const members = db.prepare('SELECT * FROM members WHERE status = \'active\'').all();
-  const arrears = require('./services').arrearsReport(year);
+  const arrears = await arrearsReport(year);
 
-  const updateArrears = db.prepare('UPDATE members SET opening_arrears = ? WHERE id = ?');
-  const closeYear = db.transaction(() => {
-    arrears.forEach(row => {
+  await dal.transaction(async (client) => {
+    for (const row of arrears) {
       // New opening arrears = outstanding balance at year end (min 0 — overpayments don't carry as credit)
       const carryForward = Math.max(0, row.balance);
-      updateArrears.run(carryForward, row.member_id);
-    });
+      await client.query('UPDATE members SET opening_arrears = $1 WHERE id = $2', [carryForward, row.member_id]);
+    }
 
-    db.prepare('UPDATE fiscal_years SET status = \'closed\', closed_at = CURRENT_TIMESTAMP, closed_by = ?, notes = ? WHERE year = ?')
-      .run(req.session.user.id, req.body.notes || null, year);
+    await client.query(
+      "UPDATE fiscal_years SET status = 'closed', closed_at = NOW(), closed_by = $1, notes = $2 WHERE year = $3",
+      [req.session.user.id, req.body.notes || null, year]
+    );
   });
 
-  closeYear();
-  audit(req.session.user.id, 'close', 'fiscal_year', year, `Closed year ${year}. Arrears carried forward for ${arrears.length} members.`);
+  await dal.audit(req.session.user.id, 'close', 'fiscal_year', year, `Closed year ${year}. Arrears carried forward for ${arrears.length} members.`);
+  req.session.flash = { type: 'success', message: `Fiscal year ${year} closed. Arrears carried forward for ${arrears.length} members.` };
   res.redirect('/fiscal-years');
-});
+}));
 
-app.get('/dues', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'viewer'), (req, res) => {
-  const rules = db.prepare('SELECT * FROM dues_rules ORDER BY year DESC, min_age').all();
-  const members = db.prepare('SELECT id, name FROM members ORDER BY name').all();
-  const overrides = db.prepare(`
+app.get('/dues', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'viewer'), asyncHandler(async (req, res) => {
+  const rules = await dal.query('SELECT * FROM dues_rules ORDER BY year DESC, min_age');
+  const members = await dal.query('SELECT id, name FROM members ORDER BY name');
+  const overrides = await dal.query(`
     SELECT md.*, m.name
     FROM member_dues md
     JOIN members m ON m.id = md.member_id
     ORDER BY md.year DESC, m.name
-  `).all();
+  `);
   res.render('dues', { rules, members, overrides, year: currentYear() });
-});
+}));
 
-app.post('/dues/rules', allow('admin', 'finance_secretary'), (req, res) => {
-  const result = db.prepare(`
+app.post('/dues/rules', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+  if (!req.body.label || !req.body.label.trim()) {
+    const rules = await dal.query('SELECT * FROM dues_rules ORDER BY year DESC, min_age');
+    const members = await dal.query('SELECT id, name FROM members ORDER BY name');
+    const overrides = await dal.query(`SELECT md.*, m.name FROM member_dues md JOIN members m ON m.id = md.member_id ORDER BY md.year DESC, m.name`);
+    return res.status(400).render('dues', { rules, members, overrides, year: currentYear(), errors: ['Label is required.'], values: req.body });
+  }
+  const result = await dal.run(`
     INSERT INTO dues_rules (year, label, min_age, max_age, annual_assessment, welfare_portion)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
+    VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING id
+  `, [
     Number(req.body.year),
     req.body.label,
     req.body.min_age === '' ? null : Number(req.body.min_age),
     req.body.max_age === '' ? null : Number(req.body.max_age),
     Number(req.body.annual_assessment || 0),
     Number(req.body.welfare_portion || 0)
-  );
-  audit(req.session.user.id, 'create', 'dues_rule', result.lastInsertRowid, req.body.label);
+  ]);
+  await dal.audit(req.session.user.id, 'create', 'dues_rule', result.rows[0].id, req.body.label);
+  req.session.flash = { type: 'success', message: 'Dues rule added successfully.' };
   res.redirect('/dues');
-});
+}));
 
-app.post('/dues/overrides', allow('admin', 'finance_secretary'), (req, res) => {
-  db.prepare(`
+app.post('/dues/overrides', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+  await dal.run(`
     INSERT INTO member_dues (member_id, year, assessment_due, welfare_portion, reason)
-    VALUES (?, ?, ?, ?, ?)
+    VALUES ($1, $2, $3, $4, $5)
     ON CONFLICT(member_id, year) DO UPDATE SET
-      assessment_due = excluded.assessment_due,
-      welfare_portion = excluded.welfare_portion,
-      reason = excluded.reason
-  `).run(
+      assessment_due = EXCLUDED.assessment_due,
+      welfare_portion = EXCLUDED.welfare_portion,
+      reason = EXCLUDED.reason
+  `, [
     Number(req.body.member_id),
     Number(req.body.year),
     Number(req.body.assessment_due || 0),
     Number(req.body.welfare_portion || 0),
     req.body.reason || null
-  );
-  audit(req.session.user.id, 'upsert', 'member_due', Number(req.body.member_id), String(req.body.year));
+  ]);
+  await dal.audit(req.session.user.id, 'upsert', 'member_due', Number(req.body.member_id), String(req.body.year));
+  req.session.flash = { type: 'success', message: 'Member dues override saved.' };
   res.redirect('/dues');
-});
+}));
 
-app.get('/transactions', requireLogin, (req, res) => {
-  const transactions = db.prepare(`
+app.get('/transactions', requireLogin, asyncHandler(async (req, res) => {
+  const transactions = await dal.query(`
     SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name
     FROM transactions t
     LEFT JOIN members m ON m.id = t.member_id
@@ -504,66 +619,101 @@ app.get('/transactions', requireLogin, (req, res) => {
     LEFT JOIN accounts ta ON ta.id = t.to_account_id
     ORDER BY t.tx_date DESC, t.id DESC
     LIMIT 100
-  `).all();
-  const members = db.prepare('SELECT id, name FROM members WHERE status = ? ORDER BY name').all('active');
-  const accounts = db.prepare('SELECT * FROM accounts WHERE active = 1 ORDER BY id').all();
-  const incomeCategories = db.prepare("SELECT name FROM transaction_categories WHERE active = 1 AND kind = 'income' ORDER BY sort_order, name").all();
-  const expenseCategories = db.prepare("SELECT name FROM transaction_categories WHERE active = 1 AND kind = 'expense' ORDER BY sort_order, name").all();
+  `);
+  const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
+  const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
+  const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'income' ORDER BY sort_order, name");
+  const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'expense' ORDER BY sort_order, name");
   res.render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories });
-});
+}));
 
-app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer'), (req, res) => {
-  if (isYearClosed(req.body.tx_date)) return res.status(400).render('error', { message: 'That year is closed. No new transactions allowed.' });
+app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  if (await isYearClosed(req.body.tx_date)) {
+    const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
+    const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
+    const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'income' ORDER BY sort_order, name");
+    const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'expense' ORDER BY sort_order, name");
+    const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
+    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: ['That year is closed. No new transactions allowed.'], values: req.body });
+  }
   const amount = Number(req.body.amount || 0);
-  const welfare = calculateWelfareComponent({
+  const welfare = await calculateWelfareComponent({
     memberId: req.body.member_id || null,
     category: req.body.category || 'Assessment',
     amount,
     txDate: req.body.tx_date,
     enteredWelfare: req.body.welfare_component
   });
-  if (welfare > amount) return res.status(400).render('error', { message: 'Welfare component cannot exceed total amount received.' });
-  const result = db.prepare(`
+  if (welfare > amount) {
+    const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
+    const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
+    const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'income' ORDER BY sort_order, name");
+    const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'expense' ORDER BY sort_order, name");
+    const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
+    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: ['Welfare component cannot exceed total amount received.'], values: req.body });
+  }
+  const result = await dal.run(`
     INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, created_by)
-    VALUES (?, 'receipt', ?, ?, ?, ?, ?, ?, ?)
-  `).run(req.body.tx_date, req.body.member_id || null, Number(req.body.account_id), req.body.category || 'Assessment', req.body.description || null, amount, welfare, req.session.user.id);
-  audit(req.session.user.id, 'create', 'receipt', result.lastInsertRowid, `${req.body.category} ${amount}`);
+    VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, $8)
+    RETURNING id
+  `, [req.body.tx_date, req.body.member_id || null, Number(req.body.account_id), req.body.category || 'Assessment', req.body.description || null, amount, welfare, req.session.user.id]);
+  await dal.audit(req.session.user.id, 'create', 'receipt', result.rows[0].id, `${req.body.category} ${amount}`);
+  req.session.flash = { type: 'success', message: 'Receipt saved successfully.' };
   res.redirect('/transactions');
-});
+}));
 
-app.post('/transactions/expense', allow('admin', 'treasurer'), (req, res) => {
-  if (isYearClosed(req.body.tx_date)) return res.status(400).render('error', { message: 'That year is closed. No new transactions allowed.' });
+app.post('/transactions/expense', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  if (await isYearClosed(req.body.tx_date)) {
+    const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
+    const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
+    const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'income' ORDER BY sort_order, name");
+    const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'expense' ORDER BY sort_order, name");
+    const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
+    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: ['That year is closed. No new transactions allowed.'], values: req.body });
+  }
   const type = req.body.category === 'Welfare Payout' ? 'welfare_payout' : 'expense';
-  const result = db.prepare(`
+  const result = await dal.run(`
     INSERT INTO transactions (tx_date, tx_type, account_id, category, description, amount, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(req.body.tx_date, type, Number(req.body.account_id), req.body.category || 'General Expense', req.body.description || null, Number(req.body.amount || 0), req.session.user.id);
-  audit(req.session.user.id, 'create', type, result.lastInsertRowid, `${req.body.category} ${req.body.amount}`);
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    RETURNING id
+  `, [req.body.tx_date, type, Number(req.body.account_id), req.body.category || 'General Expense', req.body.description || null, Number(req.body.amount || 0), req.session.user.id]);
+  await dal.audit(req.session.user.id, 'create', type, result.rows[0].id, `${req.body.category} ${req.body.amount}`);
+  req.session.flash = { type: 'success', message: 'Expense saved successfully.' };
   res.redirect('/transactions');
-});
+}));
 
-app.post('/transactions/transfer', allow('admin', 'treasurer'), (req, res) => {
-  if (isYearClosed(req.body.tx_date)) return res.status(400).render('error', { message: 'That year is closed. No new transactions allowed.' });
-  const result = db.prepare(`
+app.post('/transactions/transfer', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  if (await isYearClosed(req.body.tx_date)) {
+    const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
+    const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
+    const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'income' ORDER BY sort_order, name");
+    const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'expense' ORDER BY sort_order, name");
+    const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
+    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: ['That year is closed. No new transactions allowed.'], values: req.body });
+  }
+  const result = await dal.run(`
     INSERT INTO transactions (tx_date, tx_type, account_id, to_account_id, category, description, amount, created_by)
-    VALUES (?, 'transfer', ?, ?, 'Transfer', ?, ?, ?)
-  `).run(req.body.tx_date, Number(req.body.account_id), Number(req.body.to_account_id), req.body.description || null, Number(req.body.amount || 0), req.session.user.id);
-  audit(req.session.user.id, 'create', 'transfer', result.lastInsertRowid, req.body.amount);
+    VALUES ($1, 'transfer', $2, $3, 'Transfer', $4, $5, $6)
+    RETURNING id
+  `, [req.body.tx_date, Number(req.body.account_id), Number(req.body.to_account_id), req.body.description || null, Number(req.body.amount || 0), req.session.user.id]);
+  await dal.audit(req.session.user.id, 'create', 'transfer', result.rows[0].id, req.body.amount);
+  req.session.flash = { type: 'success', message: 'Transfer saved successfully.' };
   res.redirect('/transactions');
-});
+}));
 
-app.post('/transactions/:id/reverse', allow('admin', 'finance_secretary', 'treasurer'), (req, res) => {
+app.post('/transactions/:id/reverse', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
   const txId = Number(req.params.id);
-  const original = db.prepare('SELECT * FROM transactions WHERE id = ?').get(txId);
+  const original = await dal.queryOne('SELECT * FROM transactions WHERE id = $1', [txId]);
   if (!original || original.status !== 'posted') {
     return res.status(400).render('error', { message: 'Cannot reverse a transaction that is not posted.' });
   }
-  if (isYearClosed(original.tx_date)) return res.status(400).render('error', { message: 'That year is closed. Transactions cannot be reversed.' });
-  
-  const reversalResult = db.prepare(`
+  if (await isYearClosed(original.tx_date)) return res.status(400).render('error', { message: 'That year is closed. Transactions cannot be reversed.' });
+
+  const reversalResult = await dal.run(`
     INSERT INTO transactions (tx_date, tx_type, member_id, account_id, to_account_id, category, description, amount, welfare_component, status, reversed_by, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'reversed', ?, ?)
-  `).run(
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'reversed', $10, $11)
+    RETURNING id
+  `, [
     original.tx_date,
     original.tx_type,
     original.member_id,
@@ -575,73 +725,76 @@ app.post('/transactions/:id/reverse', allow('admin', 'finance_secretary', 'treas
     original.welfare_component,
     txId,
     req.session.user.id
-  );
-  
-  db.prepare('UPDATE transactions SET status = ?, reversed_by = ? WHERE id = ?').run('reversed', reversalResult.lastInsertRowid, txId);
-  audit(req.session.user.id, 'reverse', 'transaction', txId, `Reversed by transaction ${reversalResult.lastInsertRowid}`);
-  res.redirect('/transactions');
-});
+  ]);
 
-app.post('/transactions/:id/reconcile', allow('admin', 'finance_secretary', 'treasurer', 'auditor'), (req, res) => {
+  await dal.run('UPDATE transactions SET status = $1, reversed_by = $2 WHERE id = $3', ['reversed', reversalResult.rows[0].id, txId]);
+  await dal.audit(req.session.user.id, 'reverse', 'transaction', txId, `Reversed by transaction ${reversalResult.rows[0].id}`);
+  req.session.flash = { type: 'success', message: 'Transaction reversed successfully.' };
+  res.redirect('/transactions');
+}));
+
+app.post('/transactions/:id/reconcile', allow('admin', 'finance_secretary', 'treasurer', 'auditor'), asyncHandler(async (req, res) => {
   const txId = Number(req.params.id);
-  const tx = db.prepare('SELECT * FROM transactions WHERE id = ?').get(txId);
+  const tx = await dal.queryOne('SELECT * FROM transactions WHERE id = $1', [txId]);
   if (!tx) return res.status(404).render('error', { message: 'Transaction not found.' });
-  
-  const isReconciled = tx.reconciled ? 0 : 1;
-  db.prepare('UPDATE transactions SET reconciled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(isReconciled, txId);
-  audit(req.session.user.id, 'update', 'transaction', txId, `Reconciled: ${isReconciled ? 'Yes' : 'No'}`);
-  res.redirect('/transactions');
-});
 
-app.get('/reconciliation', allow('admin', 'treasurer', 'auditor', 'viewer'), (req, res) => {
-  const balances = accountBalances();
-  const reconciliations = db.prepare(`
+  const isReconciled = tx.reconciled ? false : true;
+  await dal.run('UPDATE transactions SET reconciled = $1, updated_at = NOW() WHERE id = $2', [isReconciled, txId]);
+  await dal.audit(req.session.user.id, 'update', 'transaction', txId, `Reconciled: ${isReconciled ? 'Yes' : 'No'}`);
+  res.redirect('/transactions');
+}));
+
+app.get('/reconciliation', allow('admin', 'treasurer', 'auditor', 'viewer'), asyncHandler(async (req, res) => {
+  const balances = await accountBalances();
+  const reconciliations = await dal.query(`
     SELECT r.*, a.name AS account_name
     FROM reconciliations r
     JOIN accounts a ON a.id = r.account_id
     ORDER BY r.period_end DESC, r.id DESC
-  `).all();
+  `);
   res.render('reconciliation', { balances, reconciliations });
-});
+}));
 
-app.post('/reconciliation', allow('admin', 'treasurer'), (req, res) => {
-  const balances = accountBalances();
+app.post('/reconciliation', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  const balances = await accountBalances();
   const account = balances.find((item) => item.id === Number(req.body.account_id));
   const systemBalance = account ? account.balance : 0;
   const statementBalance = Number(req.body.statement_balance || 0);
-  const result = db.prepare(`
+  const result = await dal.run(`
     INSERT INTO reconciliations (account_id, period_start, period_end, statement_balance, system_balance, difference, notes, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(Number(req.body.account_id), req.body.period_start, req.body.period_end, statementBalance, systemBalance, statementBalance - systemBalance, req.body.notes || null, req.session.user.id);
-  audit(req.session.user.id, 'create', 'reconciliation', result.lastInsertRowid, req.body.period_end);
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    RETURNING id
+  `, [Number(req.body.account_id), req.body.period_start, req.body.period_end, statementBalance, systemBalance, statementBalance - systemBalance, req.body.notes || null, req.session.user.id]);
+  await dal.audit(req.session.user.id, 'create', 'reconciliation', result.rows[0].id, req.body.period_end);
+  req.session.flash = { type: 'success', message: 'Reconciliation saved successfully.' };
   res.redirect('/reconciliation');
-});
+}));
 
-app.get('/reports', requireLogin, (req, res) => {
+app.get('/reports', requireLogin, asyncHandler(async (req, res) => {
   const year = Number(req.query.year || currentYear());
   const period = monthPeriod(year, req.query.month);
-  const summary = reportSummary(period.startDate, period.endDate);
-  const arrears = arrearsReport(year);
-  const incomeByCategory = db.prepare(`
+  const summary = await reportSummary(period.startDate, period.endDate);
+  const arrears = await arrearsReport(year);
+  const incomeByCategory = await dal.query(`
     SELECT category, COALESCE(SUM(amount - welfare_component), 0) AS total
     FROM transactions
     WHERE tx_type = 'receipt' AND status = 'posted'
-      AND tx_date >= ?
-      AND tx_date <= ?
+      AND tx_date >= $1
+      AND tx_date <= $2
     GROUP BY category
     ORDER BY total DESC
-  `).all(period.startDate, period.endDate);
-  const expensesByCategory = db.prepare(`
+  `, [period.startDate, period.endDate]);
+  const expensesByCategory = await dal.query(`
     SELECT category, COALESCE(SUM(amount), 0) AS total
     FROM transactions
     WHERE tx_type = 'expense' AND status = 'posted'
-      AND tx_date >= ?
-      AND tx_date <= ?
+      AND tx_date >= $1
+      AND tx_date <= $2
     GROUP BY category
     ORDER BY total DESC
-  `).all(period.startDate, period.endDate);
-  const runningRows = runningBalanceRows(period.startDate, period.endDate);
-  const reconciliations = latestReconciliations(period.endDate);
+  `, [period.startDate, period.endDate]);
+  const runningRows = await runningBalanceRows(period.startDate, period.endDate);
+  const reconciliations = await latestReconciliations(period.endDate);
   res.render('reports', {
     year,
     month: period.month,
@@ -653,11 +806,11 @@ app.get('/reports', requireLogin, (req, res) => {
     runningRows,
     reconciliations
   });
-});
+}));
 
-app.get('/api/reports/member-arrears', apiToken, (req, res) => {
+app.get('/api/reports/member-arrears', apiToken, asyncHandler(async (req, res) => {
   const year = Number(req.query.year || currentYear());
-  const rows = arrearsReport(year)
+  const rows = (await arrearsReport(year))
     .filter((row) => row.balance > 0)
     .map((row) => ({
       member: row.name,
@@ -666,62 +819,76 @@ app.get('/api/reports/member-arrears', apiToken, (req, res) => {
       message: `Dear Brother ${row.name}, your outstanding balance for ${year} is GHS ${row.balance.toFixed(2)}. Thank you.`
     }));
   res.json({ year, count: rows.length, rows });
-});
+}));
 
-app.get('/users', allow('admin'), (req, res) => {
-  const users = db.prepare('SELECT id, name, email, role, active FROM users ORDER BY name').all();
+app.get('/users', allow('admin'), asyncHandler(async (req, res) => {
+  const users = await dal.query('SELECT id, name, email, role, active FROM users ORDER BY name');
   res.render('users', { users });
-});
+}));
 
-app.post('/users', allow('admin'), (req, res) => {
-  const result = db.prepare(`
+app.post('/users', allow('admin'), asyncHandler(async (req, res) => {
+  const validationErrors = [];
+  if (!req.body.name || !req.body.name.trim()) validationErrors.push('Name is required.');
+  if (!req.body.email || !req.body.email.trim()) validationErrors.push('Email is required.');
+  if (!req.body.password || req.body.password.length < 8) validationErrors.push('Password must be at least 8 characters.');
+
+  if (validationErrors.length > 0) {
+    const users = await dal.query('SELECT id, name, email, role, active FROM users ORDER BY name');
+    return res.status(400).render('users', { users, errors: validationErrors, values: req.body });
+  }
+
+  const result = await dal.run(`
     INSERT INTO users (name, email, password_hash, role)
-    VALUES (?, ?, ?, ?)
-  `).run(req.body.name, req.body.email, hashPassword(req.body.password), req.body.role);
-  audit(req.session.user.id, 'create', 'user', result.lastInsertRowid, req.body.email);
+    VALUES ($1, $2, $3, $4)
+    RETURNING id
+  `, [req.body.name, req.body.email, hashPassword(req.body.password), req.body.role]);
+  await dal.audit(req.session.user.id, 'create', 'user', result.rows[0].id, req.body.email);
+  req.session.flash = { type: 'success', message: 'User added successfully.' };
   res.redirect('/users');
-});
+}));
 
-app.post('/users/:id/toggle', allow('admin'), (req, res) => {
-  const target = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(req.params.id));
+app.post('/users/:id/toggle', allow('admin'), asyncHandler(async (req, res) => {
+  const target = await dal.queryOne('SELECT * FROM users WHERE id = $1', [Number(req.params.id)]);
   if (!target) return res.status(404).render('error', { message: 'User not found.' });
   if (target.id === req.session.user.id) return res.status(400).render('error', { message: 'You cannot deactivate your own account.' });
-  const newActive = target.active ? 0 : 1;
-  db.prepare('UPDATE users SET active = ? WHERE id = ?').run(newActive, target.id);
-  audit(req.session.user.id, 'update', 'user', target.id, `${target.email} active=${newActive}`);
+  const newActive = target.active ? false : true;
+  await dal.run('UPDATE users SET active = $1 WHERE id = $2', [newActive, target.id]);
+  await dal.audit(req.session.user.id, 'update', 'user', target.id, `${target.email} active=${newActive}`);
   res.redirect('/users');
-});
+}));
 
-app.post('/users/:id/reset-password', allow('admin'), (req, res) => {
-  const target = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(req.params.id));
+app.post('/users/:id/reset-password', allow('admin'), asyncHandler(async (req, res) => {
+  const target = await dal.queryOne('SELECT * FROM users WHERE id = $1', [Number(req.params.id)]);
   if (!target) return res.status(404).render('error', { message: 'User not found.' });
   if (!req.body.new_password || req.body.new_password.length < 8) {
-    return res.status(400).render('error', { message: 'Password must be at least 8 characters.' });
+    const users = await dal.query('SELECT id, name, email, role, active FROM users ORDER BY name');
+    return res.status(400).render('users', { users, errors: ['Password must be at least 8 characters.'], values: req.body });
   }
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(req.body.new_password), target.id);
-  audit(req.session.user.id, 'password_reset', 'user', target.id, target.email);
+  await dal.run('UPDATE users SET password_hash = $1 WHERE id = $2', [hashPassword(req.body.new_password), target.id]);
+  await dal.audit(req.session.user.id, 'password_reset', 'user', target.id, target.email);
+  req.session.flash = { type: 'success', message: `Password reset for ${target.name}.` };
   res.redirect('/users');
-});
+}));
 
-app.get('/audit', allow('admin', 'auditor'), (req, res) => {
-  const rows = db.prepare(`
+app.get('/audit', allow('admin', 'auditor'), asyncHandler(async (req, res) => {
+  const rows = await dal.query(`
     SELECT l.*, u.name AS user_name
     FROM audit_log l
     LEFT JOIN users u ON u.id = l.user_id
     ORDER BY l.created_at DESC
     LIMIT 200
-  `).all();
+  `);
   res.render('audit', { rows });
-});
+}));
 
 // Downloadable reports page
-app.get('/download-reports', requireLogin, (req, res) => {
-  const members = db.prepare('SELECT id, name FROM members WHERE status = ? ORDER BY name').all('active');
+app.get('/download-reports', requireLogin, asyncHandler(async (req, res) => {
+  const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
   res.render('download_reports', { year: currentYear(), members });
-});
+}));
 
 // Downloadable report endpoints
-app.get('/download/income-expenditure', requireLogin, (req, res) => {
+app.get('/download/income-expenditure', requireLogin, asyncHandler(async (req, res) => {
   try {
     const year = Number(req.query.year || currentYear());
     const month = req.query.month ? Number(req.query.month) : null;
@@ -739,18 +906,18 @@ app.get('/download/income-expenditure', requireLogin, (req, res) => {
       label = `Full Year ${year}`;
     }
 
-    const csv = incomeAndExpenditureReport(db, startDate, endDate, label);
+    const csv = await incomeAndExpenditureReport(startDate, endDate, label);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="Income-Expenditure-${label.replace(/\s+/g, '-')}.csv"`);
     res.send(csv);
-    audit(req.session.user.id, 'download', 'income_expenditure', null, label);
+    await dal.audit(req.session.user.id, 'download', 'income_expenditure', null, label);
   } catch (error) {
     console.error('Download error:', error);
     res.status(500).render('error', { message: 'Failed to generate Income & Expenditure report.' });
   }
-});
+}));
 
-app.get('/download/receipts-payments', requireLogin, (req, res) => {
+app.get('/download/receipts-payments', requireLogin, asyncHandler(async (req, res) => {
   try {
     const year = Number(req.query.year || currentYear());
     const month = req.query.month ? Number(req.query.month) : null;
@@ -768,18 +935,18 @@ app.get('/download/receipts-payments', requireLogin, (req, res) => {
       label = `Full Year ${year}`;
     }
 
-    const csv = receiptsAndPaymentsReport(db, startDate, endDate, label);
+    const csv = await receiptsAndPaymentsReport(startDate, endDate, label);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="Receipts-Payments-${label.replace(/\s+/g, '-')}.csv"`);
     res.send(csv);
-    audit(req.session.user.id, 'download', 'receipts_payments', null, label);
+    await dal.audit(req.session.user.id, 'download', 'receipts_payments', null, label);
   } catch (error) {
     console.error('Download error:', error);
     res.status(500).render('error', { message: 'Failed to generate Receipts & Payments report.' });
   }
-});
+}));
 
-app.get('/download/welfare-fund', requireLogin, (req, res) => {
+app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) => {
   try {
     const year = Number(req.query.year || currentYear());
     const month = req.query.month ? Number(req.query.month) : null;
@@ -797,18 +964,18 @@ app.get('/download/welfare-fund', requireLogin, (req, res) => {
       label = `Full Year ${year}`;
     }
 
-    const csv = welfareFundReport(db, startDate, endDate, label);
+    const csv = await welfareFundReport(startDate, endDate, label);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="Welfare-Fund-${label.replace(/\s+/g, '-')}.csv"`);
     res.send(csv);
-    audit(req.session.user.id, 'download', 'welfare_fund', null, label);
+    await dal.audit(req.session.user.id, 'download', 'welfare_fund', null, label);
   } catch (error) {
     console.error('Download error:', error);
     res.status(500).render('error', { message: 'Failed to generate Welfare Fund report.' });
   }
-});
+}));
 
-app.get('/download/financial-position', requireLogin, (req, res) => {
+app.get('/download/financial-position', requireLogin, asyncHandler(async (req, res) => {
   try {
     const year = Number(req.query.year || currentYear());
     const month = req.query.month ? Number(req.query.month) : null;
@@ -824,125 +991,130 @@ app.get('/download/financial-position', requireLogin, (req, res) => {
       label = `31 December ${year}`;
     }
 
-    const csv = financialPositionReport(db, asOfDate, label);
+    const csv = await financialPositionReport(asOfDate, label);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="Financial-Position-${asOfDate}.csv"`);
     res.send(csv);
-    audit(req.session.user.id, 'download', 'financial_position', null, label);
+    await dal.audit(req.session.user.id, 'download', 'financial_position', null, label);
   } catch (error) {
     console.error('Download error:', error);
     res.status(500).render('error', { message: 'Failed to generate Financial Position report.' });
   }
-});
+}));
 
-app.get('/download/member-statement', requireLogin, (req, res) => {
+app.get('/download/member-statement', requireLogin, asyncHandler(async (req, res) => {
   try {
     const memberId = Number(req.query.member_id);
     const year = Number(req.query.year || currentYear());
     if (!memberId) return res.status(400).render('error', { message: 'Please select a member.' });
 
-    const csv = memberStatementReport(db, memberId, year);
+    const csv = await memberStatementReport(memberId, year);
     if (!csv) return res.status(404).render('error', { message: 'Member not found.' });
 
-    const member = db.prepare('SELECT name FROM members WHERE id = ?').get(memberId);
+    const member = await dal.queryOne('SELECT name FROM members WHERE id = $1', [memberId]);
     const safeName = (member ? member.name : 'Unknown').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '-');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="Member-Statement-${safeName}-${year}.csv"`);
     res.send(csv);
-    audit(req.session.user.id, 'download', 'member_statement', memberId, `${year}`);
+    await dal.audit(req.session.user.id, 'download', 'member_statement', memberId, `${year}`);
   } catch (error) {
     console.error('Download error:', error);
     res.status(500).render('error', { message: 'Failed to generate member statement.' });
   }
-});
+}));
 
 // CSV Export endpoints
-app.get('/export/transactions', requireLogin, (req, res) => {
+app.get('/export/transactions', requireLogin, asyncHandler(async (req, res) => {
   try {
-    const csv = exportTransactionsCsv(db, {
+    const csv = await exportTransactionsCsv({
       startDate: req.query.startDate || null,
       endDate: req.query.endDate || null
     });
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="transactions-${new Date().toISOString().slice(0, 10)}.csv"`);
     res.send(csv);
-    audit(req.session.user.id, 'export', 'transactions', null, 'CSV export');
+    await dal.audit(req.session.user.id, 'export', 'transactions', null, 'CSV export');
   } catch (error) {
     console.error('Export error:', error);
     res.status(500).render('error', { message: 'Failed to export transactions.' });
   }
-});
+}));
 
-app.get('/export/arrears', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'viewer'), (req, res) => {
+app.get('/export/arrears', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'viewer'), asyncHandler(async (req, res) => {
   try {
     const year = Number(req.query.year || currentYear());
-    const csv = exportArrearsCsv(db, year);
+    const csv = await exportArrearsCsv(year);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="arrears-${year}-${new Date().toISOString().slice(0, 10)}.csv"`);
     res.send(csv);
-    audit(req.session.user.id, 'export', 'arrears', null, `Year ${year}`);
+    await dal.audit(req.session.user.id, 'export', 'arrears', null, `Year ${year}`);
   } catch (error) {
     console.error('Export error:', error);
     res.status(500).render('error', { message: 'Failed to export arrears report.' });
   }
-});
+}));
 
-app.get('/export/report', requireLogin, (req, res) => {
+app.get('/export/report', requireLogin, asyncHandler(async (req, res) => {
   try {
     const year = Number(req.query.year || currentYear());
     const month = Number(req.query.month || new Date().getMonth() + 1);
-    const monthPeriod = (y, m) => {
-      const selectedMonth = Number(m);
-      const start = new Date(Date.UTC(y, selectedMonth - 1, 1));
-      const end = new Date(Date.UTC(y, selectedMonth, 0));
-      return {
-        startDate: start.toISOString().slice(0, 10),
-        endDate: end.toISOString().slice(0, 10)
-      };
-    };
-    const period = monthPeriod(year, month);
-    const csv = exportReportCsv(db, period.startDate, period.endDate);
+    const selectedMonth = Number(month);
+    const start = new Date(Date.UTC(year, selectedMonth - 1, 1));
+    const end = new Date(Date.UTC(year, selectedMonth, 0));
+    const startDate = start.toISOString().slice(0, 10);
+    const endDate = end.toISOString().slice(0, 10);
+    const csv = await exportReportCsv(startDate, endDate);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="report-${year}-${String(month).padStart(2, '0')}-${new Date().toISOString().slice(0, 10)}.csv"`);
     res.send(csv);
-    audit(req.session.user.id, 'export', 'report', null, `${year}-${month}`);
+    await dal.audit(req.session.user.id, 'export', 'report', null, `${year}-${month}`);
   } catch (error) {
     console.error('Export error:', error);
     res.status(500).render('error', { message: 'Failed to export report.' });
   }
-});
+}));
 
-app.get('/export/reconciliations', allow('admin', 'treasurer', 'auditor', 'viewer'), (req, res) => {
+app.get('/export/reconciliations', allow('admin', 'treasurer', 'auditor', 'viewer'), asyncHandler(async (req, res) => {
   try {
-    const csv = exportReconciliationsCsv(db);
+    const csv = await exportReconciliationsCsv();
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="reconciliations-${new Date().toISOString().slice(0, 10)}.csv"`);
     res.send(csv);
-    audit(req.session.user.id, 'export', 'reconciliations', null, 'CSV export');
+    await dal.audit(req.session.user.id, 'export', 'reconciliations', null, 'CSV export');
   } catch (error) {
     console.error('Export error:', error);
     res.status(500).render('error', { message: 'Failed to export reconciliations.' });
   }
-});
+}));
 
-app.get('/export/audit-log', allow('admin', 'auditor'), (req, res) => {
+app.get('/export/audit-log', allow('admin', 'auditor'), asyncHandler(async (req, res) => {
   try {
     const limitDays = Number(req.query.days || 90);
-    const csv = exportAuditLogCsv(db, limitDays);
+    const csv = await exportAuditLogCsv(limitDays);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="audit-log-${new Date().toISOString().slice(0, 10)}.csv"`);
     res.send(csv);
-    audit(req.session.user.id, 'export', 'audit_log', null, `Last ${limitDays} days`);
+    await dal.audit(req.session.user.id, 'export', 'audit_log', null, `Last ${limitDays} days`);
   } catch (error) {
     console.error('Export error:', error);
     res.status(500).render('error', { message: 'Failed to export audit log.' });
   }
-});
+}));
 
 app.use((req, res) => {
   res.status(404).render('error', { message: 'Page not found.' });
 });
 
 app.listen(port, () => {
-  console.log(`KSJI Accounts running at http://localhost:${port}`);
+  console.log(`Treasurio running at http://localhost:${port}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  await dal.shutdown();
+  process.exit(0);
+});
+process.on('SIGINT', async () => {
+  await dal.shutdown();
+  process.exit(0);
 });

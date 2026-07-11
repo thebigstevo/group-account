@@ -1,6 +1,11 @@
 <%- include('partials/header') %>
-<section class="panel">
+<% locals.title = 'Error' %>
+
+<section class="panel narrow">
   <h1>Something needs attention</h1>
   <p><%= message %></p>
+  <div class="actions" style="margin-top: var(--space-4);">
+    <a class="btn btn--secondary" href="/">Return to Dashboard</a>
+  </div>
 </section>
 <%- include('partials/footer') %>

@@ -1,22 +1,61 @@
 <%- include('partials/header') %>
+<% locals.title = 'Edit Member' %>
+
 <section class="panel narrow">
   <h1>Edit member</h1>
-  <form method="post" action="/members/<%= member.id %>" class="stack">
+
+  <% if (locals.errors && locals.errors.length) { %>
+  <div class="error-summary" role="alert" aria-live="assertive">
+    <h2>There were errors with your submission</h2>
+    <ul>
+      <% locals.errors.forEach(function(err) { %>
+        <li><%= err %></li>
+      <% }) %>
+    </ul>
+  </div>
+  <% } %>
+
+  <form method="post" action="/members/<%= member.id %>" class="stack" data-validate>
     <%- include('partials/csrf') %>
-    <label>Name <input name="name" value="<%= member.name %>" required></label>
-    <label>Phone <input name="phone" value="<%= member.phone || '' %>"></label>
-    <label>Date of birth <input name="dob" type="date" value="<%= member.dob || '' %>"></label>
-    <label>Status
-      <select name="status">
-        <option value="active" <%= member.status === 'active' ? 'selected' : '' %>>Active</option>
-        <option value="inactive" <%= member.status === 'inactive' ? 'selected' : '' %>>Inactive</option>
-      </select>
-    </label>
-    <label>Opening arrears <input name="opening_arrears" type="number" step="0.01" value="<%= member.opening_arrears %>"></label>
-    <label>Notes <textarea name="notes"><%= member.notes || '' %></textarea></label>
+    <fieldset class="fieldset">
+      <legend>Member details <span class="required-legend">* Required</span></legend>
+
+      <div class="form-group">
+        <label for="edit-name">Name *</label>
+        <input id="edit-name" name="name" value="<%= (locals.values && locals.values.name) || member.name %>" required>
+      </div>
+
+      <div class="form-group">
+        <label for="edit-phone">Phone</label>
+        <input id="edit-phone" name="phone" value="<%= (locals.values && locals.values.phone) || member.phone || '' %>">
+      </div>
+
+      <div class="form-group">
+        <label for="edit-dob">Date of birth</label>
+        <input id="edit-dob" name="dob" type="date" value="<%= (locals.values && locals.values.dob) || member.dob || '' %>">
+      </div>
+
+      <div class="form-group">
+        <label for="edit-status">Status</label>
+        <select id="edit-status" name="status">
+          <option value="active" <%= ((locals.values && locals.values.status) || member.status) === 'active' ? 'selected' : '' %>>Active</option>
+          <option value="inactive" <%= ((locals.values && locals.values.status) || member.status) === 'inactive' ? 'selected' : '' %>>Inactive</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="edit-arrears">Opening arrears</label>
+        <input id="edit-arrears" name="opening_arrears" type="number" step="0.01" value="<%= (locals.values && locals.values.opening_arrears) || member.opening_arrears %>">
+      </div>
+
+      <div class="form-group">
+        <label for="edit-notes">Notes</label>
+        <textarea id="edit-notes" name="notes"><%= (locals.values && locals.values.notes) || member.notes || '' %></textarea>
+      </div>
+    </fieldset>
     <div class="actions">
-      <button type="submit">Save changes</button>
-      <a class="button secondary" href="/members">Cancel</a>
+      <button class="btn btn--primary" type="submit">Save changes</button>
+      <a class="btn btn--secondary" href="/members">Cancel</a>
     </div>
   </form>
 </section>

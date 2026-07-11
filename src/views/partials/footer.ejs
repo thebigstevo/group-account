@@ -1,4 +1,23 @@
   </main>
+
+  <!-- Footer -->
+  <footer class="app-footer" role="contentinfo">
+    <small>Treasurio <span class="credit">by TILC</span></small>
+  </footer>
+
+  <!-- Toast notification container -->
+  <%- include('toast-container') %>
+
+  <!-- Modal shell -->
+  <%- include('modal') %>
+
+  <!-- Print header -->
+  <%- include('print-header') %>
+
+  <% if (locals.flash && locals.flash.message) { %>
+  <div data-toast-flash="<%= locals.flash.message %>" data-toast-type="<%= locals.flash.type || 'success' %>"></div>
+  <% } %>
+
   <script src="/app.js"></script>
 </body>
 </html>

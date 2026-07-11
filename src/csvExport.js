@@ -1,4 +1,5 @@
 const { stringify } = require('csv-stringify/sync');
+const dal = require('./dal');
 
 /**
  * Convert array of objects to CSV string
@@ -27,7 +28,7 @@ function formatCurrency(value) {
 /**
  * Export transactions as CSV
  */
-function exportTransactionsCsv(db, filters = {}) {
+async function exportTransactionsCsv(filters = {}) {
   const { startDate, endDate, status = 'posted', includeReversed = false } = filters;
 
   let query = `
@@ -52,14 +53,17 @@ function exportTransactionsCsv(db, filters = {}) {
   `;
 
   const params = [];
+  let idx = 1;
 
   if (startDate) {
-    query += ` AND t.tx_date >= ?`;
+    query += ` AND t.tx_date >= $${idx}`;
     params.push(startDate);
+    idx++;
   }
   if (endDate) {
-    query += ` AND t.tx_date <= ?`;
+    query += ` AND t.tx_date <= $${idx}`;
     params.push(endDate);
+    idx++;
   }
 
   if (!includeReversed) {
@@ -68,7 +72,7 @@ function exportTransactionsCsv(db, filters = {}) {
 
   query += ` ORDER BY t.tx_date DESC, t.id DESC`;
 
-  const rows = db.prepare(query).all(...params);
+  const rows = await dal.query(query, params);
 
   const formatted = rows.map(row => ({
     Date: row.tx_date,
@@ -90,8 +94,8 @@ function exportTransactionsCsv(db, filters = {}) {
 /**
  * Export arrears report as CSV
  */
-function exportArrearsCsv(db, year) {
-  const rows = db.prepare(`
+async function exportArrearsCsv(year) {
+  const rows = await dal.query(`
     SELECT 
       m.name,
       m.phone,
@@ -104,7 +108,7 @@ function exportArrearsCsv(db, year) {
         WHERE tx_type = 'receipt'
           AND member_id = m.id
           AND category = 'Assessment'
-          AND strftime('%Y', tx_date) = ?
+          AND SUBSTRING(tx_date FROM 1 FOR 4) = $1
           AND status = 'posted'
       ), 0) as paid,
       m.opening_arrears + COALESCE(md.assessment_due, dr.annual_assessment, 0) - COALESCE((
@@ -113,18 +117,18 @@ function exportArrearsCsv(db, year) {
         WHERE tx_type = 'receipt'
           AND member_id = m.id
           AND category = 'Assessment'
-          AND strftime('%Y', tx_date) = ?
+          AND SUBSTRING(tx_date FROM 1 FOR 4) = $2
           AND status = 'posted'
       ), 0) as balance
     FROM members m
-    LEFT JOIN member_dues md ON md.member_id = m.id AND md.year = ?
-    LEFT JOIN dues_rules dr ON dr.year = ? AND (
-      (dr.min_age IS NULL OR (julianday('now') - julianday(m.dob)) / 365.25 >= dr.min_age) AND
-      (dr.max_age IS NULL OR (julianday('now') - julianday(m.dob)) / 365.25 <= dr.max_age)
+    LEFT JOIN member_dues md ON md.member_id = m.id AND md.year = $3
+    LEFT JOIN dues_rules dr ON dr.year = $4 AND dr.active = true AND (
+      (dr.min_age IS NULL OR EXTRACT(YEAR FROM AGE(CURRENT_DATE, m.dob::date)) >= dr.min_age) AND
+      (dr.max_age IS NULL OR EXTRACT(YEAR FROM AGE(CURRENT_DATE, m.dob::date)) <= dr.max_age)
     )
     WHERE m.status = 'active'
     ORDER BY m.name
-  `).all(String(year), String(year), year, year);
+  `, [String(year), String(year), year, year]);
 
   const formatted = rows.map(row => ({
     Name: row.name,
@@ -142,29 +146,29 @@ function exportArrearsCsv(db, year) {
 /**
  * Export income/expense report as CSV
  */
-function exportReportCsv(db, startDate, endDate) {
-  const incomeByCategory = db.prepare(`
+async function exportReportCsv(startDate, endDate) {
+  const incomeByCategory = await dal.query(`
     SELECT category, COALESCE(SUM(amount - welfare_component), 0) AS total
     FROM transactions
     WHERE tx_type = 'receipt' AND status = 'posted'
-      AND tx_date >= ?
-      AND tx_date <= ?
+      AND tx_date >= $1
+      AND tx_date <= $2
     GROUP BY category
     ORDER BY total DESC
-  `).all(startDate, endDate);
+  `, [startDate, endDate]);
 
-  const expensesByCategory = db.prepare(`
+  const expensesByCategory = await dal.query(`
     SELECT category, COALESCE(SUM(amount), 0) AS total
     FROM transactions
     WHERE tx_type = 'expense' AND status = 'posted'
-      AND tx_date >= ?
-      AND tx_date <= ?
+      AND tx_date >= $1
+      AND tx_date <= $2
     GROUP BY category
     ORDER BY total DESC
-  `).all(startDate, endDate);
+  `, [startDate, endDate]);
 
-  const totalIncome = incomeByCategory.reduce((sum, row) => sum + row.total, 0);
-  const totalExpenses = expensesByCategory.reduce((sum, row) => sum + row.total, 0);
+  const totalIncome = incomeByCategory.reduce((sum, row) => sum + Number(row.total), 0);
+  const totalExpenses = expensesByCategory.reduce((sum, row) => sum + Number(row.total), 0);
 
   const incomeFormatted = incomeByCategory.map(row => ({
     Type: 'Income',
@@ -191,8 +195,8 @@ function exportReportCsv(db, startDate, endDate) {
 /**
  * Export reconciliation records as CSV
  */
-function exportReconciliationsCsv(db) {
-  const rows = db.prepare(`
+async function exportReconciliationsCsv() {
+  const rows = await dal.query(`
     SELECT 
       a.name as account,
       r.period_start,
@@ -207,7 +211,7 @@ function exportReconciliationsCsv(db) {
     JOIN accounts a ON a.id = r.account_id
     LEFT JOIN users u ON u.id = r.created_by
     ORDER BY r.period_end DESC
-  `).all();
+  `);
 
   const formatted = rows.map(row => ({
     Account: row.account,
@@ -227,8 +231,8 @@ function exportReconciliationsCsv(db) {
 /**
  * Export audit log as CSV
  */
-function exportAuditLogCsv(db, limitDays = 90) {
-  const rows = db.prepare(`
+async function exportAuditLogCsv(limitDays = 90) {
+  const rows = await dal.query(`
     SELECT 
       l.created_at,
       u.name as user,
@@ -239,9 +243,9 @@ function exportAuditLogCsv(db, limitDays = 90) {
       l.ip_address
     FROM audit_log l
     LEFT JOIN users u ON u.id = l.user_id
-    WHERE l.created_at >= datetime('now', '-' || ? || ' days')
+    WHERE l.created_at >= NOW() - ($1 || ' days')::interval
     ORDER BY l.created_at DESC
-  `).all(limitDays);
+  `, [limitDays]);
 
   const formatted = rows.map(row => ({
     'Date/Time': row.created_at,

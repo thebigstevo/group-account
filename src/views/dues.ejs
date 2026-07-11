@@ -1,35 +1,76 @@
 <%- include('partials/header') %>
+<% locals.title = 'Dues' %>
+
+<% if (locals.errors && locals.errors.length) { %>
+<div class="error-summary" role="alert" aria-live="assertive">
+  <h2>There were errors with your submission</h2>
+  <ul>
+    <% locals.errors.forEach(function(err) { %>
+      <li><%= err %></li>
+    <% }) %>
+  </ul>
+</div>
+<% } %>
+
 <section class="grid two">
   <div class="panel">
     <h1>Dues rules</h1>
-    <table>
-      <thead><tr><th>Year</th><th>Label</th><th>Age band</th><th class="num">Assessment</th><th class="num">Welfare</th></tr></thead>
-      <tbody>
-        <% rules.forEach((rule) => { %>
-          <tr>
-            <td><%= rule.year %></td>
-            <td><%= rule.label %></td>
-            <td><%= rule.min_age ?? '' %> - <%= rule.max_age ?? '' %></td>
-            <td class="num"><%= formatMoney(rule.annual_assessment) %></td>
-            <td class="num"><%= formatMoney(rule.welfare_portion) %></td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Year</th><th>Label</th><th>Age band</th><th class="num">Assessment</th><th class="num">Welfare</th></tr></thead>
+        <tbody>
+          <% rules.forEach(function(rule) { %>
+            <tr>
+              <td><%= rule.year %></td>
+              <td><%= rule.label %></td>
+              <td><%= rule.min_age ?? '' %> - <%= rule.max_age ?? '' %></td>
+              <td class="num"><%= formatMoney(rule.annual_assessment) %></td>
+              <td class="num"><%= formatMoney(rule.welfare_portion) %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
   </div>
   <div class="panel">
     <h2>Add annual rule</h2>
-    <form method="post" action="/dues/rules" class="stack">
+    <form method="post" action="/dues/rules" class="stack" data-validate>
       <%- include('partials/csrf') %>
-      <label>Year <input name="year" type="number" value="<%= year %>" required></label>
-      <label>Label <input name="label" placeholder="Standard members" required></label>
-      <div class="row">
-        <label>Min age <input name="min_age" type="number"></label>
-        <label>Max age <input name="max_age" type="number"></label>
-      </div>
-      <label>Annual assessment <input name="annual_assessment" type="number" step="0.01" required></label>
-      <label>Welfare portion <input name="welfare_portion" type="number" step="0.01" required></label>
-      <button type="submit">Add rule</button>
+      <fieldset class="fieldset">
+        <legend>Rule details <span class="required-legend">* Required</span></legend>
+
+        <div class="form-group">
+          <label for="rule-year">Year *</label>
+          <input id="rule-year" name="year" type="number" value="<%= (locals.values && locals.values.year) || year %>" required>
+        </div>
+
+        <div class="form-group">
+          <label for="rule-label">Label *</label>
+          <input id="rule-label" name="label" placeholder="Standard members" required value="<%= (locals.values && locals.values.label) || '' %>">
+        </div>
+
+        <div class="row">
+          <div class="form-group">
+            <label for="rule-min-age">Min age</label>
+            <input id="rule-min-age" name="min_age" type="number" value="<%= (locals.values && locals.values.min_age) || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="rule-max-age">Max age</label>
+            <input id="rule-max-age" name="max_age" type="number" value="<%= (locals.values && locals.values.max_age) || '' %>">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="rule-assessment">Annual assessment *</label>
+          <input id="rule-assessment" name="annual_assessment" type="number" step="0.01" required value="<%= (locals.values && locals.values.annual_assessment) || '' %>">
+        </div>
+
+        <div class="form-group">
+          <label for="rule-welfare">Welfare portion *</label>
+          <input id="rule-welfare" name="welfare_portion" type="number" step="0.01" required value="<%= (locals.values && locals.values.welfare_portion) || '' %>">
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Add rule</button>
     </form>
   </div>
 </section>
@@ -37,39 +78,63 @@
 <section class="grid two">
   <div class="panel">
     <h2>Member-specific dues</h2>
-    <table>
-      <thead><tr><th>Year</th><th>Member</th><th class="num">Assessment</th><th class="num">Welfare</th><th>Reason</th></tr></thead>
-      <tbody>
-        <% overrides.forEach((row) => { %>
-          <tr>
-            <td><%= row.year %></td>
-            <td><%= row.name %></td>
-            <td class="num"><%= formatMoney(row.assessment_due) %></td>
-            <td class="num"><%= formatMoney(row.welfare_portion) %></td>
-            <td><%= row.reason || '' %></td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Year</th><th>Member</th><th class="num">Assessment</th><th class="num">Welfare</th><th>Reason</th></tr></thead>
+        <tbody>
+          <% overrides.forEach(function(row) { %>
+            <tr>
+              <td><%= row.year %></td>
+              <td><%= row.name %></td>
+              <td class="num"><%= formatMoney(row.assessment_due) %></td>
+              <td class="num"><%= formatMoney(row.welfare_portion) %></td>
+              <td><%= row.reason || '' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
   </div>
   <div class="panel">
     <h2>Override a member</h2>
-    <form method="post" action="/dues/overrides" class="stack">
+    <form method="post" action="/dues/overrides" class="stack" data-validate>
       <%- include('partials/csrf') %>
-      <label>Member
-        <select name="member_id" required>
-          <% members.forEach((member) => { %><option value="<%= member.id %>"><%= member.name %></option><% }) %>
-        </select>
-      </label>
-      <label>Year <input name="year" type="number" value="<%= year %>" required></label>
-      <label>Assessment due <input name="assessment_due" type="number" step="0.01" required></label>
-      <label>Welfare portion <input name="welfare_portion" type="number" step="0.01" required></label>
-      <label>Reason <input name="reason" placeholder="Special exemption"></label>
-      <button type="submit">Save override</button>
+      <fieldset class="fieldset">
+        <legend>Override details <span class="required-legend">* Required</span></legend>
+
+        <div class="form-group">
+          <label for="override-member">Member *</label>
+          <select id="override-member" name="member_id" required>
+            <% members.forEach(function(member) { %><option value="<%= member.id %>" <%= (locals.values && locals.values.member_id == member.id) ? 'selected' : '' %>><%= member.name %></option><% }) %>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="override-year">Year *</label>
+          <input id="override-year" name="year" type="number" value="<%= (locals.values && locals.values.year) || year %>" required>
+        </div>
+
+        <div class="form-group">
+          <label for="override-assessment">Assessment due *</label>
+          <input id="override-assessment" name="assessment_due" type="number" step="0.01" required value="<%= (locals.values && locals.values.assessment_due) || '' %>">
+        </div>
+
+        <div class="form-group">
+          <label for="override-welfare">Welfare portion *</label>
+          <input id="override-welfare" name="welfare_portion" type="number" step="0.01" required value="<%= (locals.values && locals.values.welfare_portion) || '' %>">
+        </div>
+
+        <div class="form-group">
+          <label for="override-reason">Reason</label>
+          <input id="override-reason" name="reason" placeholder="Special exemption" value="<%= (locals.values && locals.values.reason) || '' %>">
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Save override</button>
     </form>
   </div>
 </section>
-<section style="text-align: right; padding: 20px;">
-  <a href="/export/arrears?year=<%= year %>" style="background: #4CAF50; color: white; padding: 8px 12px; border-radius: 4px; text-decoration: none; font-size: 0.9em;">Export Arrears CSV</a>
+
+<section class="panel" style="text-align: right;">
+  <a class="btn btn--secondary btn--sm" href="/export/arrears?year=<%= year %>">Export Arrears CSV</a>
 </section>
 <%- include('partials/footer') %>

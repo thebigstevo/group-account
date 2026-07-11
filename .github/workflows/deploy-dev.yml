@@ -1,0 +1,62 @@
+name: Deploy Dev
+
+on:
+  push:
+    branches:
+      - feature/treasurio-overhaul
+      - develop
+
+jobs:
+  deploy-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to VPS (Dev)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+
+            APP_DIR="/opt/treasurio"
+            REPO_URL="https://github.com/thebigstevo/group-account.git"
+            BRANCH="${{ github.ref_name }}"
+
+            # Clone or update repo
+            if [ -d "$APP_DIR" ]; then
+              cd "$APP_DIR"
+              git fetch origin
+              git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH" "origin/$BRANCH"
+              git pull origin "$BRANCH"
+            else
+              git clone -b "$BRANCH" "$REPO_URL" "$APP_DIR"
+              cd "$APP_DIR"
+            fi
+
+            # Write .env file for deploy
+            cat > "$APP_DIR/deploy/.env" << 'ENVEOF'
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+            DEV_SESSION_SECRET=${{ secrets.DEV_SESSION_SECRET }}
+            DEV_N8N_API_TOKEN=${{ secrets.DEV_N8N_API_TOKEN }}
+            DEV_GROUP_NAME=${{ secrets.DEV_GROUP_NAME }}
+            PROD_SESSION_SECRET=${{ secrets.PROD_SESSION_SECRET }}
+            PROD_N8N_API_TOKEN=${{ secrets.PROD_N8N_API_TOKEN }}
+            PROD_GROUP_NAME=${{ secrets.PROD_GROUP_NAME }}
+            GROUP_CURRENCY=GHS
+            ENVEOF
+
+            # Build and restart only the dev container
+            cd "$APP_DIR/deploy"
+            docker compose --env-file .env up -d --build app-dev postgres
+            
+            # Wait for healthy
+            sleep 8
+            
+            # Run migrations on dev
+            docker compose exec -T app-dev node src/migrate.js
+
+            echo "✓ Dev deployment complete"
