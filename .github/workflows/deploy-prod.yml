@@ -31,14 +31,14 @@ jobs:
               cd "$APP_DIR"
               git fetch origin
               git checkout "$BRANCH"
-              git pull origin "$BRANCH"
+              git reset --hard "origin/$BRANCH"
             else
               git clone -b "$BRANCH" "$REPO_URL" "$APP_DIR"
               cd "$APP_DIR"
             fi
 
-            # Write .env file for deploy
-            cat > "$APP_DIR/deploy/.env" << 'ENVEOF'
+            # Write .env for docker compose
+            cat > "$APP_DIR/deploy/.env" <<EOF
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
             DEV_SESSION_SECRET=${{ secrets.DEV_SESSION_SECRET }}
             DEV_N8N_API_TOKEN=${{ secrets.DEV_N8N_API_TOKEN }}
@@ -47,16 +47,16 @@ jobs:
             PROD_N8N_API_TOKEN=${{ secrets.PROD_N8N_API_TOKEN }}
             PROD_GROUP_NAME=${{ secrets.PROD_GROUP_NAME }}
             GROUP_CURRENCY=GHS
-            ENVEOF
+            EOF
 
-            # Build and restart only the prod container
+            # Build and start prod container + shared postgres
             cd "$APP_DIR/deploy"
-            docker compose --env-file .env up -d --build app-prod postgres
+            docker compose --env-file .env up -d --build postgres app-prod
 
-            # Wait for healthy
-            sleep 8
+            # Wait for postgres healthy
+            sleep 10
 
-            # Run migrations on prod
-            docker compose exec -T app-prod node src/migrate.js
+            # Run migrations on prod database
+            docker compose --env-file .env exec -T app-prod node src/migrate.js
 
-            echo "✓ Prod deployment complete"
+            echo "✓ Prod deployed: prod-groupledger.tilcsaas.com → :3200"

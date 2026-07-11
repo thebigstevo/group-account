@@ -31,14 +31,14 @@ jobs:
               cd "$APP_DIR"
               git fetch origin
               git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH" "origin/$BRANCH"
-              git pull origin "$BRANCH"
+              git reset --hard "origin/$BRANCH"
             else
               git clone -b "$BRANCH" "$REPO_URL" "$APP_DIR"
               cd "$APP_DIR"
             fi
 
-            # Write .env file for deploy
-            cat > "$APP_DIR/deploy/.env" << 'ENVEOF'
+            # Write .env for docker compose
+            cat > "$APP_DIR/deploy/.env" <<EOF
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
             DEV_SESSION_SECRET=${{ secrets.DEV_SESSION_SECRET }}
             DEV_N8N_API_TOKEN=${{ secrets.DEV_N8N_API_TOKEN }}
@@ -47,16 +47,16 @@ jobs:
             PROD_N8N_API_TOKEN=${{ secrets.PROD_N8N_API_TOKEN }}
             PROD_GROUP_NAME=${{ secrets.PROD_GROUP_NAME }}
             GROUP_CURRENCY=GHS
-            ENVEOF
+            EOF
 
-            # Build and restart only the dev container
+            # Build and start dev container + shared postgres
             cd "$APP_DIR/deploy"
-            docker compose --env-file .env up -d --build app-dev postgres
-            
-            # Wait for healthy
-            sleep 8
-            
-            # Run migrations on dev
-            docker compose exec -T app-dev node src/migrate.js
+            docker compose --env-file .env up -d --build postgres app-dev
 
-            echo "✓ Dev deployment complete"
+            # Wait for postgres healthy
+            sleep 10
+
+            # Run migrations on dev database
+            docker compose --env-file .env exec -T app-dev node src/migrate.js
+
+            echo "✓ Dev deployed: dev-groupledger.tilcsaas.com → :3100"

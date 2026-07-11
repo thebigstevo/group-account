@@ -1,16 +1,13 @@
-name: Setup VPS (One-time)
+name: Setup Nginx (One-time)
 
 on:
   workflow_dispatch:
 
 jobs:
-  setup:
+  setup-nginx:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Configure VPS (Nginx + initial setup)
+      - name: Configure Nginx for Treasurio
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -19,10 +16,7 @@ jobs:
           script: |
             set -e
 
-            # Create app directory
-            mkdir -p /opt/treasurio/deploy
-
-            # Nginx config for dev
+            # Dev site
             cat > /etc/nginx/sites-available/treasurio-dev << 'NGINX'
             server {
                 listen 80;
@@ -43,7 +37,7 @@ jobs:
             }
             NGINX
 
-            # Nginx config for prod
+            # Prod site
             cat > /etc/nginx/sites-available/treasurio-prod << 'NGINX'
             server {
                 listen 80;
@@ -70,15 +64,4 @@ jobs:
 
             # Test and reload
             nginx -t && systemctl reload nginx
-            echo "✓ Nginx configured"
-
-            # Install certbot if not present and get certs
-            if command -v certbot &> /dev/null; then
-              certbot --nginx --non-interactive --agree-tos --email admin@tilcsaas.com \
-                -d dev-groupledger.tilcsaas.com \
-                -d prod-groupledger.tilcsaas.com || echo "Certbot failed — DNS might not be pointed yet"
-            else
-              echo "Certbot not installed. Run: apt install certbot python3-certbot-nginx"
-            fi
-
-            echo "✓ VPS setup complete"
+            echo "✓ Nginx configured for both environments"
