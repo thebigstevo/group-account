@@ -36,6 +36,10 @@ const {
 
 const app = express();
 
+// Nginx is the only service that can reach the container's loopback-bound port.
+// Trust exactly that proxy hop so rate limits and audit logs use the client IP.
+app.set('trust proxy', 1);
+
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(helmet({

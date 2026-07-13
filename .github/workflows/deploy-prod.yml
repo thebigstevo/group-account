@@ -5,6 +5,22 @@ on:
     branches:
       - master
       - main
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: Project directory name under /opt
+        required: true
+        default: treasurio
+        type: string
+      domain_name:
+        description: Production domain already pointed at the VPS
+        required: true
+        default: prod-groupledger.tilcsaas.com
+        type: string
+
+env:
+  PROJECT_NAME: ${{ inputs.project_name || vars.PROJECT_NAME || 'treasurio' }}
+  DOMAIN_NAME: ${{ inputs.domain_name || vars.PROD_DOMAIN || 'prod-groupledger.tilcsaas.com' }}
 
 jobs:
   deploy-prod:
@@ -19,32 +35,50 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: POSTGRES_PASSWORD,DEV_SESSION_SECRET,DEV_N8N_API_TOKEN,DEV_GROUP_NAME,PROD_SESSION_SECRET,PROD_N8N_API_TOKEN,PROD_GROUP_NAME
+          envs: PROJECT_NAME,DOMAIN_NAME,POSTGRES_PASSWORD,DEV_SESSION_SECRET,DEV_N8N_API_TOKEN,DEV_GROUP_NAME,PROD_SESSION_SECRET,PROD_N8N_API_TOKEN,PROD_GROUP_NAME
           script: |
-            set -e
-            APP_DIR="/opt/treasurio"
+            set -eu
+            APP_DIR="/opt/${PROJECT_NAME}"
             BRANCH="${{ github.ref_name }}"
             if [ -d "$APP_DIR/.git" ]; then
-            cd "$APP_DIR"
-            git fetch origin
-            git checkout "$BRANCH"
-            git reset --hard "origin/$BRANCH"
+              cd "$APP_DIR"
+              git fetch origin
+              git checkout "$BRANCH"
+              git reset --hard "origin/$BRANCH"
             else
-            rm -rf "$APP_DIR"
-            git clone -b "$BRANCH" https://github.com/thebigstevo/group-account.git "$APP_DIR"
+              rm -rf "$APP_DIR"
+              git clone -b "$BRANCH" https://github.com/thebigstevo/group-account.git "$APP_DIR"
             fi
             cd "$APP_DIR/deploy"
             printf 'POSTGRES_PASSWORD=%s\nDEV_SESSION_SECRET=%s\nDEV_N8N_API_TOKEN=%s\nDEV_GROUP_NAME=%s\nPROD_SESSION_SECRET=%s\nPROD_N8N_API_TOKEN=%s\nPROD_GROUP_NAME=%s\nGROUP_CURRENCY=GHS\n' "$POSTGRES_PASSWORD" "$DEV_SESSION_SECRET" "$DEV_N8N_API_TOKEN" "$DEV_GROUP_NAME" "$PROD_SESSION_SECRET" "$PROD_N8N_API_TOKEN" "$PROD_GROUP_NAME" > .env
-            if [ ! -f /etc/nginx/sites-enabled/prod-groupledger.tilcsaas.com.conf ]; then
-            printf 'server {\n    listen 80;\n    server_name prod-groupledger.tilcsaas.com;\n    client_max_body_size 5M;\n    location / {\n        proxy_pass http://127.0.0.1:3200;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n        proxy_connect_timeout 300s;\n        proxy_send_timeout 300s;\n        proxy_read_timeout 300s;\n    }\n}\n' > /etc/nginx/sites-enabled/prod-groupledger.tilcsaas.com.conf
-            nginx -t && systemctl reload nginx
-            echo "Nginx config added for prod"
+            install -m 644 cloudflare-real-ip.conf /etc/nginx/snippets/cloudflare-real-ip.conf
+            NGINX_AVAILABLE="/etc/nginx/sites-available/${DOMAIN_NAME}"
+            NGINX_ENABLED="/etc/nginx/sites-enabled/${DOMAIN_NAME}.conf"
+            if [ ! -e "$NGINX_ENABLED" ]; then
+              printf 'server {\n    listen 80;\n    server_name %s;\n    include /etc/nginx/snippets/cloudflare-real-ip.conf;\n    client_max_body_size 5M;\n    location / {\n        proxy_pass http://127.0.0.1:3200;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $remote_addr;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n        proxy_connect_timeout 300s;\n        proxy_send_timeout 300s;\n        proxy_read_timeout 300s;\n    }\n}\n' "$DOMAIN_NAME" > "$NGINX_AVAILABLE"
+              ln -sfn "$NGINX_AVAILABLE" "$NGINX_ENABLED"
+              nginx -t && systemctl reload nginx
+              echo "Nginx config added for ${DOMAIN_NAME}"
             fi
             docker compose --env-file .env up -d --build postgres app-prod
-            sleep 12
             docker compose --env-file .env exec -T app-prod node src/migrate.js
-            echo "Prod deployed successfully"
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent --show-error http://127.0.0.1:3200/health >/dev/null; then
+                break
+              fi
+              if [ "$attempt" -eq 30 ]; then
+                docker compose --env-file .env logs --tail=100 app-prod
+                exit 1
+              fi
+              sleep 2
+            done
+            if [ ! -d "/etc/letsencrypt/live/${DOMAIN_NAME}" ]; then
+              certbot --nginx -d "$DOMAIN_NAME" --non-interactive --agree-tos --redirect
+            fi
+            echo "Prod deployed successfully: https://${DOMAIN_NAME}"
         env:
+          PROJECT_NAME: ${{ env.PROJECT_NAME }}
+          DOMAIN_NAME: ${{ env.DOMAIN_NAME }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           DEV_SESSION_SECRET: ${{ secrets.DEV_SESSION_SECRET }}
           DEV_N8N_API_TOKEN: ${{ secrets.DEV_N8N_API_TOKEN }}
