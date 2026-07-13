@@ -525,6 +525,30 @@ hr {
   max-width: 120px;
 }
 
+.sidebar__signout-form {
+  margin: 0;
+}
+
+.sidebar__signout {
+  padding: 0;
+  color: var(--neutral-200);
+  font: inherit;
+  font-size: var(--font-size-caption);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.sidebar__signout:hover {
+  color: var(--color-surface);
+  text-decoration: underline;
+}
+
+.sidebar__signout:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
 .sidebar__backdrop {
   display: none;
   position: fixed;

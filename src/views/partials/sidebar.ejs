@@ -89,7 +89,10 @@
   <div class="sidebar__user">
     <span class="sidebar__user-name" title="<%= user.name || '' %>"><%= truncateName(user.name) %></span>
     <span class="badge badge--primary"><%= roleLabel(role) %></span>
-    <a href="/logout" class="sidebar__link" style="padding:0;border:none;font-size:var(--font-size-caption);">Sign out</a>
+    <form method="post" action="/logout" class="sidebar__signout-form">
+      <%- include('csrf') %>
+      <button type="submit" class="sidebar__signout">Sign out</button>
+    </form>
   </div>
 </aside>
 
