@@ -174,7 +174,38 @@ function parseXlsx(buffer, sheetName) {
 }
 
 // --- Import logic ---
+function memberSnapshot(member) {
+  return {
+    name: member.name,
+    opening_arrears: Number(member.opening_arrears || 0).toFixed(2),
+    phone: member.phone || null,
+    dob: member.dob || null,
+    status: member.status
+  };
+}
+
+function sameSnapshot(member, snapshot, includeIdentity = false) {
+  if (!member || !snapshot) return false;
+  const current = memberSnapshot(member);
+  const fields = includeIdentity
+    ? ['name', 'opening_arrears', 'phone', 'dob', 'status']
+    : ['opening_arrears', 'phone', 'dob'];
+  return fields.every(field => current[field] === snapshot[field]);
+}
+
+function summarizeBalances(values) {
+  return values.reduce((summary, value) => {
+    const amount = Number(value) || 0;
+    if (amount > 0) summary.positive++;
+    else if (amount < 0) summary.negative++;
+    else summary.zero++;
+    summary.total += amount;
+    return summary;
+  }, { positive: 0, negative: 0, zero: 0, total: 0 });
+}
+
 async function importMembers(buffer, filename, userId) {
+  const safeFilename = path.basename(filename || 'member-import').slice(0, 255);
   const ext = path.extname(filename || '').toLowerCase();
   let rows;
 
@@ -198,8 +229,17 @@ async function importMembers(buffer, filename, userId) {
   let imported = 0;
   let skipped = 0;
   const errors = [];
+  const importedBalances = [];
+  const processedMemberIds = new Set();
+  let batchId;
 
   await dal.transaction(async (client) => {
+    const batch = await client.query(`
+      INSERT INTO member_import_batches (filename, created_by)
+      VALUES ($1, $2) RETURNING id
+    `, [safeFilename, userId]);
+    batchId = batch.rows[0].id;
+
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       const name = String(row[mapping.name] || '').trim();
@@ -225,39 +265,158 @@ async function importMembers(buffer, filename, userId) {
       }
 
       try {
+        await client.query('SAVEPOINT member_import_row');
         const phone = normalizePhone(phoneRaw);
         const matches = await client.query(`
-          SELECT id FROM members
+          SELECT id, name, opening_arrears, phone, dob, status FROM members
           WHERE LOWER(name) = LOWER($1)
             AND (($2::varchar IS NOT NULL AND phone = $2) OR ($3::varchar IS NOT NULL AND dob = $3) OR ($2::varchar IS NULL AND $3::varchar IS NULL))
           ORDER BY id
+          FOR UPDATE
         `, [name, phone, dob]);
         if (matches.rows.length > 1) {
           errors.push(`Row ${i + 1} (${name}): multiple possible matches; review manually.`);
           skipped++;
+          await client.query('RELEASE SAVEPOINT member_import_row');
           continue;
         }
+        if (matches.rows.length === 1 && processedMemberIds.has(matches.rows[0].id)) {
+          errors.push(`Row ${i + 1} (${name}): duplicate member row in this file; only the first occurrence was applied.`);
+          skipped++;
+          await client.query('RELEASE SAVEPOINT member_import_row');
+          continue;
+        }
+        let member;
+        let action;
+        let beforeValue = null;
         if (matches.rows.length === 1) {
-          await client.query(`UPDATE members SET
-            opening_arrears = CASE WHEN $1 != 0 THEN $1 ELSE opening_arrears END,
+          beforeValue = memberSnapshot(matches.rows[0]);
+          const updated = await client.query(`UPDATE members SET
+            opening_arrears = $1,
             phone = COALESCE($2, phone), dob = COALESCE($3, dob)
-            WHERE id = $4`, [arrears, phone, dob, matches.rows[0].id]);
+            WHERE id = $4
+            RETURNING id, name, opening_arrears, phone, dob, status
+          `, [arrears, phone, dob, matches.rows[0].id]);
+          member = updated.rows[0];
+          action = 'updated';
         } else {
-          await client.query(`
+          const inserted = await client.query(`
             INSERT INTO members (name, opening_arrears, phone, dob, status)
             VALUES ($1, $2, $3, $4, 'active')
+            RETURNING id, name, opening_arrears, phone, dob, status, commandery_id
           `, [name, arrears, phone, dob]);
+          member = inserted.rows[0];
+          action = 'created';
+          await client.query(`
+            INSERT INTO member_status_history
+              (commandery_id, member_id, previous_status, new_status, effective_date, reason, changed_by)
+            VALUES ($1, $2, NULL, 'active', CURRENT_DATE, $3, $4)
+          `, [member.commandery_id, member.id, `Initial status recorded during member import batch ${batchId}`, userId]);
         }
+        await client.query(`
+          INSERT INTO member_import_rows
+            (batch_id, row_number, member_id, action, before_value, after_value)
+          VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
+        `, [batchId, i + 1, member.id, action, beforeValue && JSON.stringify(beforeValue), JSON.stringify(memberSnapshot(member))]);
+        await client.query('RELEASE SAVEPOINT member_import_row');
+        processedMemberIds.add(member.id);
         imported++;
+        importedBalances.push(arrears);
       } catch (err) {
+        await client.query('ROLLBACK TO SAVEPOINT member_import_row');
+        await client.query('RELEASE SAVEPOINT member_import_row');
         errors.push(`Row ${i + 1} (${name}): ${err.message}`);
         skipped++;
       }
     }
+
+    const summary = summarizeBalances(importedBalances);
+    await client.query(`
+      UPDATE member_import_batches SET
+        imported_count = $1, skipped_count = $2, positive_count = $3,
+        negative_count = $4, zero_count = $5, total_opening_balance = $6,
+        errors = $7::jsonb
+      WHERE id = $8
+    `, [imported, skipped, summary.positive, summary.negative, summary.zero,
+      summary.total, JSON.stringify(errors), batchId]);
+    await dal.audit(userId, 'import', 'member_import_batch', batchId,
+      { filename: safeFilename, imported, skipped, balanceSummary: summary }, { client });
   });
 
-  await dal.audit(userId, 'import', 'members', null, `${imported} members from ${filename}`);
-  return { imported, skipped, errors, mapping: Object.keys(mapping) };
+  return { imported, skipped, errors, mapping: Object.keys(mapping), batchId, balanceSummary: summarizeBalances(importedBalances) };
 }
 
-module.exports = { importMembers, parseCsv, detectColumnMapping };
+async function rollbackMemberImport(batchId, userId) {
+  return dal.transaction(async (client) => {
+    const batchResult = await client.query('SELECT * FROM member_import_batches WHERE id = $1 FOR UPDATE', [batchId]);
+    const batch = batchResult.rows[0];
+    if (!batch) throw new Error('Import batch not found.');
+    if (batch.status !== 'completed') throw new Error('This import has already been reversed.');
+
+    const rowsResult = await client.query('SELECT * FROM member_import_rows WHERE batch_id = $1 ORDER BY id DESC', [batchId]);
+    const blockers = [];
+    for (const row of rowsResult.rows) {
+      const memberResult = await client.query(`
+        SELECT id, name, opening_arrears, phone, dob, status FROM members WHERE id = $1 FOR UPDATE
+      `, [row.member_id]);
+      const member = memberResult.rows[0];
+      const after = row.after_value;
+      if (!member) {
+        blockers.push(`row ${row.row_number}: member no longer exists`);
+        continue;
+      }
+      if (!sameSnapshot(member, after, row.action === 'created')) {
+        blockers.push(`row ${row.row_number} (${after.name}): member was changed after import`);
+        continue;
+      }
+      if (row.action === 'created') {
+        const dependencies = await client.query(`
+          SELECT
+            (SELECT COUNT(*)::int FROM transactions WHERE member_id = $1) AS transactions,
+            (SELECT COUNT(*)::int FROM member_dues WHERE member_id = $1) AS dues,
+            (SELECT COUNT(*)::int FROM member_emergency_contacts WHERE member_id = $1) AS contacts,
+            (SELECT COUNT(*)::int FROM member_status_history
+              WHERE member_id = $1 AND reason <> $2) AS later_statuses
+        `, [member.id, `Initial status recorded during member import batch ${batchId}`]);
+        const counts = dependencies.rows[0];
+        if (counts.transactions || counts.dues || counts.contacts || counts.later_statuses) {
+          blockers.push(`row ${row.row_number} (${after.name}): member has later financial or membership activity`);
+        }
+      }
+    }
+    if (blockers.length) {
+      throw new Error(`Rollback stopped safely. ${blockers.slice(0, 5).join('; ')}${blockers.length > 5 ? `; and ${blockers.length - 5} more` : ''}.`);
+    }
+
+    for (const row of rowsResult.rows) {
+      if (row.action === 'created') {
+        await client.query('DELETE FROM member_status_history WHERE member_id = $1 AND reason = $2',
+          [row.member_id, `Initial status recorded during member import batch ${batchId}`]);
+        await client.query('DELETE FROM members WHERE id = $1', [row.member_id]);
+      } else {
+        const before = row.before_value;
+        await client.query(`
+          UPDATE members SET opening_arrears = $1, phone = $2, dob = $3 WHERE id = $4
+        `, [before.opening_arrears, before.phone, before.dob, row.member_id]);
+      }
+    }
+    await client.query(`
+      UPDATE member_import_batches
+      SET status = 'reversed', reversed_by = $1, reversed_at = NOW()
+      WHERE id = $2
+    `, [userId, batchId]);
+    await dal.audit(userId, 'rollback', 'member_import_batch', batchId,
+      { filename: batch.filename, affectedMembers: rowsResult.rows.length }, { client });
+    return { affected: rowsResult.rows.length, filename: batch.filename };
+  });
+}
+
+module.exports = {
+  importMembers,
+  rollbackMemberImport,
+  parseCsv,
+  detectColumnMapping,
+  memberSnapshot,
+  sameSnapshot,
+  summarizeBalances
+};

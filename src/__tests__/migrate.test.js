@@ -37,6 +37,8 @@ describe('Phase 1 migration contract', () => {
     expect(sql).toContain('CREATE SEQUENCE IF NOT EXISTS member_membership_number_seq');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS member_status_history');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS member_emergency_contacts');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS member_import_batches');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS member_import_rows');
     expect(sql).toContain('CREATE OR REPLACE FUNCTION assign_member_foundation_defaults');
     expect(sql).toContain("CHECK (status IN ('active','suspended','expelled','transferred','resigned'))");
     expect(sql).toContain("'secretary','finance_secretary','treasurer'");

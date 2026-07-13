@@ -184,6 +184,40 @@ async function migrate() {
   console.log('[migrate]   ✓ commandery membership foundation');
 
   await run(`
+    CREATE TABLE IF NOT EXISTS member_import_batches (
+      id SERIAL PRIMARY KEY,
+      filename VARCHAR(255) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'completed' CHECK (status IN ('completed','reversed')),
+      imported_count INTEGER NOT NULL DEFAULT 0,
+      skipped_count INTEGER NOT NULL DEFAULT 0,
+      positive_count INTEGER NOT NULL DEFAULT 0,
+      negative_count INTEGER NOT NULL DEFAULT 0,
+      zero_count INTEGER NOT NULL DEFAULT 0,
+      total_opening_balance NUMERIC(14,2) NOT NULL DEFAULT 0,
+      errors JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      reversed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      reversed_at TIMESTAMP
+    )
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS member_import_rows (
+      id SERIAL PRIMARY KEY,
+      batch_id INTEGER NOT NULL REFERENCES member_import_batches(id) ON DELETE RESTRICT,
+      row_number INTEGER NOT NULL,
+      member_id INTEGER REFERENCES members(id) ON DELETE SET NULL,
+      action VARCHAR(20) NOT NULL CHECK (action IN ('created','updated')),
+      before_value JSONB,
+      after_value JSONB NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_member_import_batches_created_at ON member_import_batches(created_at DESC)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_member_import_rows_batch_id ON member_import_rows(batch_id)`);
+  console.log('[migrate]   ✓ member import history');
+
+  await run(`
     CREATE TABLE IF NOT EXISTS accounts (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL UNIQUE,

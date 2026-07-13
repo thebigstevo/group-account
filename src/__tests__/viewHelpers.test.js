@@ -39,4 +39,38 @@ describe('view date helpers', () => {
     expect(html).toContain('2026-01-01');
     expect(html).toContain('Open a new year');
   });
+
+  test('renders tracked member imports and the admin rollback control', async () => {
+    const filename = path.join(__dirname, '..', 'views', 'members_import.ejs');
+    const html = await ejs.renderFile(filename, {
+      result: null,
+      batches: [{
+        id: 3,
+        filename: 'members.csv',
+        status: 'completed',
+        imported_count: 2,
+        skipped_count: 0,
+        positive_count: 1,
+        negative_count: 1,
+        zero_count: 0,
+        total_opening_balance: '75.00',
+        created_at: new Date('2026-07-13T18:52:43.000Z'),
+        created_by_name: 'System Admin',
+        reversed_at: null
+      }],
+      csrfToken: 'test-token',
+      user: { id: 1, name: 'System Admin', role: 'admin' },
+      currentPath: '/members/import',
+      groupName: 'Test Commandery',
+      groupCurrency: 'GHS',
+      formatMoney: value => `GHS ${value}`,
+      formatDate,
+      formatDateTime,
+      flash: null,
+    });
+
+    expect(html).toContain('Import history');
+    expect(html).toContain('/members/imports/3/rollback');
+    expect(html).toContain('name="_csrf" value="test-token"');
+  });
 });

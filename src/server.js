@@ -26,7 +26,7 @@ const {
   exportReconciliationsCsv,
   exportAuditLogCsv
 } = require('./csvExport');
-const { importMembers } = require('./importMembers');
+const { importMembers, rollbackMemberImport } = require('./importMembers');
 const {
   MEMBER_STATUSES,
   USER_ROLES,
@@ -274,9 +274,20 @@ app.get('/members', requireLogin, asyncHandler(async (req, res) => {
   res.render('members', { members, canEdit: canEditMembership(req.session.user.role) });
 }));
 
-app.get('/members/import', allow('admin', 'secretary'), (req, res) => {
-  res.render('members_import', { result: null });
-});
+async function loadMemberImportBatches() {
+  return dal.query(`
+    SELECT b.*, creator.name AS created_by_name, reverser.name AS reversed_by_name
+    FROM member_import_batches b
+    LEFT JOIN users creator ON creator.id = b.created_by
+    LEFT JOIN users reverser ON reverser.id = b.reversed_by
+    ORDER BY b.created_at DESC, b.id DESC
+    LIMIT 50
+  `);
+}
+
+app.get('/members/import', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  res.render('members_import', { result: null, batches: await loadMemberImportBatches() });
+}));
 
 app.post('/members/import', allow('admin', 'secretary'), (req, res) => {
   const chunks = [];
@@ -297,7 +308,7 @@ app.post('/members/import', allow('admin', 'secretary'), (req, res) => {
     const contentType = req.get('content-type') || '';
     const boundaryMatch = contentType.match(/boundary=(.+)/);
     if (!boundaryMatch) {
-      return res.status(400).render('members_import', { result: { imported: 0, skipped: 0, errors: ['Invalid upload. Please use the form.'] } });
+      return res.status(400).render('members_import', { result: { imported: 0, skipped: 0, errors: ['Invalid upload. Please use the form.'] }, batches: await loadMemberImportBatches() });
     }
     const boundary = '--' + boundaryMatch[1];
     const parts = body.toString('binary').split(boundary).filter(p => p.trim() && p.trim() !== '--');
@@ -319,22 +330,35 @@ app.post('/members/import', allow('admin', 'secretary'), (req, res) => {
     }
 
     if (!fileBuffer || !filename) {
-      return res.render('members_import', { result: { imported: 0, skipped: 0, errors: ['No file uploaded.'] } });
+      return res.render('members_import', { result: { imported: 0, skipped: 0, errors: ['No file uploaded.'] }, batches: await loadMemberImportBatches() });
     }
 
     const ext = filename.split('.').pop().toLowerCase();
     if (!['csv', 'xlsx', 'xls', 'txt'].includes(ext)) {
-      return res.render('members_import', { result: { imported: 0, skipped: 0, errors: ['Unsupported file type. Use .csv or .xlsx.'] } });
+      return res.render('members_import', { result: { imported: 0, skipped: 0, errors: ['Unsupported file type. Use .csv or .xlsx.'] }, batches: await loadMemberImportBatches() });
     }
 
     try {
       const result = await importMembers(fileBuffer, filename, req.session.user.id);
-      res.render('members_import', { result });
+      res.render('members_import', { result, batches: await loadMemberImportBatches() });
     } catch (err) {
-      res.render('members_import', { result: { imported: 0, skipped: 0, errors: [err.message] } });
+      res.render('members_import', { result: { imported: 0, skipped: 0, errors: [err.message] }, batches: await loadMemberImportBatches() });
     }
   });
 });
+
+app.post('/members/imports/:id/rollback', allow('admin'), asyncHandler(async (req, res) => {
+  try {
+    const result = await rollbackMemberImport(Number(req.params.id), req.session.user.id);
+    req.session.flash = {
+      type: 'success',
+      message: `Import ${result.filename} was rolled back. ${result.affected} member records restored or removed.`
+    };
+  } catch (error) {
+    req.session.flash = { type: 'error', message: error.message };
+  }
+  res.redirect('/members/import');
+}));
 
 app.get('/members/:id/edit', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
   const member = await dal.queryOne('SELECT * FROM members WHERE id = $1', [Number(req.params.id)]);

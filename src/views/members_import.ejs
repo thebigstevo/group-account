@@ -1,7 +1,7 @@
 <%- include('partials/header') %>
 <% locals.title = 'Import Members' %>
 
-<section class="panel narrow">
+<section class="panel">
   <h1>Import members</h1>
   <p class="text-muted">
     Upload a <strong>.csv</strong> or <strong>.xlsx</strong> file with member data.
@@ -14,7 +14,7 @@
       <li><strong>Name</strong> — required (or "Full Name", "Member Name")</li>
       <li><strong>Phone</strong> — optional (or "Mobile", "Contact", "Telephone")</li>
       <li><strong>DOB</strong> — optional (or "Date of Birth", "Birthday") — formats: YYYY-MM-DD, DD/MM/YYYY, or Excel serial</li>
-      <li><strong>Opening Arrears</strong> — optional (or "Arrears", "Balance", "Owing") — amount owed before go-live</li>
+      <li><strong>Opening Arrears</strong> — optional (or "Arrears", "Balance", "Owing"). Positive means the member owes money; negative means the member has credit; zero means neither.</li>
       <li><strong>Status</strong> — optional, defaults to "active"</li>
     </ul>
   </div>
@@ -35,6 +35,11 @@
       <strong><%= result.imported %> members imported/updated.</strong>
       <% if (result.skipped) { %><br><%= result.skipped %> rows skipped.<% } %>
       <% if (result.mapping) { %><br>Columns matched: <%= result.mapping.join(', ') %>.<% } %>
+      <% if (result.balanceSummary) { %>
+        <br>Balances applied: <%= result.balanceSummary.positive %> positive arrears,
+        <%= result.balanceSummary.negative %> credits, and <%= result.balanceSummary.zero %> zero balances.
+        Net opening balance: <%= formatMoney(result.balanceSummary.total) %>.
+      <% } %>
       <% if (result.errors && result.errors.length) { %>
         <ul class="error-list">
           <% result.errors.slice(0, 10).forEach(function(err) { %><li><%= err %></li><% }) %>
@@ -51,6 +56,45 @@
 Kofi Mensah,0241234567,1975-03-12,500
 Ama Owusu,0551234567,1990-08-25,0
 Kwame Asante,0201234567,1965-11-03,1200</pre>
+  </div>
+
+  <div class="template-section">
+    <h2>Import history</h2>
+    <p class="text-muted text-sm">
+      Imports listed here have row-level recovery data. Rollback restores members that were updated and removes members created by that import. It stops without changing anything if a member has since been edited or has later activity.
+    </p>
+    <% if (!locals.batches || !batches.length) { %>
+      <div class="info-box">No tracked imports yet. Imports completed before this feature cannot be automatically rolled back because their previous values were not recorded. Uploading a corrected file will now apply the exact balance, including zero.</div>
+    <% } else { %>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>File</th><th>Result</th><th>Balance signs</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            <% batches.forEach(function(batch) { %>
+              <tr>
+                <td><%= formatDateTime(batch.created_at) %><br><span class="text-muted text-sm"><%= batch.created_by_name || 'Unknown user' %></span></td>
+                <td><strong><%= batch.filename %></strong></td>
+                <td><%= batch.imported_count %> applied<br><span class="text-muted text-sm"><%= batch.skipped_count %> skipped</span></td>
+                <td><%= batch.positive_count %> positive / <%= batch.negative_count %> credit / <%= batch.zero_count %> zero<br><span class="text-muted text-sm">Net <%= formatMoney(batch.total_opening_balance) %></span></td>
+                <td><span class="badge <%= batch.status === 'completed' ? 'badge--success' : 'badge--soft' %>"><%= batch.status %></span></td>
+                <td>
+                  <% if (batch.status === 'completed' && locals.user && locals.user.role === 'admin') { %>
+                    <form method="post" action="/members/imports/<%= batch.id %>/rollback" data-confirm="Roll back this import? This restores its previous member values and removes safe-to-delete newly imported members.">
+                      <%- include('partials/csrf') %>
+                      <button class="btn btn--danger btn--sm" type="submit">Roll back</button>
+                    </form>
+                  <% } else if (batch.status === 'reversed') { %>
+                    <span class="text-muted text-sm"><%= batch.reversed_at ? formatDateTime(batch.reversed_at) : '' %></span>
+                  <% } else { %>
+                    <span class="text-muted text-sm">Admin only</span>
+                  <% } %>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
   </div>
 </section>
 <%- include('partials/footer') %>
