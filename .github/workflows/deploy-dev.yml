@@ -19,70 +19,36 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
+          envs: POSTGRES_PASSWORD,DEV_SESSION_SECRET,DEV_N8N_API_TOKEN,DEV_GROUP_NAME,PROD_SESSION_SECRET,PROD_N8N_API_TOKEN,PROD_GROUP_NAME
           script: |
             set -e
-
             APP_DIR="/opt/treasurio"
-            REPO_URL="https://github.com/thebigstevo/group-account.git"
             BRANCH="${{ github.ref_name }}"
-
-            # Clone or update repo
-            if [ -d "$APP_DIR" ]; then
-              cd "$APP_DIR"
-              git fetch origin
-              git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH" "origin/$BRANCH"
-              git reset --hard "origin/$BRANCH"
+            if [ -d "$APP_DIR/.git" ]; then
+            cd "$APP_DIR"
+            git fetch origin
+            git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH" "origin/$BRANCH"
+            git reset --hard "origin/$BRANCH"
             else
-              git clone -b "$BRANCH" "$REPO_URL" "$APP_DIR"
+            rm -rf "$APP_DIR"
+            git clone -b "$BRANCH" https://github.com/thebigstevo/group-account.git "$APP_DIR"
             fi
-
-            # Write .env for docker compose
-            cat > "$APP_DIR/deploy/.env" <<EOF
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-            DEV_SESSION_SECRET=${{ secrets.DEV_SESSION_SECRET }}
-            DEV_N8N_API_TOKEN=${{ secrets.DEV_N8N_API_TOKEN }}
-            DEV_GROUP_NAME=${{ secrets.DEV_GROUP_NAME }}
-            PROD_SESSION_SECRET=${{ secrets.PROD_SESSION_SECRET }}
-            PROD_N8N_API_TOKEN=${{ secrets.PROD_N8N_API_TOKEN }}
-            PROD_GROUP_NAME=${{ secrets.PROD_GROUP_NAME }}
-            GROUP_CURRENCY=GHS
-            EOF
-
-            # Add nginx config if not present
-            if [ ! -f /etc/nginx/sites-enabled/dev-groupledger.tilcsaas.com.conf ]; then
-              cat > /etc/nginx/sites-enabled/dev-groupledger.tilcsaas.com.conf <<'NGINX'
-            server {
-                listen 80;
-                server_name dev-groupledger.tilcsaas.com;
-                client_max_body_size 5M;
-
-                location / {
-                    proxy_pass http://127.0.0.1:3100;
-                    proxy_set_header Host $host;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                    proxy_set_header X-Forwarded-Proto $scheme;
-                    proxy_http_version 1.1;
-                    proxy_set_header Upgrade $http_upgrade;
-                    proxy_set_header Connection "upgrade";
-                    proxy_connect_timeout 300s;
-                    proxy_send_timeout 300s;
-                    proxy_read_timeout 300s;
-                }
-            }
-            NGINX
-              nginx -t && systemctl reload nginx
-              echo "  ✓ Nginx config added for dev-groupledger.tilcsaas.com"
-            fi
-
-            # Build and start dev container + shared postgres
             cd "$APP_DIR/deploy"
+            printf 'POSTGRES_PASSWORD=%s\nDEV_SESSION_SECRET=%s\nDEV_N8N_API_TOKEN=%s\nDEV_GROUP_NAME=%s\nPROD_SESSION_SECRET=%s\nPROD_N8N_API_TOKEN=%s\nPROD_GROUP_NAME=%s\nGROUP_CURRENCY=GHS\n' "$POSTGRES_PASSWORD" "$DEV_SESSION_SECRET" "$DEV_N8N_API_TOKEN" "$DEV_GROUP_NAME" "$PROD_SESSION_SECRET" "$PROD_N8N_API_TOKEN" "$PROD_GROUP_NAME" > .env
+            if [ ! -f /etc/nginx/sites-enabled/dev-groupledger.tilcsaas.com.conf ]; then
+            printf 'server {\n    listen 80;\n    server_name dev-groupledger.tilcsaas.com;\n    client_max_body_size 5M;\n    location / {\n        proxy_pass http://127.0.0.1:3100;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n        proxy_connect_timeout 300s;\n        proxy_send_timeout 300s;\n        proxy_read_timeout 300s;\n    }\n}\n' > /etc/nginx/sites-enabled/dev-groupledger.tilcsaas.com.conf
+            nginx -t && systemctl reload nginx
+            echo "Nginx config added for dev"
+            fi
             docker compose --env-file .env up -d --build postgres app-dev
-
-            # Wait for postgres healthy
-            sleep 10
-
-            # Run migrations on dev database
+            sleep 12
             docker compose --env-file .env exec -T app-dev node src/migrate.js
-
-            echo "✓ Dev deployed: dev-groupledger.tilcsaas.com → :3100"
+            echo "Dev deployed successfully"
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          DEV_SESSION_SECRET: ${{ secrets.DEV_SESSION_SECRET }}
+          DEV_N8N_API_TOKEN: ${{ secrets.DEV_N8N_API_TOKEN }}
+          DEV_GROUP_NAME: ${{ secrets.DEV_GROUP_NAME }}
+          PROD_SESSION_SECRET: ${{ secrets.PROD_SESSION_SECRET }}
+          PROD_N8N_API_TOKEN: ${{ secrets.PROD_N8N_API_TOKEN }}
+          PROD_GROUP_NAME: ${{ secrets.PROD_GROUP_NAME }}
