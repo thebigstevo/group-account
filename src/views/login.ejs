@@ -1,16 +1,19 @@
 <%- include('partials/header') %>
 <% locals.title = 'Sign In' %>
 
-<section class="auth">
-  <h1>Sign in</h1>
-  <p>Use your executive account to manage receipts, expenses, reconciliation, and reports.</p>
+<section class="auth" aria-labelledby="sign-in-title">
+  <header class="auth__header">
+    <span class="auth__brand">Treasurio</span>
+    <h1 id="sign-in-title">Welcome back</h1>
+    <p>Sign in with your executive account to manage your group’s finances.</p>
+  </header>
 
   <% if (locals.error) { %><div class="alert" role="alert"><%= error %></div><% } %>
 
   <form method="post" action="/login" class="stack" data-validate>
     <%- include('partials/csrf') %>
     <fieldset class="fieldset">
-      <legend>Credentials <span class="required-legend">* Required</span></legend>
+      <legend>Account details <span class="required-legend">* Required</span></legend>
 
       <div class="form-group">
         <label for="login-email">Email *</label>

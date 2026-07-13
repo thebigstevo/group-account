@@ -5,17 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Treasurio — Group & Club Financial Management">
   <title><%= typeof locals.title !== 'undefined' && locals.title ? locals.title + ' – Treasurio' : 'Treasurio' %></title>
-  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/app.css?v=20260713-login-shell">
 </head>
-<body>
+<%
+  const hasAuthenticatedUser = Boolean(locals.user && locals.user.id);
+%>
+<body class="<%= hasAuthenticatedUser ? 'app-page' : 'auth-page' %>">
   <!-- Skip navigation link (first focusable element) -->
   <a href="#main-content" class="skip-nav">Skip to content</a>
 
+  <% if (hasAuthenticatedUser) { %>
   <!-- Mobile top bar (visible ≤768px) -->
   <%- include('topbar-mobile') %>
 
   <!-- Sidebar navigation (left panel on desktop, drawer on mobile) -->
   <%- include('sidebar') %>
+  <% } %>
 
   <!-- Main content area -->
-  <main id="main-content" class="main-content" role="main">
+  <main id="main-content" class="main-content<%= hasAuthenticatedUser ? '' : ' auth-main' %>" role="main">

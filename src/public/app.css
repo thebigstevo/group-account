@@ -548,6 +548,90 @@ hr {
 }
 
 /* ------------------------------------------------------------
+   4.2a Authentication shell
+   ------------------------------------------------------------ */
+body.auth-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(circle at top left, var(--primary-100), transparent 38%),
+    var(--neutral-50);
+}
+
+.auth-main {
+  flex: 1;
+  min-height: calc(100vh - 52px);
+  margin-left: 0;
+  padding: clamp(var(--space-4), 5vw, 3rem);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth {
+  width: min(100%, 460px);
+  padding: clamp(var(--space-5), 5vw, var(--space-8));
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.auth__header {
+  margin-bottom: var(--space-6);
+}
+
+.auth__brand {
+  display: inline-flex;
+  margin-bottom: var(--space-4);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--primary-700);
+}
+
+.auth h1 {
+  margin-bottom: var(--space-2);
+}
+
+.auth__header p {
+  margin-bottom: 0;
+}
+
+.auth .fieldset {
+  margin-bottom: var(--space-5);
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.auth legend {
+  width: 100%;
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-h4);
+  font-weight: var(--font-weight-semibold);
+}
+
+.auth .required-legend {
+  float: right;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+}
+
+.auth .btn {
+  width: 100%;
+}
+
+.auth-page .app-footer {
+  padding: var(--space-4);
+  text-align: center;
+}
+
+/* ------------------------------------------------------------
    4.3 Data Table
    ------------------------------------------------------------ */
 .data-table-wrapper {
