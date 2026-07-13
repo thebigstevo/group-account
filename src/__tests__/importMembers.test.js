@@ -10,7 +10,8 @@ const dal = require('../dal');
 const {
   memberSnapshot,
   sameSnapshot,
-  summarizeBalances
+  summarizeBalances,
+  parseOpeningBalance
 } = require('../importMembers');
 
 describe('member import recovery helpers', () => {
@@ -21,6 +22,22 @@ describe('member import recovery helpers', () => {
       zero: 1,
       total: 100
     });
+  });
+
+  test('recognizes the stable membership number in cleanup exports', () => {
+    const { detectColumnMapping } = require('../importMembers');
+    expect(detectColumnMapping(['Membership Number', 'Name', 'Opening Balance'])).toEqual({
+      membership_number: 0,
+      name: 1,
+      opening_arrears: 2
+    });
+  });
+
+  test('parses signed and accounting-style balances without turning bad text into zero', () => {
+    expect(parseOpeningBalance('-100.50')).toBe(-100.5);
+    expect(parseOpeningBalance('(100.50)')).toBe(-100.5);
+    expect(parseOpeningBalance('GHS 1,250.00')).toBe(1250);
+    expect(parseOpeningBalance('credit')).toBeNull();
   });
 
   test('normalizes database numeric values for safe rollback comparisons', () => {
@@ -38,7 +55,7 @@ describe('member import recovery helpers', () => {
     expect(sameSnapshot({ ...member, opening_arrears: 0 }, snapshot, true)).toBe(false);
   });
 
-  test('updated-member rollback ignores fields the importer never changes', () => {
+  test('full snapshots detect later identity and status changes', () => {
     const snapshot = memberSnapshot({
       name: 'Old Name', opening_arrears: 50, phone: '0240000000', dob: null, status: 'active'
     });
@@ -59,9 +76,10 @@ describe('member import recovery helpers', () => {
           return { rows: [{ id: 4, name: 'Ama Owusu', opening_arrears: '99.00', phone: null, dob: null, status: 'active' }] };
         }
         if (text.includes('UPDATE members SET')) {
-          expect(text).toContain('opening_arrears = $1');
+          expect(text).toContain('opening_arrears = $2');
           expect(text).not.toContain('CASE WHEN');
-          expect(params[0]).toBe(0);
+          expect(params[0]).toBe('Ama Owusu');
+          expect(params[1]).toBe(0);
           return { rows: [{ id: 4, name: 'Ama Owusu', opening_arrears: '0.00', phone: null, dob: null, status: 'active' }] };
         }
         return { rows: [], rowCount: 1 };
@@ -73,6 +91,7 @@ describe('member import recovery helpers', () => {
       Buffer.from('Name,Opening Balance\nAma Owusu,0\n'), 'correction.csv', 1
     );
 
+    expect(result.errors).toEqual([]);
     expect(result.imported).toBe(1);
     expect(result.balanceSummary).toEqual({ positive: 0, negative: 0, zero: 1, total: 0 });
   });

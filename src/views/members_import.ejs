@@ -8,10 +8,18 @@
     The importer matches columns by header name — column order does not matter.
   </p>
 
+  <% if (locals.user && locals.user.role === 'admin') { %>
+    <div class="hero-actions">
+      <a class="btn btn--secondary" href="/export/members-cleanup">Download cleanup register</a>
+    </div>
+    <p class="text-muted text-sm">Edit only Membership Number, Name, Phone, DOB, Status, and Opening Balance, then upload the CSV below. Keep membership numbers unchanged so corrections target the right people.</p>
+  <% } %>
+
   <div class="info-box">
     <strong>Expected columns (any order):</strong>
     <ul>
       <li><strong>Name</strong> — required (or "Full Name", "Member Name")</li>
+      <li><strong>Membership Number</strong> — recommended for cleanup; identifies the exact existing member and is never changed by import</li>
       <li><strong>Phone</strong> — optional (or "Mobile", "Contact", "Telephone")</li>
       <li><strong>DOB</strong> — optional (or "Date of Birth", "Birthday") — formats: YYYY-MM-DD, DD/MM/YYYY, or Excel serial</li>
       <li><strong>Opening Arrears</strong> — optional (or "Arrears", "Balance", "Owing"). Positive means the member owes money; negative means the member has credit; zero means neither.</li>

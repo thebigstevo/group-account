@@ -6,6 +6,7 @@ const { normalizePhone } = require('./memberDomain');
 
 // --- Column header aliases (case-insensitive, partial match) ---
 const COLUMN_MAP = {
+  membership_number: ['membership number', 'membership no', 'member number', 'member no'],
   name: ['name', 'full name', 'member name', 'member'],
   phone: ['phone', 'telephone', 'mobile', 'contact', 'phone number'],
   dob: ['dob', 'date of birth', 'birth date', 'birthday', 'born'],
@@ -204,6 +205,17 @@ function summarizeBalances(values) {
   }, { positive: 0, negative: 0, zero: 0, total: 0 });
 }
 
+function parseOpeningBalance(value) {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return 0;
+  const parenthesized = /^\(.*\)$/.test(raw);
+  const cleaned = raw.replace(/[(),\s]/g, '').replace(/[^0-9.\-]/g, '');
+  if (!/^-?\d+(?:\.\d+)?$/.test(cleaned)) return null;
+  const amount = Number(cleaned);
+  if (!Number.isFinite(amount)) return null;
+  return parenthesized ? -Math.abs(amount) : amount;
+}
+
 async function importMembers(buffer, filename, userId) {
   const safeFilename = path.basename(filename || 'member-import').slice(0, 255);
   const ext = path.extname(filename || '').toLowerCase();
@@ -242,14 +254,32 @@ async function importMembers(buffer, filename, userId) {
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
+      const membershipNumber = 'membership_number' in mapping
+        ? String(row[mapping.membership_number] || '').trim() || null
+        : null;
       const name = String(row[mapping.name] || '').trim();
       if (!name) { skipped++; continue; }
 
       const phoneRaw = 'phone' in mapping ? String(row[mapping.phone] || '').trim() || null : null;
-      const arrearsRaw = 'opening_arrears' in mapping ? row[mapping.opening_arrears] : 0;
-      const arrears = Number(String(arrearsRaw || '0').replace(/[^0-9.\-]/g, '')) || 0;
+      const hasArrears = 'opening_arrears' in mapping;
+      const arrearsRaw = hasArrears ? row[mapping.opening_arrears] : null;
+      const arrears = hasArrears ? parseOpeningBalance(arrearsRaw) : null;
+      if (hasArrears && arrears === null) {
+        errors.push(`Row ${i + 1} (${name}): opening balance is not a valid amount.`);
+        skipped++;
+        continue;
+      }
+      const status = 'status' in mapping
+        ? String(row[mapping.status] || '').trim().toLowerCase()
+        : null;
+      if (status && !['active', 'suspended', 'expelled', 'transferred', 'resigned'].includes(status)) {
+        errors.push(`Row ${i + 1} (${name}): invalid membership status "${status}".`);
+        skipped++;
+        continue;
+      }
 
       let dob = null;
+      let invalidDob = false;
       if ('dob' in mapping && row[mapping.dob]) {
         const raw = String(row[mapping.dob]).trim();
         // Try ISO date, dd/mm/yyyy, or Excel serial
@@ -261,19 +291,37 @@ async function importMembers(buffer, filename, userId) {
           dob = `${y}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
         } else if (/^\d+$/.test(raw)) {
           dob = excelDate(raw);
+        } else {
+          invalidDob = true;
         }
+      }
+      if (invalidDob) {
+        errors.push(`Row ${i + 1} (${name}): date of birth is invalid. Use YYYY-MM-DD or DD/MM/YYYY.`);
+        skipped++;
+        continue;
       }
 
       try {
         await client.query('SAVEPOINT member_import_row');
         const phone = normalizePhone(phoneRaw);
-        const matches = await client.query(`
-          SELECT id, name, opening_arrears, phone, dob, status FROM members
-          WHERE LOWER(name) = LOWER($1)
-            AND (($2::varchar IS NOT NULL AND phone = $2) OR ($3::varchar IS NOT NULL AND dob = $3) OR ($2::varchar IS NULL AND $3::varchar IS NULL))
-          ORDER BY id
-          FOR UPDATE
-        `, [name, phone, dob]);
+        const matches = membershipNumber
+          ? await client.query(`
+              SELECT id, name, opening_arrears, phone, dob, status, first_name, last_name FROM members
+              WHERE membership_number = $1 FOR UPDATE
+            `, [membershipNumber])
+          : await client.query(`
+              SELECT id, name, opening_arrears, phone, dob, status, first_name, last_name FROM members
+              WHERE LOWER(name) = LOWER($1)
+                AND (($2::varchar IS NOT NULL AND phone = $2) OR ($3::varchar IS NOT NULL AND dob = $3) OR ($2::varchar IS NULL AND $3::varchar IS NULL))
+              ORDER BY id
+              FOR UPDATE
+            `, [name, phone, dob]);
+        if (membershipNumber && matches.rows.length === 0) {
+          errors.push(`Row ${i + 1} (${name}): membership number ${membershipNumber} was not found; no new member was created.`);
+          skipped++;
+          await client.query('RELEASE SAVEPOINT member_import_row');
+          continue;
+        }
         if (matches.rows.length > 1) {
           errors.push(`Row ${i + 1} (${name}): multiple possible matches; review manually.`);
           skipped++;
@@ -291,27 +339,40 @@ async function importMembers(buffer, filename, userId) {
         let beforeValue = null;
         if (matches.rows.length === 1) {
           beforeValue = memberSnapshot(matches.rows[0]);
+          if (name !== matches.rows[0].name && (matches.rows[0].first_name || matches.rows[0].last_name)) {
+            throw new Error('use Edit profile to rename this structured member record.');
+          }
+          const nextArrears = hasArrears ? arrears : matches.rows[0].opening_arrears;
+          const nextPhone = 'phone' in mapping ? phone : matches.rows[0].phone;
+          const nextDob = 'dob' in mapping ? dob : matches.rows[0].dob;
+          const nextStatus = status || matches.rows[0].status;
           const updated = await client.query(`UPDATE members SET
-            opening_arrears = $1,
-            phone = COALESCE($2, phone), dob = COALESCE($3, dob)
-            WHERE id = $4
+            name = $1, opening_arrears = $2, phone = $3, dob = $4, status = $5
+            WHERE id = $6
             RETURNING id, name, opening_arrears, phone, dob, status
-          `, [arrears, phone, dob, matches.rows[0].id]);
+          `, [name, nextArrears, nextPhone, nextDob, nextStatus, matches.rows[0].id]);
           member = updated.rows[0];
           action = 'updated';
+          if (nextStatus !== beforeValue.status) {
+            await client.query(`
+              INSERT INTO member_status_history
+                (commandery_id, member_id, previous_status, new_status, effective_date, reason, changed_by)
+              SELECT commandery_id, id, $1, $2, CURRENT_DATE, $3, $4 FROM members WHERE id = $5
+            `, [beforeValue.status, nextStatus, `Status changed during member import batch ${batchId}`, userId, member.id]);
+          }
         } else {
           const inserted = await client.query(`
             INSERT INTO members (name, opening_arrears, phone, dob, status)
-            VALUES ($1, $2, $3, $4, 'active')
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING id, name, opening_arrears, phone, dob, status, commandery_id
-          `, [name, arrears, phone, dob]);
+          `, [name, arrears || 0, phone, dob, status || 'active']);
           member = inserted.rows[0];
           action = 'created';
           await client.query(`
             INSERT INTO member_status_history
               (commandery_id, member_id, previous_status, new_status, effective_date, reason, changed_by)
-            VALUES ($1, $2, NULL, 'active', CURRENT_DATE, $3, $4)
-          `, [member.commandery_id, member.id, `Initial status recorded during member import batch ${batchId}`, userId]);
+            VALUES ($1, $2, NULL, $3, CURRENT_DATE, $4, $5)
+          `, [member.commandery_id, member.id, member.status, `Initial status recorded during member import batch ${batchId}`, userId]);
         }
         await client.query(`
           INSERT INTO member_import_rows
@@ -321,7 +382,7 @@ async function importMembers(buffer, filename, userId) {
         await client.query('RELEASE SAVEPOINT member_import_row');
         processedMemberIds.add(member.id);
         imported++;
-        importedBalances.push(arrears);
+        importedBalances.push(member.opening_arrears);
       } catch (err) {
         await client.query('ROLLBACK TO SAVEPOINT member_import_row');
         await client.query('RELEASE SAVEPOINT member_import_row');
@@ -365,7 +426,7 @@ async function rollbackMemberImport(batchId, userId) {
         blockers.push(`row ${row.row_number}: member no longer exists`);
         continue;
       }
-      if (!sameSnapshot(member, after, row.action === 'created')) {
+      if (!sameSnapshot(member, after, true)) {
         blockers.push(`row ${row.row_number} (${after.name}): member was changed after import`);
         continue;
       }
@@ -395,9 +456,11 @@ async function rollbackMemberImport(batchId, userId) {
         await client.query('DELETE FROM members WHERE id = $1', [row.member_id]);
       } else {
         const before = row.before_value;
+        await client.query('DELETE FROM member_status_history WHERE member_id = $1 AND reason = $2',
+          [row.member_id, `Status changed during member import batch ${batchId}`]);
         await client.query(`
-          UPDATE members SET opening_arrears = $1, phone = $2, dob = $3 WHERE id = $4
-        `, [before.opening_arrears, before.phone, before.dob, row.member_id]);
+          UPDATE members SET name = $1, opening_arrears = $2, phone = $3, dob = $4, status = $5 WHERE id = $6
+        `, [before.name, before.opening_arrears, before.phone, before.dob, before.status, row.member_id]);
       }
     }
     await client.query(`
@@ -418,5 +481,6 @@ module.exports = {
   detectColumnMapping,
   memberSnapshot,
   sameSnapshot,
-  summarizeBalances
+  summarizeBalances,
+  parseOpeningBalance
 };

@@ -22,6 +22,7 @@ const {
 const {
   exportTransactionsCsv,
   exportArrearsCsv,
+  exportMemberCleanupCsv,
   exportReportCsv,
   exportReconciliationsCsv,
   exportAuditLogCsv
@@ -418,6 +419,37 @@ app.post('/members/:id', allow('admin', 'secretary'), asyncHandler(async (req, r
   });
   req.session.flash = { type: 'success', message: 'Member updated successfully.' };
   res.redirect(`/members/${member.id}`);
+}));
+
+app.post('/members/:id/delete', allow('admin'), asyncHandler(async (req, res) => {
+  const memberId = Number(req.params.id);
+  try {
+    const deletedName = await dal.transaction(async (client) => {
+      const memberResult = await client.query('SELECT * FROM members WHERE id = $1 FOR UPDATE', [memberId]);
+      const member = memberResult.rows[0];
+      if (!member) throw new Error('Member not found.');
+      const dependencyResult = await client.query(`
+        SELECT
+          (SELECT COUNT(*)::int FROM transactions WHERE member_id = $1) AS transactions,
+          (SELECT COUNT(*)::int FROM member_dues WHERE member_id = $1) AS dues,
+          (SELECT COUNT(*)::int FROM member_emergency_contacts WHERE member_id = $1) AS contacts
+      `, [memberId]);
+      const dependencies = dependencyResult.rows[0];
+      if (dependencies.transactions || dependencies.dues || dependencies.contacts) {
+        throw new Error('This member cannot be deleted because financial activity, dues, or emergency contacts are linked to the record. Correct the record or change its status instead.');
+      }
+      await dal.audit(req.session.user.id, 'delete', 'member', memberId,
+        { reason: 'Membership data cleanup' }, { client, before_value: member });
+      await client.query('DELETE FROM member_status_history WHERE member_id = $1', [memberId]);
+      await client.query('DELETE FROM members WHERE id = $1', [memberId]);
+      return member.name;
+    });
+    req.session.flash = { type: 'success', message: `${deletedName} was removed from the membership register.` };
+    return res.redirect('/members');
+  } catch (error) {
+    req.session.flash = { type: 'error', message: error.message };
+    return res.redirect(`/members/${memberId}`);
+  }
 }));
 
 app.get('/members/:id', requireLogin, asyncHandler(async (req, res) => {
@@ -1186,6 +1218,20 @@ app.get('/export/arrears', allow('admin', 'finance_secretary', 'treasurer', 'aud
   } catch (error) {
     console.error('Export error:', error);
     res.status(500).render('error', { message: 'Failed to export arrears report.' });
+  }
+}));
+
+app.get('/export/members-cleanup', allow('admin'), asyncHandler(async (req, res) => {
+  try {
+    const year = Number(req.query.year || currentYear());
+    const csv = await exportMemberCleanupCsv(year);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="member-cleanup-${year}-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send(csv);
+    await dal.audit(req.session.user.id, 'export', 'member_cleanup', null, `Year ${year}`);
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).render('error', { message: 'Failed to export the member cleanup register.' });
   }
 }));
 

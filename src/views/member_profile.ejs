@@ -23,4 +23,15 @@
     <div class="form-group"><label for="contact-name">Name *</label><input id="contact-name" name="name" required></div><div class="form-group"><label for="contact-relationship">Relationship *</label><input id="contact-relationship" name="relationship" required></div><div class="form-group"><label for="contact-phone">Primary phone *</label><input id="contact-phone" name="primary_phone" inputmode="tel" required></div><div class="form-group"><label for="contact-secondary-phone">Secondary phone</label><input id="contact-secondary-phone" name="secondary_phone" inputmode="tel"></div><div class="form-group"><label for="contact-address">Address</label><textarea id="contact-address" name="address"></textarea></div><label><input type="checkbox" name="is_primary"> Primary emergency contact</label><button class="btn btn--primary" type="submit">Add contact</button>
   </form></div><% } %>
 </section><% } %>
+
+<% if (locals.user && locals.user.role === 'admin') { %>
+  <section class="panel">
+    <h2>Membership data cleanup</h2>
+    <p class="text-muted">Use this only for a record that should never have been created. Deletion is blocked when transactions, dues, or emergency contacts are linked.</p>
+    <form method="post" action="/members/<%= member.id %>/delete" data-confirm="Permanently remove this member record? This cannot be undone.">
+      <%- include('partials/csrf') %>
+      <button class="btn btn--danger" type="submit">Delete erroneous member</button>
+    </form>
+  </section>
+<% } %>
 <%- include('partials/footer') %>

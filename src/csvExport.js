@@ -1,5 +1,6 @@
 const { stringify } = require('csv-stringify/sync');
 const dal = require('./dal');
+const { arrearsReport } = require('./services');
 
 /**
  * Convert array of objects to CSV string
@@ -144,6 +145,49 @@ async function exportArrearsCsv(year) {
 }
 
 /**
+ * Export a stable, re-importable membership cleanup register. Calculated
+ * financial columns are deliberately ignored by the importer.
+ */
+async function exportMemberCleanupCsv(year) {
+  const [members, balances] = await Promise.all([
+    dal.query(`
+      SELECT m.id, m.membership_number, m.name, m.phone, m.dob, m.status, m.opening_arrears,
+        (SELECT COUNT(*)::int FROM transactions t WHERE t.member_id = m.id) AS transaction_count,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM members d
+          WHERE d.id <> m.id AND (
+            LOWER(BTRIM(d.name)) = LOWER(BTRIM(m.name))
+            OR (m.phone IS NOT NULL AND BTRIM(m.phone) <> '' AND d.phone = m.phone)
+          )
+        ) THEN 'REVIEW' ELSE '' END AS potential_duplicate
+      FROM members m
+      ORDER BY m.name, m.id
+    `),
+    arrearsReport(year)
+  ]);
+  const balanceByMember = new Map(balances.map(row => [row.member_id, row]));
+  const formatted = members.map(member => {
+    const balance = balanceByMember.get(member.id);
+    return {
+      'Membership Number': member.membership_number,
+      Name: member.name,
+      Phone: member.phone || '',
+      DOB: member.dob || '',
+      Status: member.status,
+      'Opening Balance': formatCurrency(member.opening_arrears),
+      'Reference Year': year,
+      'Assessment Due (reference only)': balance ? formatCurrency(balance.assessment_due) : '',
+      'Payments (reference only)': balance ? formatCurrency(balance.paid) : '',
+      'Calculated Balance (reference only)': balance ? formatCurrency(balance.balance) : '',
+      'Transaction Count (reference only)': member.transaction_count,
+      'Potential Duplicate (reference only)': member.potential_duplicate
+    };
+  });
+
+  return arrayToCsv(formatted);
+}
+
+/**
  * Export income/expense report as CSV
  */
 async function exportReportCsv(startDate, endDate) {
@@ -263,6 +307,7 @@ async function exportAuditLogCsv(limitDays = 90) {
 module.exports = {
   exportTransactionsCsv,
   exportArrearsCsv,
+  exportMemberCleanupCsv,
   exportReportCsv,
   exportReconciliationsCsv,
   exportAuditLogCsv,
