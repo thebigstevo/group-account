@@ -21,7 +21,7 @@
     <fieldset class="fieldset"><legend>Commandery details</legend>
       <div class="form-group"><label for="edit-parish">Parish</label><input id="edit-parish" name="parish" value="<%= value('parish', member.parish) %>"></div>
       <div class="form-group"><label for="edit-occupation">Occupation</label><input id="edit-occupation" name="occupation" value="<%= value('occupation', member.occupation) %>"></div>
-      <div class="form-group"><label for="edit-admitted">Date first admitted</label><input id="edit-admitted" name="date_first_admitted" type="date" value="<%= value('date_first_admitted', member.date_first_admitted && String(member.date_first_admitted).slice(0,10)) %>"></div>
+      <div class="form-group"><label for="edit-admitted">Date first admitted</label><input id="edit-admitted" name="date_first_admitted" type="date" value="<%= value('date_first_admitted', formatDate(member.date_first_admitted)) %>"></div>
       <div class="form-group"><label for="edit-notes">Administrative notes</label><textarea id="edit-notes" name="notes"><%= value('notes', member.notes) %></textarea></div>
     </fieldset>
     <div class="actions"><button class="btn btn--primary" type="submit">Save changes</button><a class="btn btn--secondary" href="/members/<%= member.id %>">Cancel</a></div>

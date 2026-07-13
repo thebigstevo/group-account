@@ -17,7 +17,7 @@
         <tbody>
           <% rows.forEach(function(row) { %>
             <tr>
-              <td><%= row.created_at %></td>
+              <td><%= formatDateTime(row.created_at) %></td>
               <td><%= row.user_name || '' %></td>
               <td><%= row.action %></td>
               <td><%= row.entity %> #<%= row.entity_id || '' %></td>

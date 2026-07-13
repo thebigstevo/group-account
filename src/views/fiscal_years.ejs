@@ -34,8 +34,8 @@
               <tr>
                 <td><strong><%= fy.year %></strong></td>
                 <td><span class="badge <%= fy.status === 'open' ? 'badge--success' : 'badge--soft' %>"><%= fy.status %></span></td>
-                <td><%= fy.opened_at ? fy.opened_at.slice(0, 10) : '' %></td>
-                <td><%= fy.closed_at ? fy.closed_at.slice(0, 10) : '' %></td>
+                <td><%= formatDate(fy.opened_at) %></td>
+                <td><%= formatDate(fy.closed_at) %></td>
                 <td><%= fy.notes || '' %></td>
               </tr>
             <% }) %>

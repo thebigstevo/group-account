@@ -8,6 +8,7 @@ const config = require('./config');
 const { port, sessionSecret, n8nApiToken, requireSecret, secureCookies, groupName, groupCurrency } = config;
 const dal = require('./dal');
 const { verifyPassword, hashPassword } = require('./security');
+const { formatDate, formatDateTime } = require('./viewHelpers');
 const pgSession = require('connect-pg-simple')(session);
 const {
   accountBalances,
@@ -145,6 +146,8 @@ app.use((req, res, next) => {
     style: 'currency',
     currency: config.groupCurrency
   });
+  res.locals.formatDate = formatDate;
+  res.locals.formatDateTime = formatDateTime;
   // Flash message mechanism: read from session and pass to locals, then clear
   if (req.session && req.session.flash) {
     res.locals.flash = req.session.flash;
