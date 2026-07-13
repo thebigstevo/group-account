@@ -60,8 +60,10 @@ jobs:
               nginx -t && systemctl reload nginx
               echo "Nginx config added for ${DOMAIN_NAME}"
             fi
-            docker compose --env-file .env up -d --build postgres app-prod
-            docker compose --env-file .env exec -T app-prod node src/migrate.js
+            docker compose --env-file .env up -d postgres
+            docker compose --env-file .env build app-prod
+            docker compose --env-file .env run --rm --no-deps app-prod node src/migrate.js
+            docker compose --env-file .env up -d app-prod
             for attempt in $(seq 1 30); do
               if curl --fail --silent --show-error http://127.0.0.1:3200/health >/dev/null; then
                 break

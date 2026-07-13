@@ -55,26 +55,27 @@ ssh ${VPS_USER}@${VPS_HOST} << 'EOF'
   echo "  ✓ Nginx configured and reloaded"
 EOF
 
-# Step 5: Build and start containers on VPS
-echo "[5/6] Building and starting containers..."
+# Step 5: Start PostgreSQL and build application images
+echo "[5/6] Starting PostgreSQL and building application images..."
 ssh ${VPS_USER}@${VPS_HOST} << EOF
   cd ${REMOTE_DIR}/deploy
-  docker compose --env-file .env up -d --build
-  echo ""
-  echo "  Waiting for services to be healthy..."
-  sleep 10
-  docker compose ps
+  docker compose --env-file .env up -d postgres
+  docker compose --env-file .env build app-dev app-prod
 EOF
 
-# Step 6: Run migrations on both databases
-echo "[6/6] Running database migrations..."
+# Step 6: Migrate once, then start the application containers
+echo "[6/6] Running migrations and starting applications..."
 ssh ${VPS_USER}@${VPS_HOST} << EOF
   cd ${REMOTE_DIR}/deploy
   echo "  Running migration on dev..."
-  docker compose exec -T app-dev node src/migrate.js
+  docker compose --env-file .env run --rm --no-deps app-dev node src/migrate.js
   echo "  Running migration on prod..."
-  docker compose exec -T app-prod node src/migrate.js
-  echo "  ✓ Migrations complete"
+  docker compose --env-file .env run --rm --no-deps app-prod node src/migrate.js
+  docker compose --env-file .env up -d app-dev app-prod
+  echo "  Waiting for services to be healthy..."
+  sleep 10
+  docker compose --env-file .env ps
+  echo "  ✓ Migrations complete and applications started"
 EOF
 
 echo ""

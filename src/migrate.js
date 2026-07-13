@@ -9,13 +9,28 @@ const config = require('./config');
  * Safe to run multiple times — uses IF NOT EXISTS and count checks.
  */
 async function migrate() {
-  console.log('[migrate] Starting PostgreSQL schema migration...');
+  return dal.transaction(async (client) => {
+    const run = (sql, params = []) => client.query(sql, params);
+    const queryOne = async (sql, params = []) => {
+      const result = await client.query(sql, params);
+      return result.rows[0] || null;
+    };
+
+    // PostgreSQL's CREATE ... IF NOT EXISTS is not concurrency-safe when two
+    // deploy processes create the same relation simultaneously. Serialize the
+    // complete migration and keep all DDL atomic.
+    await run(
+      'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+      ['treasurio-schema-migration']
+    );
+
+    console.log('[migrate] Starting PostgreSQL schema migration...');
 
   // ─── CREATE TABLES ────────────────────────────────────────────────────────────
 
   console.log('[migrate] Creating tables...');
 
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
@@ -26,8 +41,8 @@ async function migrate() {
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
-  await dal.run(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`);
-  await dal.run(`
+  await run(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`);
+  await run(`
     ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN (
       'admin','president','first_vice_president','second_vice_president',
       'secretary','finance_secretary','treasurer','auditor','trustee',
@@ -36,7 +51,7 @@ async function migrate() {
   `);
   console.log('[migrate]   ✓ users');
 
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS members (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL UNIQUE,
@@ -52,7 +67,7 @@ async function migrate() {
 
   // Phase 1: commandery membership foundation. The existing members table is
   // deliberately extended so all finance foreign keys retain their meaning.
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS commanderies (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
@@ -67,44 +82,44 @@ async function migrate() {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
-  await dal.run(`
+  await run(`
     INSERT INTO commanderies (name, commandery_number, membership_prefix)
     VALUES ($1, '001', 'KSJI')
     ON CONFLICT (commandery_number) DO NOTHING
   `, [config.groupName || 'KSJI Commandery']);
 
-  await dal.run(`CREATE SEQUENCE IF NOT EXISTS member_membership_number_seq START 1`);
-  await dal.run(`ALTER TABLE members DROP CONSTRAINT IF EXISTS members_name_key`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS commandery_id INTEGER REFERENCES commanderies(id) ON DELETE RESTRICT`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS membership_number VARCHAR(50)`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS title VARCHAR(30)`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS first_name VARCHAR(120)`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS middle_name VARCHAR(120)`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS last_name VARCHAR(120)`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS preferred_name VARCHAR(120)`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS secondary_phone VARCHAR(50)`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS email VARCHAR(255)`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS residential_address TEXT`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS parish VARCHAR(255)`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS occupation VARCHAR(255)`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS date_first_admitted DATE`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS profile_photo_path TEXT`);
-  await dal.run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()`);
-  await dal.run(`UPDATE members SET commandery_id = (SELECT id FROM commanderies ORDER BY id LIMIT 1) WHERE commandery_id IS NULL`);
-  await dal.run(`
+  await run(`CREATE SEQUENCE IF NOT EXISTS member_membership_number_seq START 1`);
+  await run(`ALTER TABLE members DROP CONSTRAINT IF EXISTS members_name_key`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS commandery_id INTEGER REFERENCES commanderies(id) ON DELETE RESTRICT`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS membership_number VARCHAR(50)`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS title VARCHAR(30)`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS first_name VARCHAR(120)`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS middle_name VARCHAR(120)`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS last_name VARCHAR(120)`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS preferred_name VARCHAR(120)`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS secondary_phone VARCHAR(50)`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS email VARCHAR(255)`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS residential_address TEXT`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS parish VARCHAR(255)`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS occupation VARCHAR(255)`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS date_first_admitted DATE`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS profile_photo_path TEXT`);
+  await run(`ALTER TABLE members ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()`);
+  await run(`UPDATE members SET commandery_id = (SELECT id FROM commanderies ORDER BY id LIMIT 1) WHERE commandery_id IS NULL`);
+  await run(`
     UPDATE members m
     SET membership_number = c.membership_prefix || '-' || LPAD(nextval('member_membership_number_seq')::text, 6, '0')
     FROM commanderies c
     WHERE m.commandery_id = c.id AND m.membership_number IS NULL
   `);
-  await dal.run(`ALTER TABLE members DROP CONSTRAINT IF EXISTS members_status_check`);
-  await dal.run(`UPDATE members SET status = 'resigned' WHERE status = 'inactive'`);
-  await dal.run(`ALTER TABLE members ALTER COLUMN commandery_id SET NOT NULL`);
-  await dal.run(`ALTER TABLE members ALTER COLUMN membership_number SET NOT NULL`);
-  await dal.run(`ALTER TABLE members ADD CONSTRAINT members_status_check CHECK (status IN ('active','suspended','expelled','transferred','resigned'))`);
-  await dal.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_members_membership_number ON members(membership_number)`);
+  await run(`ALTER TABLE members DROP CONSTRAINT IF EXISTS members_status_check`);
+  await run(`UPDATE members SET status = 'resigned' WHERE status = 'inactive'`);
+  await run(`ALTER TABLE members ALTER COLUMN commandery_id SET NOT NULL`);
+  await run(`ALTER TABLE members ALTER COLUMN membership_number SET NOT NULL`);
+  await run(`ALTER TABLE members ADD CONSTRAINT members_status_check CHECK (status IN ('active','suspended','expelled','transferred','resigned'))`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_members_membership_number ON members(membership_number)`);
 
-  await dal.run(`
+  await run(`
     CREATE OR REPLACE FUNCTION assign_member_foundation_defaults()
     RETURNS TRIGGER AS $$
     DECLARE member_prefix VARCHAR(20);
@@ -121,14 +136,14 @@ async function migrate() {
     END;
     $$ LANGUAGE plpgsql
   `);
-  await dal.run(`DROP TRIGGER IF EXISTS trg_member_foundation_defaults ON members`);
-  await dal.run(`
+  await run(`DROP TRIGGER IF EXISTS trg_member_foundation_defaults ON members`);
+  await run(`
     CREATE TRIGGER trg_member_foundation_defaults
     BEFORE INSERT OR UPDATE ON members
     FOR EACH ROW EXECUTE FUNCTION assign_member_foundation_defaults()
   `);
 
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS member_status_history (
       id SERIAL PRIMARY KEY,
       commandery_id INTEGER NOT NULL REFERENCES commanderies(id) ON DELETE RESTRICT,
@@ -142,13 +157,13 @@ async function migrate() {
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
-  await dal.run(`
+  await run(`
     INSERT INTO member_status_history (commandery_id, member_id, previous_status, new_status, effective_date, reason)
     SELECT commandery_id, id, NULL, status, COALESCE(date_first_admitted, created_at::date), 'Initial status recorded during membership foundation migration'
     FROM members m
     WHERE NOT EXISTS (SELECT 1 FROM member_status_history h WHERE h.member_id = m.id)
   `);
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS member_emergency_contacts (
       id SERIAL PRIMARY KEY,
       commandery_id INTEGER NOT NULL REFERENCES commanderies(id) ON DELETE RESTRICT,
@@ -168,7 +183,7 @@ async function migrate() {
   `);
   console.log('[migrate]   ✓ commandery membership foundation');
 
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS accounts (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL UNIQUE,
@@ -179,7 +194,7 @@ async function migrate() {
   `);
   console.log('[migrate]   ✓ accounts');
 
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS fiscal_years (
       year INTEGER PRIMARY KEY,
       status VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
@@ -191,7 +206,7 @@ async function migrate() {
   `);
   console.log('[migrate]   ✓ fiscal_years');
 
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS dues_rules (
       id SERIAL PRIMARY KEY,
       year INTEGER NOT NULL,
@@ -206,7 +221,7 @@ async function migrate() {
   `);
   console.log('[migrate]   ✓ dues_rules');
 
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS payment_splits (
       id SERIAL PRIMARY KEY,
       year INTEGER NOT NULL,
@@ -219,7 +234,7 @@ async function migrate() {
   `);
   console.log('[migrate]   ✓ payment_splits');
 
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS transaction_categories (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL UNIQUE,
@@ -230,7 +245,7 @@ async function migrate() {
   `);
   console.log('[migrate]   ✓ transaction_categories');
 
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS member_dues (
       id SERIAL PRIMARY KEY,
       member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
@@ -243,7 +258,7 @@ async function migrate() {
   `);
   console.log('[migrate]   ✓ member_dues');
 
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS transactions (
       id SERIAL PRIMARY KEY,
       tx_date VARCHAR(10) NOT NULL,
@@ -266,7 +281,7 @@ async function migrate() {
   `);
   console.log('[migrate]   ✓ transactions');
 
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS reconciliations (
       id SERIAL PRIMARY KEY,
       account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -282,7 +297,7 @@ async function migrate() {
   `);
   console.log('[migrate]   ✓ reconciliations');
 
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS audit_log (
       id SERIAL PRIMARY KEY,
       user_id INTEGER,
@@ -296,15 +311,15 @@ async function migrate() {
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
-  await dal.run(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS before_value TEXT`);
-  await dal.run(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS after_value TEXT`);
-  await dal.run(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS ip_address VARCHAR(255)`);
-  await dal.run(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS user_agent TEXT`);
-  await dal.run(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS reason TEXT`);
+  await run(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS before_value TEXT`);
+  await run(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS after_value TEXT`);
+  await run(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS ip_address VARCHAR(255)`);
+  await run(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS user_agent TEXT`);
+  await run(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS reason TEXT`);
   console.log('[migrate]   ✓ audit_log');
 
   // Sessions table for connect-pg-simple
-  await dal.run(`
+  await run(`
     CREATE TABLE IF NOT EXISTS sessions (
       sid VARCHAR NOT NULL PRIMARY KEY,
       sess JSON NOT NULL,
@@ -317,16 +332,16 @@ async function migrate() {
 
   console.log('[migrate] Creating indexes...');
 
-  await dal.run(`CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(tx_date)`);
-  await dal.run(`CREATE INDEX IF NOT EXISTS idx_transactions_type_status ON transactions(tx_type, status)`);
-  await dal.run(`CREATE INDEX IF NOT EXISTS idx_transactions_member_year ON transactions(member_id, tx_date)`);
-  await dal.run(`CREATE INDEX IF NOT EXISTS idx_transactions_account_date ON transactions(account_id, tx_date)`);
-  await dal.run(`CREATE INDEX IF NOT EXISTS idx_reconciliations_account_period ON reconciliations(account_id, period_start, period_end)`);
-  await dal.run(`CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at)`);
-  await dal.run(`CREATE INDEX IF NOT EXISTS idx_members_commandery_status ON members(commandery_id, status)`);
-  await dal.run(`CREATE INDEX IF NOT EXISTS idx_member_status_history_member_date ON member_status_history(member_id, effective_date DESC)`);
-  await dal.run(`CREATE INDEX IF NOT EXISTS idx_emergency_contacts_member ON member_emergency_contacts(member_id)`);
-  await dal.run(`CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expire)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(tx_date)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_transactions_type_status ON transactions(tx_type, status)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_transactions_member_year ON transactions(member_id, tx_date)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_transactions_account_date ON transactions(account_id, tx_date)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_reconciliations_account_period ON reconciliations(account_id, period_start, period_end)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_members_commandery_status ON members(commandery_id, status)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_member_status_history_member_date ON member_status_history(member_id, effective_date DESC)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_emergency_contacts_member ON member_emergency_contacts(member_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expire)`);
 
   console.log('[migrate]   ✓ Indexes created');
 
@@ -335,18 +350,18 @@ async function migrate() {
   console.log('[migrate] Checking seed data...');
 
   // Seed default accounts only when table is empty
-  const accountCount = await dal.queryOne('SELECT COUNT(*)::int AS count FROM accounts');
+  const accountCount = await queryOne('SELECT COUNT(*)::int AS count FROM accounts');
   if (accountCount.count === 0) {
-    await dal.run(`INSERT INTO accounts (name, type) VALUES ($1, $2)`, ['Cash', 'cash']);
-    await dal.run(`INSERT INTO accounts (name, type) VALUES ($1, $2)`, ['Bank', 'bank']);
-    await dal.run(`INSERT INTO accounts (name, type) VALUES ($1, $2)`, ['Mobile Money', 'mobile_money']);
+    await run(`INSERT INTO accounts (name, type) VALUES ($1, $2)`, ['Cash', 'cash']);
+    await run(`INSERT INTO accounts (name, type) VALUES ($1, $2)`, ['Bank', 'bank']);
+    await run(`INSERT INTO accounts (name, type) VALUES ($1, $2)`, ['Mobile Money', 'mobile_money']);
     console.log('[migrate]   ✓ Seeded default accounts (Cash, Bank, Mobile Money)');
   } else {
     console.log('[migrate]   ⊘ Accounts table not empty, skipping seed');
   }
 
   // Seed default transaction categories only when table is empty
-  const categoryCount = await dal.queryOne('SELECT COUNT(*)::int AS count FROM transaction_categories');
+  const categoryCount = await queryOne('SELECT COUNT(*)::int AS count FROM transaction_categories');
   if (categoryCount.count === 0) {
     const categories = [
       ['Assessment', 'income', 10],
@@ -362,7 +377,7 @@ async function migrate() {
       ['Welfare Payout', 'expense', 60],
     ];
     for (const [name, kind, sortOrder] of categories) {
-      await dal.run(
+      await run(
         `INSERT INTO transaction_categories (name, kind, sort_order) VALUES ($1, $2, $3)`,
         [name, kind, sortOrder]
       );
@@ -372,7 +387,8 @@ async function migrate() {
     console.log('[migrate]   ⊘ Transaction categories table not empty, skipping seed');
   }
 
-  console.log('[migrate] Migration complete.');
+    console.log('[migrate] Migration complete.');
+  });
 }
 
 // Run from the CLI; exporting the function also allows CI to exercise the

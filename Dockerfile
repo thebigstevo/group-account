@@ -16,4 +16,4 @@ COPY package.json ./
 USER node
 EXPOSE 3000
 
-CMD ["sh", "-c", "node src/migrate.js && node src/server.js"]
+CMD ["node", "src/server.js"]
