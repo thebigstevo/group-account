@@ -1,11 +1,14 @@
 <%- include('partials/header') %>
 <% locals.title = 'Transactions' %>
+<% const activeYear = locals.activeFiscalYear ? Number(locals.activeFiscalYear.year) : new Date().getFullYear(); %>
+<% const today = new Date().toISOString().slice(0, 10); %>
+<% const defaultTxDate = Number(today.slice(0, 4)) === activeYear ? today : activeYear + '-01-01'; %>
 
 <section class="page-title">
   <div>
     <span class="eyebrow">Daily entry</span>
     <h1>Transactions</h1>
-    <p>Record receipts, expenses, welfare payouts, and transfers across Cash, Bank, and Mobile Money.</p>
+    <p>Record receipts, expenses, welfare payouts, and transfers for active fiscal year <strong><%= activeYear %></strong>.</p>
   </div>
   <a class="btn btn--secondary" href="/export/transactions">Export CSV</a>
 </section>
@@ -31,7 +34,7 @@
 
         <div class="form-group">
           <label for="receipt-tx-date">Date *</label>
-          <input id="receipt-tx-date" name="tx_date" type="date" required value="<%= (locals.values && locals.values.tx_date) || '' %>">
+          <input id="receipt-tx-date" name="tx_date" type="date" min="<%= activeYear %>-01-01" max="<%= activeYear %>-12-31" required value="<%= (locals.values && locals.values.tx_date) || defaultTxDate %>">
         </div>
 
         <div class="form-group">
@@ -84,7 +87,7 @@
 
         <div class="form-group">
           <label for="expense-tx-date">Date *</label>
-          <input id="expense-tx-date" name="tx_date" type="date" required value="<%= (locals.values && locals.values.tx_date) || '' %>">
+          <input id="expense-tx-date" name="tx_date" type="date" min="<%= activeYear %>-01-01" max="<%= activeYear %>-12-31" required value="<%= (locals.values && locals.values.tx_date) || defaultTxDate %>">
         </div>
 
         <div class="form-group">
@@ -124,7 +127,7 @@
 
         <div class="form-group">
           <label for="transfer-tx-date">Date *</label>
-          <input id="transfer-tx-date" name="tx_date" type="date" required value="<%= (locals.values && locals.values.tx_date) || '' %>">
+          <input id="transfer-tx-date" name="tx_date" type="date" min="<%= activeYear %>-01-01" max="<%= activeYear %>-12-31" required value="<%= (locals.values && locals.values.tx_date) || defaultTxDate %>">
         </div>
 
         <div class="form-group">

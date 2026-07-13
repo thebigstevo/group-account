@@ -87,6 +87,7 @@
 
   <!-- User Info -->
   <div class="sidebar__user">
+    <% if (locals.activeFiscalYear) { %><span class="badge badge--success">FY <%= locals.activeFiscalYear.year %></span><% } %>
     <span class="sidebar__user-name" title="<%= user.name || '' %>"><%= truncateName(user.name) %></span>
     <span class="badge badge--primary"><%= roleLabel(role) %></span>
     <form method="post" action="/logout" class="sidebar__signout-form">

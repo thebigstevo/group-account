@@ -8,6 +8,10 @@
     The importer matches columns by header name — column order does not matter.
   </p>
 
+  <div class="info-box">
+    <strong>Fiscal year <%= activeFiscalYear.year %></strong> is active. Opening balances in this upload will be treated as the starting member balances for this fiscal year.
+  </div>
+
   <% if (locals.user && locals.user.role === 'admin') { %>
     <div class="hero-actions">
       <a class="btn btn--secondary" href="/export/members-cleanup">Download cleanup register</a>
@@ -76,11 +80,12 @@ Kwame Asante,0201234567,1965-11-03,1200</pre>
     <% } else { %>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Date</th><th>File</th><th>Result</th><th>Balance signs</th><th>Status</th><th>Action</th></tr></thead>
+          <thead><tr><th>Date</th><th>Fiscal year</th><th>File</th><th>Result</th><th>Balance signs</th><th>Status</th><th>Action</th></tr></thead>
           <tbody>
             <% batches.forEach(function(batch) { %>
               <tr>
                 <td><%= formatDateTime(batch.created_at) %><br><span class="text-muted text-sm"><%= batch.created_by_name || 'Unknown user' %></span></td>
+                <td><%= batch.fiscal_year || 'Legacy' %></td>
                 <td><strong><%= batch.filename %></strong></td>
                 <td><%= batch.imported_count %> applied<br><span class="text-muted text-sm"><%= batch.skipped_count %> skipped</span></td>
                 <td><%= batch.positive_count %> positive / <%= batch.negative_count %> credit / <%= batch.zero_count %> zero<br><span class="text-muted text-sm">Net <%= formatMoney(batch.total_opening_balance) %></span></td>

@@ -9,6 +9,7 @@ const { port, sessionSecret, n8nApiToken, requireSecret, secureCookies, groupNam
 const dal = require('./dal');
 const { verifyPassword, hashPassword } = require('./security');
 const { formatDate, formatDateTime } = require('./viewHelpers');
+const { validateActiveFiscalDate } = require('./fiscalYearDomain');
 const pgSession = require('connect-pg-simple')(session);
 const {
   accountBalances,
@@ -158,6 +159,24 @@ app.use((req, res, next) => {
 });
 app.use(validateCsrf);
 
+const FISCAL_SETUP_ROLES = new Set(['admin', 'finance_secretary', 'treasurer']);
+
+app.use(async (req, res, next) => {
+  if (!req.session.user) return next();
+  try {
+    const activeFiscalYear = await dal.queryOne(
+      "SELECT * FROM fiscal_years WHERE status = 'open' AND is_active = true LIMIT 1"
+    );
+    req.activeFiscalYear = activeFiscalYear;
+    res.locals.activeFiscalYear = activeFiscalYear;
+    if (activeFiscalYear || req.path.startsWith('/fiscal-years') || req.path === '/logout') return next();
+    if (FISCAL_SETUP_ROLES.has(req.session.user.role)) return res.redirect('/fiscal-years?setup=1');
+    return res.status(503).render('setup_required');
+  } catch (error) {
+    return next(error);
+  }
+});
+
 function getClientIp(req) {
   return req.ip || req.connection.remoteAddress || req.socket.remoteAddress || null;
 }
@@ -195,6 +214,16 @@ async function isYearClosed(txDate) {
   if (!year) return false;
   const fy = await dal.queryOne('SELECT status FROM fiscal_years WHERE year = $1', [year]);
   return fy && fy.status === 'closed';
+}
+
+function selectedYear(req) {
+  return req.activeFiscalYear ? Number(req.activeFiscalYear.year) : currentYear();
+}
+
+async function transactionYearError(req, txDate) {
+  const validationError = validateActiveFiscalDate(req.activeFiscalYear, txDate);
+  if (validationError) return validationError;
+  return (await isYearClosed(txDate)) ? 'That year is closed. No new transactions are allowed.' : null;
 }
 
 function monthPeriod(year, month) {
@@ -237,21 +266,24 @@ app.post('/logout', requireLogin, (req, res) => {
 
 app.get('/', requireLogin, asyncHandler(async (req, res) => {
   try {
-    const summary = await reportSummary();
+    const year = selectedYear(req);
+    const yearStart = `${year}-01-01`;
+    const yearEnd = `${year}-12-31`;
+    const summary = await reportSummary(yearStart, yearEnd);
     const recent = await dal.query(`
       SELECT t.*, m.name AS member_name, a.name AS account_name
       FROM transactions t
       LEFT JOIN members m ON m.id = t.member_id
       LEFT JOIN accounts a ON a.id = t.account_id
-      WHERE t.status = 'posted'
+      WHERE t.status = 'posted' AND t.tx_date >= $1 AND t.tx_date <= $2
       ORDER BY t.tx_date DESC, t.id DESC
       LIMIT 10
-    `);
+    `, [yearStart, yearEnd]);
     const memberCountRow = await dal.queryOne("SELECT COUNT(*) AS count FROM members WHERE status = 'active'");
     const memberCount = Number(memberCountRow.count);
-    const unreconciledRow = await dal.queryOne("SELECT COUNT(*) AS count FROM transactions WHERE status = 'posted' AND reconciled = false");
+    const unreconciledRow = await dal.queryOne("SELECT COUNT(*) AS count FROM transactions WHERE status = 'posted' AND reconciled = false AND tx_date >= $1 AND tx_date <= $2", [yearStart, yearEnd]);
     const unreconciledCount = Number(unreconciledRow.count);
-    const arrearsData = await arrearsReport(currentYear());
+    const arrearsData = await arrearsReport(selectedYear(req));
     const arrearsCount = arrearsData.filter((row) => row.balance > 0).length;
     const lastRecRow = await dal.queryOne('SELECT MAX(period_end) AS date FROM reconciliations');
     const lastReconciliation = lastRecRow ? lastRecRow.date : null;
@@ -340,7 +372,7 @@ app.post('/members/import', allow('admin', 'secretary'), (req, res) => {
     }
 
     try {
-      const result = await importMembers(fileBuffer, filename, req.session.user.id);
+      const result = await importMembers(fileBuffer, filename, req.session.user.id, selectedYear(req));
       res.render('members_import', { result, batches: await loadMemberImportBatches() });
     } catch (err) {
       res.render('members_import', { result: { imported: 0, skipped: 0, errors: [err.message] }, batches: await loadMemberImportBatches() });
@@ -560,10 +592,14 @@ app.get('/config', allow('admin', 'finance_secretary', 'treasurer'), asyncHandle
   const splits = await dal.query('SELECT * FROM payment_splits ORDER BY year DESC, category');
   const rules = await dal.query('SELECT * FROM dues_rules ORDER BY year DESC, min_age');
   const categories = await dal.query('SELECT * FROM transaction_categories ORDER BY kind, sort_order, name');
-  res.render('config', { accounts, splits, rules, categories, year: currentYear() });
+  res.render('config', { accounts, splits, rules, categories, year: selectedYear(req) });
 }));
 
 app.post('/config/payment-splits', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+  if (Number(req.body.year) !== selectedYear(req)) {
+    req.session.flash = { type: 'error', message: `Configuration changes must use active fiscal year ${selectedYear(req)}.` };
+    return res.redirect('/config');
+  }
   await dal.run(`
     INSERT INTO payment_splits (year, category, assessment_amount, welfare_amount, active)
     VALUES ($1, $2, $3, $4, true)
@@ -588,7 +624,7 @@ app.post('/config/accounts', allow('admin', 'treasurer'), asyncHandler(async (re
     const splits = await dal.query('SELECT * FROM payment_splits ORDER BY year DESC, category');
     const rules = await dal.query('SELECT * FROM dues_rules ORDER BY year DESC, min_age');
     const categories = await dal.query('SELECT * FROM transaction_categories ORDER BY kind, sort_order, name');
-    return res.status(400).render('config', { accounts, splits, rules, categories, year: currentYear(), errors: ['Account name is required.'], values: req.body });
+    return res.status(400).render('config', { accounts, splits, rules, categories, year: selectedYear(req), errors: ['Account name is required.'], values: req.body });
   }
   const result = await dal.run(`
     INSERT INTO accounts (name, type, opening_balance) VALUES ($1, $2, $3)
@@ -625,7 +661,7 @@ app.post('/config/categories', allow('admin', 'finance_secretary', 'treasurer'),
     const splits = await dal.query('SELECT * FROM payment_splits ORDER BY year DESC, category');
     const rules = await dal.query('SELECT * FROM dues_rules ORDER BY year DESC, min_age');
     const categories = await dal.query('SELECT * FROM transaction_categories ORDER BY kind, sort_order, name');
-    return res.status(400).render('config', { accounts, splits, rules, categories, year: currentYear(), errors: ['Category name is required.'], values: req.body });
+    return res.status(400).render('config', { accounts, splits, rules, categories, year: selectedYear(req), errors: ['Category name is required.'], values: req.body });
   }
   await dal.run(`
     INSERT INTO transaction_categories (name, kind, active, sort_order)
@@ -644,14 +680,23 @@ app.get('/fiscal-years', allow('admin', 'finance_secretary', 'treasurer'), async
   const years = await dal.query('SELECT * FROM fiscal_years ORDER BY year DESC');
   const currentYearValue = currentYear();
   const currentYearExists = years.some(y => y.year === currentYearValue);
-  res.render('fiscal_years', { years, currentYear: currentYearValue, currentYearExists });
+  res.render('fiscal_years', { years, currentYear: currentYearValue, currentYearExists, setup: req.query.setup === '1' });
 }));
 
-app.post('/fiscal-years/open', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+app.post('/fiscal-years/open', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
   const year = Number(req.body.year);
   if (!year || year < 2000 || year > 2100) {
     const years = await dal.query('SELECT * FROM fiscal_years ORDER BY year DESC');
     return res.status(400).render('fiscal_years', { years, currentYear: currentYear(), errors: ['Invalid year. Must be between 2000 and 2100.'], values: req.body });
+  }
+
+  const currentlyActive = await dal.queryOne("SELECT year FROM fiscal_years WHERE status = 'open' AND is_active = true LIMIT 1");
+  if (currentlyActive) {
+    const years = await dal.query('SELECT * FROM fiscal_years ORDER BY year DESC');
+    return res.status(400).render('fiscal_years', {
+      years, currentYear: currentYear(), values: req.body,
+      errors: [`Fiscal year ${currentlyActive.year} is active. Close it before opening a new year.`]
+    });
   }
 
   const existing = await dal.queryOne('SELECT * FROM fiscal_years WHERE year = $1', [year]);
@@ -660,7 +705,10 @@ app.post('/fiscal-years/open', allow('admin', 'finance_secretary'), asyncHandler
     return res.status(400).render('fiscal_years', { years, currentYear: currentYear(), errors: [`Year ${year} is already ${existing.status}.`], values: req.body });
   }
 
-  await dal.run("INSERT INTO fiscal_years (year, status) VALUES ($1, 'open')", [year]);
+  await dal.transaction(async (client) => {
+    await client.query('UPDATE fiscal_years SET is_active = false WHERE is_active = true');
+    await client.query("INSERT INTO fiscal_years (year, status, is_active) VALUES ($1, 'open', true)", [year]);
+  });
 
   // Copy dues rules from previous year if none exist for this year
   const rulesExistRow = await dal.queryOne('SELECT COUNT(*) AS count FROM dues_rules WHERE year = $1', [year]);
@@ -670,6 +718,20 @@ app.post('/fiscal-years/open', allow('admin', 'finance_secretary'), asyncHandler
       await dal.run(
         'INSERT INTO dues_rules (year, label, min_age, max_age, annual_assessment, welfare_portion) VALUES ($1, $2, $3, $4, $5, $6)',
         [year, r.label, r.min_age, r.max_age, r.annual_assessment, r.welfare_portion]
+      );
+    }
+    if (prevRules.length === 0) {
+      await dal.run(
+        'INSERT INTO dues_rules (year, label, min_age, max_age, annual_assessment, welfare_portion) VALUES ($1,$2,$3,$4,$5,$6)',
+        [year, 'Standard members', null, 59, 700, 300]
+      );
+      await dal.run(
+        'INSERT INTO dues_rules (year, label, min_age, max_age, annual_assessment, welfare_portion) VALUES ($1,$2,$3,$4,$5,$6)',
+        [year, 'Age 60 to 69', 60, 69, 350, 150]
+      );
+      await dal.run(
+        'INSERT INTO dues_rules (year, label, min_age, max_age, annual_assessment, welfare_portion) VALUES ($1,$2,$3,$4,$5,$6)',
+        [year, 'Age 70 and above', 70, null, 0, 0]
       );
     }
   }
@@ -684,6 +746,12 @@ app.post('/fiscal-years/open', allow('admin', 'finance_secretary'), asyncHandler
         [year, s.category, s.assessment_amount, s.welfare_amount]
       );
     }
+    if (prevSplits.length === 0) {
+      await dal.run(
+        'INSERT INTO payment_splits (year, category, assessment_amount, welfare_amount) VALUES ($1,$2,$3,$4)',
+        [year, 'Assessment', 700, 300]
+      );
+    }
   }
 
   await dal.audit(req.session.user.id, 'open', 'fiscal_year', year, `Opened year ${year}`);
@@ -691,12 +759,29 @@ app.post('/fiscal-years/open', allow('admin', 'finance_secretary'), asyncHandler
   res.redirect('/fiscal-years');
 }));
 
+app.post('/fiscal-years/:year/activate', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  const year = Number(req.params.year);
+  const fiscalYear = await dal.queryOne('SELECT * FROM fiscal_years WHERE year = $1', [year]);
+  if (!fiscalYear || fiscalYear.status !== 'open') {
+    req.session.flash = { type: 'error', message: 'Only an open fiscal year can be made active.' };
+    return res.redirect('/fiscal-years');
+  }
+  await dal.transaction(async (client) => {
+    await client.query('UPDATE fiscal_years SET is_active = false WHERE is_active = true');
+    await client.query('UPDATE fiscal_years SET is_active = true WHERE year = $1', [year]);
+    await dal.audit(req.session.user.id, 'activate', 'fiscal_year', year,
+      `Selected ${year} as the active fiscal year`, { client });
+  });
+  req.session.flash = { type: 'success', message: `Fiscal year ${year} is now active.` };
+  res.redirect('/fiscal-years');
+}));
+
 app.post('/fiscal-years/close', allow('admin'), asyncHandler(async (req, res) => {
   const year = Number(req.body.year);
   const fy = await dal.queryOne('SELECT * FROM fiscal_years WHERE year = $1', [year]);
-  if (!fy || fy.status !== 'open') {
+  if (!fy || fy.status !== 'open' || !fy.is_active) {
     const years = await dal.query('SELECT * FROM fiscal_years ORDER BY year DESC');
-    return res.status(400).render('fiscal_years', { years, currentYear: currentYear(), errors: [`Year ${year} is not open.`], values: req.body });
+    return res.status(400).render('fiscal_years', { years, currentYear: currentYear(), errors: [`Year ${year} is not the active open fiscal year.`], values: req.body });
   }
 
   // Calculate closing arrears for each active member and carry forward
@@ -704,13 +789,13 @@ app.post('/fiscal-years/close', allow('admin'), asyncHandler(async (req, res) =>
 
   await dal.transaction(async (client) => {
     for (const row of arrears) {
-      // New opening arrears = outstanding balance at year end (min 0 — overpayments don't carry as credit)
-      const carryForward = Math.max(0, row.balance);
+      // Carry both arrears (positive) and member credits (negative) forward.
+      const carryForward = row.balance;
       await client.query('UPDATE members SET opening_arrears = $1 WHERE id = $2', [carryForward, row.member_id]);
     }
 
     await client.query(
-      "UPDATE fiscal_years SET status = 'closed', closed_at = NOW(), closed_by = $1, notes = $2 WHERE year = $3",
+      "UPDATE fiscal_years SET status = 'closed', is_active = false, closed_at = NOW(), closed_by = $1, notes = $2 WHERE year = $3",
       [req.session.user.id, req.body.notes || null, year]
     );
   });
@@ -729,15 +814,19 @@ app.get('/dues', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'vi
     JOIN members m ON m.id = md.member_id
     ORDER BY md.year DESC, m.name
   `);
-  res.render('dues', { rules, members, overrides, year: currentYear() });
+  res.render('dues', { rules, members, overrides, year: selectedYear(req) });
 }));
 
 app.post('/dues/rules', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+  if (Number(req.body.year) !== selectedYear(req)) {
+    req.session.flash = { type: 'error', message: `Dues rules must use active fiscal year ${selectedYear(req)}.` };
+    return res.redirect('/dues');
+  }
   if (!req.body.label || !req.body.label.trim()) {
     const rules = await dal.query('SELECT * FROM dues_rules ORDER BY year DESC, min_age');
     const members = await dal.query('SELECT id, name FROM members ORDER BY name');
     const overrides = await dal.query(`SELECT md.*, m.name FROM member_dues md JOIN members m ON m.id = md.member_id ORDER BY md.year DESC, m.name`);
-    return res.status(400).render('dues', { rules, members, overrides, year: currentYear(), errors: ['Label is required.'], values: req.body });
+    return res.status(400).render('dues', { rules, members, overrides, year: selectedYear(req), errors: ['Label is required.'], values: req.body });
   }
   const result = await dal.run(`
     INSERT INTO dues_rules (year, label, min_age, max_age, annual_assessment, welfare_portion)
@@ -757,6 +846,10 @@ app.post('/dues/rules', allow('admin', 'finance_secretary'), asyncHandler(async 
 }));
 
 app.post('/dues/overrides', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+  if (Number(req.body.year) !== selectedYear(req)) {
+    req.session.flash = { type: 'error', message: `Dues overrides must use active fiscal year ${selectedYear(req)}.` };
+    return res.redirect('/dues');
+  }
   await dal.run(`
     INSERT INTO member_dues (member_id, year, assessment_due, welfare_portion, reason)
     VALUES ($1, $2, $3, $4, $5)
@@ -794,13 +887,14 @@ app.get('/transactions', requireLogin, asyncHandler(async (req, res) => {
 }));
 
 app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
-  if (await isYearClosed(req.body.tx_date)) {
+  const receiptYearError = await transactionYearError(req, req.body.tx_date);
+  if (receiptYearError) {
     const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
     const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
     const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'income' ORDER BY sort_order, name");
     const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'expense' ORDER BY sort_order, name");
     const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
-    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: ['That year is closed. No new transactions allowed.'], values: req.body });
+    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: [receiptYearError], values: req.body });
   }
   const amount = Number(req.body.amount || 0);
   const welfare = await calculateWelfareComponent({
@@ -829,13 +923,14 @@ app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer
 }));
 
 app.post('/transactions/expense', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
-  if (await isYearClosed(req.body.tx_date)) {
+  const expenseYearError = await transactionYearError(req, req.body.tx_date);
+  if (expenseYearError) {
     const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
     const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
     const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'income' ORDER BY sort_order, name");
     const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'expense' ORDER BY sort_order, name");
     const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
-    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: ['That year is closed. No new transactions allowed.'], values: req.body });
+    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: [expenseYearError], values: req.body });
   }
   const type = req.body.category === 'Welfare Payout' ? 'welfare_payout' : 'expense';
   const result = await dal.run(`
@@ -849,13 +944,14 @@ app.post('/transactions/expense', allow('admin', 'treasurer'), asyncHandler(asyn
 }));
 
 app.post('/transactions/transfer', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
-  if (await isYearClosed(req.body.tx_date)) {
+  const transferYearError = await transactionYearError(req, req.body.tx_date);
+  if (transferYearError) {
     const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
     const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
     const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'income' ORDER BY sort_order, name");
     const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'expense' ORDER BY sort_order, name");
     const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
-    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: ['That year is closed. No new transactions allowed.'], values: req.body });
+    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: [transferYearError], values: req.body });
   }
   const result = await dal.run(`
     INSERT INTO transactions (tx_date, tx_type, account_id, to_account_id, category, description, amount, created_by)
@@ -873,7 +969,8 @@ app.post('/transactions/:id/reverse', allow('admin', 'finance_secretary', 'treas
   if (!original || original.status !== 'posted') {
     return res.status(400).render('error', { message: 'Cannot reverse a transaction that is not posted.' });
   }
-  if (await isYearClosed(original.tx_date)) return res.status(400).render('error', { message: 'That year is closed. Transactions cannot be reversed.' });
+  const reversalYearError = await transactionYearError(req, original.tx_date);
+  if (reversalYearError) return res.status(400).render('error', { message: reversalYearError });
 
   const reversalResult = await dal.run(`
     INSERT INTO transactions (tx_date, tx_type, member_id, account_id, to_account_id, category, description, amount, welfare_component, status, reversed_by, created_by)
@@ -922,6 +1019,12 @@ app.get('/reconciliation', allow('admin', 'treasurer', 'auditor', 'viewer'), asy
 }));
 
 app.post('/reconciliation', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  const startYear = Number(String(req.body.period_start || '').slice(0, 4));
+  const endYear = Number(String(req.body.period_end || '').slice(0, 4));
+  if (startYear !== selectedYear(req) || endYear !== selectedYear(req)) {
+    req.session.flash = { type: 'error', message: `Reconciliations must be within active fiscal year ${selectedYear(req)}.` };
+    return res.redirect('/reconciliation');
+  }
   const balances = await accountBalances();
   const account = balances.find((item) => item.id === Number(req.body.account_id));
   const systemBalance = account ? account.balance : 0;
@@ -937,7 +1040,7 @@ app.post('/reconciliation', allow('admin', 'treasurer'), asyncHandler(async (req
 }));
 
 app.get('/reports', requireLogin, asyncHandler(async (req, res) => {
-  const year = Number(req.query.year || currentYear());
+  const year = Number(req.query.year || selectedYear(req));
   const period = monthPeriod(year, req.query.month);
   const summary = await reportSummary(period.startDate, period.endDate);
   const arrears = await arrearsReport(year);
@@ -975,7 +1078,9 @@ app.get('/reports', requireLogin, asyncHandler(async (req, res) => {
 }));
 
 app.get('/api/reports/member-arrears', apiToken, asyncHandler(async (req, res) => {
-  const year = Number(req.query.year || currentYear());
+  const active = await dal.queryOne("SELECT year FROM fiscal_years WHERE status = 'open' AND is_active = true LIMIT 1");
+  if (!active && !req.query.year) return res.status(409).json({ error: 'No active fiscal year has been selected.' });
+  const year = Number(req.query.year || active.year);
   const rows = (await arrearsReport(year))
     .filter((row) => row.balance > 0)
     .map((row) => ({
@@ -1051,13 +1156,13 @@ app.get('/audit', allow('admin', 'auditor'), asyncHandler(async (req, res) => {
 // Downloadable reports page
 app.get('/download-reports', requireLogin, asyncHandler(async (req, res) => {
   const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
-  res.render('download_reports', { year: currentYear(), members });
+  res.render('download_reports', { year: selectedYear(req), members });
 }));
 
 // Downloadable report endpoints
 app.get('/download/income-expenditure', requireLogin, asyncHandler(async (req, res) => {
   try {
-    const year = Number(req.query.year || currentYear());
+    const year = Number(req.query.year || selectedYear(req));
     const month = req.query.month ? Number(req.query.month) : null;
     let startDate, endDate, label;
 
@@ -1086,7 +1191,7 @@ app.get('/download/income-expenditure', requireLogin, asyncHandler(async (req, r
 
 app.get('/download/receipts-payments', requireLogin, asyncHandler(async (req, res) => {
   try {
-    const year = Number(req.query.year || currentYear());
+    const year = Number(req.query.year || selectedYear(req));
     const month = req.query.month ? Number(req.query.month) : null;
     let startDate, endDate, label;
 
@@ -1115,7 +1220,7 @@ app.get('/download/receipts-payments', requireLogin, asyncHandler(async (req, re
 
 app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) => {
   try {
-    const year = Number(req.query.year || currentYear());
+    const year = Number(req.query.year || selectedYear(req));
     const month = req.query.month ? Number(req.query.month) : null;
     let startDate, endDate, label;
 
@@ -1144,7 +1249,7 @@ app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) =>
 
 app.get('/download/financial-position', requireLogin, asyncHandler(async (req, res) => {
   try {
-    const year = Number(req.query.year || currentYear());
+    const year = Number(req.query.year || selectedYear(req));
     const month = req.query.month ? Number(req.query.month) : null;
     let asOfDate, label;
 
@@ -1172,7 +1277,7 @@ app.get('/download/financial-position', requireLogin, asyncHandler(async (req, r
 app.get('/download/member-statement', requireLogin, asyncHandler(async (req, res) => {
   try {
     const memberId = Number(req.query.member_id);
-    const year = Number(req.query.year || currentYear());
+    const year = Number(req.query.year || selectedYear(req));
     if (!memberId) return res.status(400).render('error', { message: 'Please select a member.' });
 
     const csv = await memberStatementReport(memberId, year);
@@ -1209,7 +1314,7 @@ app.get('/export/transactions', requireLogin, asyncHandler(async (req, res) => {
 
 app.get('/export/arrears', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'viewer'), asyncHandler(async (req, res) => {
   try {
-    const year = Number(req.query.year || currentYear());
+    const year = Number(req.query.year || selectedYear(req));
     const csv = await exportArrearsCsv(year);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="arrears-${year}-${new Date().toISOString().slice(0, 10)}.csv"`);
@@ -1223,7 +1328,7 @@ app.get('/export/arrears', allow('admin', 'finance_secretary', 'treasurer', 'aud
 
 app.get('/export/members-cleanup', allow('admin'), asyncHandler(async (req, res) => {
   try {
-    const year = Number(req.query.year || currentYear());
+    const year = Number(req.query.year || selectedYear(req));
     const csv = await exportMemberCleanupCsv(year);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="member-cleanup-${year}-${new Date().toISOString().slice(0, 10)}.csv"`);
@@ -1237,7 +1342,7 @@ app.get('/export/members-cleanup', allow('admin'), asyncHandler(async (req, res)
 
 app.get('/export/report', requireLogin, asyncHandler(async (req, res) => {
   try {
-    const year = Number(req.query.year || currentYear());
+    const year = Number(req.query.year || selectedYear(req));
     const month = Number(req.query.month || new Date().getMonth() + 1);
     const selectedMonth = Number(month);
     const start = new Date(Date.UTC(year, selectedMonth - 1, 1));

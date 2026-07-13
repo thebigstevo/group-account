@@ -216,7 +216,10 @@ function parseOpeningBalance(value) {
   return parenthesized ? -Math.abs(amount) : amount;
 }
 
-async function importMembers(buffer, filename, userId) {
+async function importMembers(buffer, filename, userId, fiscalYear) {
+  if (!Number.isInteger(Number(fiscalYear))) {
+    throw new Error('Select an active fiscal year before importing member balances.');
+  }
   const safeFilename = path.basename(filename || 'member-import').slice(0, 255);
   const ext = path.extname(filename || '').toLowerCase();
   let rows;
@@ -246,10 +249,17 @@ async function importMembers(buffer, filename, userId) {
   let batchId;
 
   await dal.transaction(async (client) => {
+    const activeYear = await client.query(
+      "SELECT year FROM fiscal_years WHERE year = $1 AND status = 'open' AND is_active = true FOR SHARE",
+      [Number(fiscalYear)]
+    );
+    if (activeYear.rows.length !== 1) {
+      throw new Error('The selected fiscal year is no longer active. Refresh the page and try again.');
+    }
     const batch = await client.query(`
-      INSERT INTO member_import_batches (filename, created_by)
-      VALUES ($1, $2) RETURNING id
-    `, [safeFilename, userId]);
+      INSERT INTO member_import_batches (filename, created_by, fiscal_year)
+      VALUES ($1, $2, $3) RETURNING id
+    `, [safeFilename, userId, Number(fiscalYear)]);
     batchId = batch.rows[0].id;
 
     for (let i = 1; i < rows.length; i++) {

@@ -71,6 +71,7 @@ describe('member import recovery helpers', () => {
     const client = {
       query: jest.fn(async (sql, params = []) => {
         const text = String(sql);
+        if (text.includes("FROM fiscal_years WHERE year = $1")) return { rows: [{ year: 2026 }] };
         if (text.includes('INSERT INTO member_import_batches')) return { rows: [{ id: 12 }] };
         if (text.includes('SELECT id, name, opening_arrears')) {
           return { rows: [{ id: 4, name: 'Ama Owusu', opening_arrears: '99.00', phone: null, dob: null, status: 'active' }] };
@@ -88,7 +89,7 @@ describe('member import recovery helpers', () => {
     dal.transaction.mockImplementationOnce(callback => callback(client));
 
     const result = await require('../importMembers').importMembers(
-      Buffer.from('Name,Opening Balance\nAma Owusu,0\n'), 'correction.csv', 1
+      Buffer.from('Name,Opening Balance\nAma Owusu,0\n'), 'correction.csv', 1, 2026
     );
 
     expect(result.errors).toEqual([]);

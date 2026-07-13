@@ -20,11 +20,14 @@ describe('view date helpers', () => {
       years: [{
         year: 2026,
         status: 'open',
+        is_active: true,
         opened_at: new Date('2026-01-01T00:00:00.000Z'),
         closed_at: null,
         notes: null,
       }],
       currentYear: 2026,
+      activeFiscalYear: { year: 2026, status: 'open', is_active: true },
+      setup: false,
       csrfToken: 'test-token',
       user: { id: 1, name: 'System Admin', role: 'admin' },
       currentPath: '/fiscal-years',
@@ -58,6 +61,7 @@ describe('view date helpers', () => {
         created_by_name: 'System Admin',
         reversed_at: null
       }],
+      activeFiscalYear: { year: 2026, status: 'open', is_active: true },
       csrfToken: 'test-token',
       user: { id: 1, name: 'System Admin', role: 'admin' },
       currentPath: '/members/import',
@@ -72,5 +76,24 @@ describe('view date helpers', () => {
     expect(html).toContain('Import history');
     expect(html).toContain('/members/imports/3/rollback');
     expect(html).toContain('name="_csrf" value="test-token"');
+  });
+
+  test('renders the blocked-state message when no fiscal year is active', async () => {
+    const filename = path.join(__dirname, '..', 'views', 'setup_required.ejs');
+    const html = await ejs.renderFile(filename, {
+      csrfToken: 'test-token',
+      user: { id: 2, name: 'Viewer', role: 'viewer' },
+      currentPath: '/',
+      groupName: 'Test Commandery',
+      groupCurrency: 'GHS',
+      formatMoney: value => String(value),
+      formatDate,
+      formatDateTime,
+      flash: null,
+      activeFiscalYear: null
+    });
+
+    expect(html).toContain('No active fiscal year');
+    expect(html).toContain('Operations are paused');
   });
 });

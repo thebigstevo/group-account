@@ -232,12 +232,22 @@ async function migrate() {
     CREATE TABLE IF NOT EXISTS fiscal_years (
       year INTEGER PRIMARY KEY,
       status VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+      is_active BOOLEAN NOT NULL DEFAULT false,
       opened_at TIMESTAMP NOT NULL DEFAULT NOW(),
       closed_at TIMESTAMP,
       closed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
       notes TEXT
     )
   `);
+  await run(`ALTER TABLE fiscal_years ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT false`);
+  await run(`UPDATE fiscal_years SET is_active = false WHERE status = 'closed' AND is_active = true`);
+  await run(`
+    UPDATE fiscal_years SET is_active = true
+    WHERE year = (SELECT MAX(year) FROM fiscal_years WHERE status = 'open')
+      AND NOT EXISTS (SELECT 1 FROM fiscal_years WHERE is_active = true)
+  `);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_fiscal_years_one_active ON fiscal_years(is_active) WHERE is_active = true`);
+  await run(`ALTER TABLE member_import_batches ADD COLUMN IF NOT EXISTS fiscal_year INTEGER REFERENCES fiscal_years(year) ON DELETE RESTRICT`);
   console.log('[migrate]   ✓ fiscal_years');
 
   await run(`

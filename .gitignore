@@ -4,3 +4,4 @@ storage/*.db-*
 .env
 *.log
 .history/
+.DS_Store

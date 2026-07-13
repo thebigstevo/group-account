@@ -9,6 +9,15 @@
   </div>
 </section>
 
+<% if (locals.setup || !locals.activeFiscalYear) { %>
+  <div class="warning-box" role="alert">
+    <strong>Select an active fiscal year before using Treasurio.</strong>
+    Opening a new year below makes it active automatically. If an open year already exists, select “Make active”.
+  </div>
+<% } else { %>
+  <div class="info-box"><strong>Active fiscal year: <%= activeFiscalYear.year %></strong> — member opening balances, dues, reports, and new transactions use this accounting period.</div>
+<% } %>
+
 <% if (locals.errors && locals.errors.length) { %>
 <div class="error-summary" role="alert" aria-live="assertive">
   <h2>There were errors with your submission</h2>
@@ -28,12 +37,22 @@
     <% } else { %>
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>Year</th><th>Status</th><th>Opened</th><th>Closed</th><th>Notes</th></tr></thead>
+          <thead><tr><th>Year</th><th>Status</th><th>Active</th><th>Opened</th><th>Closed</th><th>Notes</th></tr></thead>
           <tbody>
             <% years.forEach(function(fy) { %>
               <tr>
                 <td><strong><%= fy.year %></strong></td>
                 <td><span class="badge <%= fy.status === 'open' ? 'badge--success' : 'badge--soft' %>"><%= fy.status %></span></td>
+                <td>
+                  <% if (fy.is_active) { %>
+                    <span class="badge badge--success">Active</span>
+                  <% } else if (fy.status === 'open') { %>
+                    <form method="post" action="/fiscal-years/<%= fy.year %>/activate">
+                      <%- include('partials/csrf') %>
+                      <button class="btn btn--secondary btn--sm" type="submit">Make active</button>
+                    </form>
+                  <% } else { %>—<% } %>
+                </td>
                 <td><%= formatDate(fy.opened_at) %></td>
                 <td><%= formatDate(fy.closed_at) %></td>
                 <td><%= fy.notes || '' %></td>
@@ -48,7 +67,7 @@
   <div class="panel">
     <h2>Open a new year</h2>
     <p class="text-muted text-sm">
-      This creates the year's accounting period. Dues rules and payment splits from the previous year are copied automatically.
+      This creates the year's accounting period, makes it active, and copies dues rules and payment splits from the previous year.
     </p>
     <form method="post" action="/fiscal-years/open" class="stack" data-validate>
       <%- include('partials/csrf') %>
@@ -62,7 +81,7 @@
       <button class="btn btn--primary" type="submit">Open year</button>
     </form>
 
-    <% const openYears = years.filter(function(y) { return y.status === 'open'; }); %>
+    <% const openYears = years.filter(function(y) { return y.status === 'open' && y.is_active; }); %>
     <% if (openYears.length > 0) { %>
       <h2 style="margin-top: var(--space-6);">Close a year</h2>
       <p class="text-muted text-sm">

@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const dal = require('./dal');
+const { importMembers } = require('./importMembers');
 
 const workbookPath = process.env.WORKBOOK_PATH || process.argv[2];
 if (!workbookPath) {
@@ -122,41 +123,14 @@ function readSheetRows(entries, sheetName) {
 }
 
 async function importWorkbook() {
-  const entries = unzipEntries(workbookPath);
-  const rows = readSheetRows(entries, 'Members');
-  const dataRows = rows.slice(1).filter((row) => row[0]);
-
-  let imported = 0;
-
-  await dal.transaction(async (client) => {
-    for (const row of dataRows) {
-      const name = String(row[0] || '').trim();
-      const openingArrears = Number(row[1] || 0);
-      const phone = row[2] ? String(row[2]).trim() : null;
-      const dob = row[3] ? excelDate(row[3]) : null;
-
-      const matches = await client.query('SELECT id FROM members WHERE LOWER(name) = LOWER($1) ORDER BY id', [name]);
-      if (matches.rows.length > 1) {
-        throw new Error(`Multiple members named ${name}; use the reviewed member import workflow.`);
-      }
-      if (matches.rows.length === 1) {
-        await client.query(
-          'UPDATE members SET opening_arrears = $1, phone = $2, dob = $3 WHERE id = $4',
-          [openingArrears, phone, dob, matches.rows[0].id]
-        );
-      } else {
-        await client.query(
-          `INSERT INTO members (name, opening_arrears, phone, dob, status)
-           VALUES ($1, $2, $3, $4, 'active')`,
-          [name, openingArrears, phone, dob]
-        );
-      }
-      imported += 1;
-    }
-  });
-
-  await dal.audit(null, 'import', 'workbook', null, `${imported} members from ${workbookPath}`);
-  console.log(`Imported or updated ${imported} members.`);
+  const active = await dal.queryOne(
+    "SELECT year FROM fiscal_years WHERE status = 'open' AND is_active = true LIMIT 1"
+  );
+  if (!active) throw new Error('Select an active fiscal year in Treasurio before importing members.');
+  const result = await importMembers(
+    fs.readFileSync(workbookPath), path.basename(workbookPath), null, Number(active.year)
+  );
+  console.log(`Imported or updated ${result.imported} members for fiscal year ${active.year}; ${result.skipped} rows skipped.`);
   await dal.shutdown();
 }
 

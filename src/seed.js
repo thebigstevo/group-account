@@ -17,7 +17,15 @@ async function seed() {
     await dal.audit(adminId, 'seed', 'user', adminId, 'Default admin user');
   }
 
-  const year = new Date().getFullYear();
+  const activeFiscalYear = await dal.queryOne(
+    "SELECT year FROM fiscal_years WHERE status = 'open' AND is_active = true LIMIT 1"
+  );
+  if (!activeFiscalYear) {
+    console.log('Seed complete. Select an active fiscal year after signing in. Login with admin@example.com / ChangeMe123!');
+    await dal.shutdown();
+    return;
+  }
+  const year = Number(activeFiscalYear.year);
   const rulesResult = await dal.queryOne(
     'SELECT COUNT(*) AS count FROM dues_rules WHERE year = $1',
     [year]

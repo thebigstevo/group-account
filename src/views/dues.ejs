@@ -41,7 +41,7 @@
 
         <div class="form-group">
           <label for="rule-year">Year *</label>
-          <input id="rule-year" name="year" type="number" value="<%= (locals.values && locals.values.year) || year %>" required>
+          <input id="rule-year" name="year" type="number" value="<%= year %>" readonly required>
         </div>
 
         <div class="form-group">
@@ -111,7 +111,7 @@
 
         <div class="form-group">
           <label for="override-year">Year *</label>
-          <input id="override-year" name="year" type="number" value="<%= (locals.values && locals.values.year) || year %>" required>
+          <input id="override-year" name="year" type="number" value="<%= year %>" readonly required>
         </div>
 
         <div class="form-group">

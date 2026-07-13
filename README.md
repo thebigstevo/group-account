@@ -84,6 +84,8 @@ npm run seed
 npm start
 ```
 
+After the first sign-in, Treasurio requires an administrator to open or select the active fiscal year before operational pages, transactions, or member-balance imports can be used.
+
 The app starts on `http://localhost:3000`.
 
 ### Available Scripts
@@ -95,7 +97,7 @@ The app starts on `http://localhost:3000`.
 | `npm run seed` | Seed default admin user and dues rules |
 | `npm test` | Run unit tests |
 | `npm run test:properties` | Run property-based tests |
-| `npm run import:workbook` | Import members from Excel workbook |
+| `npm run import:workbook` | Import members into the active fiscal year from an Excel workbook |
 
 ## Database
 
