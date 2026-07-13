@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const dal = require('./dal');
+const { normalizePhone } = require('./memberDomain');
 
 // --- Column header aliases (case-insensitive, partial match) ---
 const COLUMN_MAP = {
@@ -204,7 +205,7 @@ async function importMembers(buffer, filename, userId) {
       const name = String(row[mapping.name] || '').trim();
       if (!name) { skipped++; continue; }
 
-      const phone = 'phone' in mapping ? String(row[mapping.phone] || '').trim() || null : null;
+      const phoneRaw = 'phone' in mapping ? String(row[mapping.phone] || '').trim() || null : null;
       const arrearsRaw = 'opening_arrears' in mapping ? row[mapping.opening_arrears] : 0;
       const arrears = Number(String(arrearsRaw || '0').replace(/[^0-9.\-]/g, '')) || 0;
 
@@ -224,14 +225,29 @@ async function importMembers(buffer, filename, userId) {
       }
 
       try {
-        await client.query(`
-          INSERT INTO members (name, opening_arrears, phone, dob, status)
-          VALUES ($1, $2, $3, $4, 'active')
-          ON CONFLICT(name) DO UPDATE SET
-            opening_arrears = CASE WHEN EXCLUDED.opening_arrears != 0 THEN EXCLUDED.opening_arrears ELSE members.opening_arrears END,
-            phone = CASE WHEN EXCLUDED.phone IS NOT NULL THEN EXCLUDED.phone ELSE members.phone END,
-            dob = CASE WHEN EXCLUDED.dob IS NOT NULL THEN EXCLUDED.dob ELSE members.dob END
-        `, [name, arrears, phone, dob]);
+        const phone = normalizePhone(phoneRaw);
+        const matches = await client.query(`
+          SELECT id FROM members
+          WHERE LOWER(name) = LOWER($1)
+            AND (($2::varchar IS NOT NULL AND phone = $2) OR ($3::varchar IS NOT NULL AND dob = $3) OR ($2::varchar IS NULL AND $3::varchar IS NULL))
+          ORDER BY id
+        `, [name, phone, dob]);
+        if (matches.rows.length > 1) {
+          errors.push(`Row ${i + 1} (${name}): multiple possible matches; review manually.`);
+          skipped++;
+          continue;
+        }
+        if (matches.rows.length === 1) {
+          await client.query(`UPDATE members SET
+            opening_arrears = CASE WHEN $1 != 0 THEN $1 ELSE opening_arrears END,
+            phone = COALESCE($2, phone), dob = COALESCE($3, dob)
+            WHERE id = $4`, [arrears, phone, dob, matches.rows[0].id]);
+        } else {
+          await client.query(`
+            INSERT INTO members (name, opening_arrears, phone, dob, status)
+            VALUES ($1, $2, $3, $4, 'active')
+          `, [name, arrears, phone, dob]);
+        }
         imported++;
       } catch (err) {
         errors.push(`Row ${i + 1} (${name}): ${err.message}`);

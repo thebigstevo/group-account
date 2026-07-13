@@ -27,6 +27,16 @@ const {
 } = require('./csvExport');
 const { importMembers } = require('./importMembers');
 const {
+  MEMBER_STATUSES,
+  USER_ROLES,
+  canEditMembership,
+  canViewEmergencyContacts,
+  memberValues,
+  normalizePhone,
+  validateMemberInput,
+  validateStatusChange,
+} = require('./memberDomain');
+const {
   incomeAndExpenditureReport,
   receiptsAndPaymentsReport,
   welfareFundReport,
@@ -258,14 +268,14 @@ app.get('/', requireLogin, asyncHandler(async (req, res) => {
 
 app.get('/members', requireLogin, asyncHandler(async (req, res) => {
   const members = await dal.query('SELECT * FROM members ORDER BY name');
-  res.render('members', { members });
+  res.render('members', { members, canEdit: canEditMembership(req.session.user.role) });
 }));
 
-app.get('/members/import', allow('admin', 'finance_secretary'), (req, res) => {
+app.get('/members/import', allow('admin', 'secretary'), (req, res) => {
   res.render('members_import', { result: null });
 });
 
-app.post('/members/import', allow('admin', 'finance_secretary'), (req, res) => {
+app.post('/members/import', allow('admin', 'secretary'), (req, res) => {
   const chunks = [];
   let size = 0;
   const maxSize = 5 * 1024 * 1024;
@@ -323,52 +333,145 @@ app.post('/members/import', allow('admin', 'finance_secretary'), (req, res) => {
   });
 });
 
-app.get('/members/:id/edit', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+app.get('/members/:id/edit', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
   const member = await dal.queryOne('SELECT * FROM members WHERE id = $1', [Number(req.params.id)]);
   if (!member) return res.status(404).render('error', { message: 'Member not found.' });
   res.render('member_edit', { member });
 }));
 
-app.post('/members', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
-  // Validate required field
-  if (!req.body.name || !req.body.name.trim()) {
+app.post('/members', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  const validationErrors = validateMemberInput(req.body);
+  if (validationErrors.length) {
     const members = await dal.query('SELECT * FROM members ORDER BY name');
-    return res.status(400).render('members', { members, errors: ['Name is required.'], values: req.body });
+    return res.status(400).render('members', { members, canEdit: true, errors: validationErrors, values: req.body });
   }
+  const values = memberValues(req.body);
   const result = await dal.run(`
-    INSERT INTO members (name, phone, dob, status, opening_arrears, notes)
-    VALUES ($1, $2, $3, $4, $5, $6)
-    RETURNING id
-  `, [req.body.name, req.body.phone || null, req.body.dob || null, req.body.status || 'active', Number(req.body.opening_arrears || 0), req.body.notes || null]);
-  await dal.audit(req.session.user.id, 'create', 'member', result.rows[0].id, req.body.name);
+    INSERT INTO members (
+      name, title, first_name, middle_name, last_name, preferred_name,
+      phone, secondary_phone, email, dob, residential_address, parish,
+      occupation, date_first_admitted, status, notes
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'active',$15)
+    RETURNING id, membership_number
+  `, [
+    values.name, values.title, values.first_name, values.middle_name, values.last_name,
+    values.preferred_name, values.phone, values.secondary_phone, values.email, values.dob,
+    values.residential_address, values.parish, values.occupation, values.date_first_admitted, values.notes
+  ]);
+  await dal.audit(req.session.user.id, 'create', 'member', result.rows[0].id, {
+    membership_number: result.rows[0].membership_number,
+    name: values.name,
+  }, { ip_address: getClientIp(req), user_agent: req.get('user-agent'), after_value: values });
   req.session.flash = { type: 'success', message: 'Member added successfully.' };
-  res.redirect('/members');
+  res.redirect(`/members/${result.rows[0].id}`);
 }));
 
-app.post('/members/:id', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
-  // Validate required field
-  if (!req.body.name || !req.body.name.trim()) {
-    const member = await dal.queryOne('SELECT * FROM members WHERE id = $1', [Number(req.params.id)]);
-    if (!member) return res.status(404).render('error', { message: 'Member not found.' });
-    return res.status(400).render('member_edit', { member, errors: ['Name is required.'], values: req.body });
-  }
+app.post('/members/:id', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  const member = await dal.queryOne('SELECT * FROM members WHERE id = $1', [Number(req.params.id)]);
+  if (!member) return res.status(404).render('error', { message: 'Member not found.' });
+  const validationErrors = validateMemberInput(req.body);
+  if (validationErrors.length) return res.status(400).render('member_edit', { member, errors: validationErrors, values: req.body });
+  const values = memberValues(req.body);
   const result = await dal.run(`
     UPDATE members
-    SET name = $1, phone = $2, dob = $3, status = $4, opening_arrears = $5, notes = $6
-    WHERE id = $7
+    SET name=$1, title=$2, first_name=$3, middle_name=$4, last_name=$5,
+        preferred_name=$6, phone=$7, secondary_phone=$8, email=$9, dob=$10,
+        residential_address=$11, parish=$12, occupation=$13,
+        date_first_admitted=$14, notes=$15
+    WHERE id=$16
   `, [
-    req.body.name,
-    req.body.phone || null,
-    req.body.dob || null,
-    req.body.status || 'active',
-    Number(req.body.opening_arrears || 0),
-    req.body.notes || null,
+    values.name, values.title, values.first_name, values.middle_name, values.last_name,
+    values.preferred_name, values.phone, values.secondary_phone, values.email, values.dob,
+    values.residential_address, values.parish, values.occupation, values.date_first_admitted, values.notes,
     Number(req.params.id)
   ]);
   if (result.rowCount === 0) return res.status(404).render('error', { message: 'Member not found.' });
-  await dal.audit(req.session.user.id, 'update', 'member', Number(req.params.id), req.body.name);
+  await dal.audit(req.session.user.id, 'update', 'member', member.id, values.name, {
+    ip_address: getClientIp(req), user_agent: req.get('user-agent'), before_value: member, after_value: values
+  });
   req.session.flash = { type: 'success', message: 'Member updated successfully.' };
-  res.redirect('/members');
+  res.redirect(`/members/${member.id}`);
+}));
+
+app.get('/members/:id', requireLogin, asyncHandler(async (req, res) => {
+  const member = await dal.queryOne(`
+    SELECT m.*, c.name AS commandery_name
+    FROM members m JOIN commanderies c ON c.id = m.commandery_id
+    WHERE m.id = $1
+  `, [Number(req.params.id)]);
+  if (!member) return res.status(404).render('error', { message: 'Member not found.' });
+  const statusHistory = await dal.query(`
+    SELECT h.*, u.name AS changed_by_name
+    FROM member_status_history h LEFT JOIN users u ON u.id = h.changed_by
+    WHERE h.member_id = $1 ORDER BY h.effective_date DESC, h.id DESC
+  `, [member.id]);
+  const mayViewEmergency = canViewEmergencyContacts(req.session.user.role);
+  const emergencyContacts = mayViewEmergency
+    ? await dal.query('SELECT * FROM member_emergency_contacts WHERE member_id = $1 ORDER BY is_primary DESC, id', [member.id])
+    : [];
+  res.render('member_profile', {
+    member, statusHistory, emergencyContacts, statuses: MEMBER_STATUSES,
+    canEdit: canEditMembership(req.session.user.role), mayViewEmergency
+  });
+}));
+
+app.post('/members/:id/status', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  const member = await dal.queryOne('SELECT * FROM members WHERE id = $1', [Number(req.params.id)]);
+  if (!member) return res.status(404).render('error', { message: 'Member not found.' });
+  const errors = validateStatusChange(member.status, req.body.status, req.body.reason, req.body.effective_date);
+  if (errors.length) {
+    req.session.flash = { type: 'error', message: errors.join(' ') };
+    return res.redirect(`/members/${member.id}`);
+  }
+  await dal.transaction(async (client) => {
+    await client.query('UPDATE members SET status = $1 WHERE id = $2', [req.body.status, member.id]);
+    const history = await client.query(`
+      INSERT INTO member_status_history (
+        commandery_id, member_id, previous_status, new_status, effective_date,
+        reason, supporting_reference, changed_by
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id
+    `, [member.commandery_id, member.id, member.status, req.body.status, req.body.effective_date,
+      req.body.reason.trim(), req.body.supporting_reference || null, req.session.user.id]);
+    await dal.audit(req.session.user.id, 'status_change', 'member', member.id, {
+      previous_status: member.status, new_status: req.body.status, history_id: history.rows[0].id
+    }, { client, ip_address: getClientIp(req), user_agent: req.get('user-agent'), reason: req.body.reason,
+      before_value: { status: member.status }, after_value: { status: req.body.status } });
+  });
+  req.session.flash = { type: 'success', message: 'Membership status updated and recorded in history.' };
+  res.redirect(`/members/${member.id}`);
+}));
+
+app.post('/members/:id/emergency-contacts', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  const member = await dal.queryOne('SELECT id, commandery_id FROM members WHERE id = $1', [Number(req.params.id)]);
+  if (!member) return res.status(404).render('error', { message: 'Member not found.' });
+  const name = String(req.body.name || '').trim();
+  const relationship = String(req.body.relationship || '').trim();
+  let primaryPhone;
+  let secondaryPhone;
+  try { primaryPhone = normalizePhone(req.body.primary_phone); } catch (error) {
+    req.session.flash = { type: 'error', message: error.message };
+    return res.redirect(`/members/${member.id}`);
+  }
+  try { secondaryPhone = normalizePhone(req.body.secondary_phone); } catch (error) {
+    req.session.flash = { type: 'error', message: `Secondary ${error.message.toLowerCase()}` };
+    return res.redirect(`/members/${member.id}`);
+  }
+  if (!name || !relationship || !primaryPhone) {
+    req.session.flash = { type: 'error', message: 'Contact name, relationship, and primary phone are required.' };
+    return res.redirect(`/members/${member.id}`);
+  }
+  const result = await dal.run(`
+    INSERT INTO member_emergency_contacts (
+      commandery_id, member_id, name, relationship, primary_phone, secondary_phone,
+      address, notes, is_primary, created_by, updated_by
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10) RETURNING id
+  `, [member.commandery_id, member.id, name, relationship, primaryPhone,
+    secondaryPhone, req.body.address || null, req.body.notes || null,
+    req.body.is_primary === 'on', req.session.user.id]);
+  await dal.audit(req.session.user.id, 'create', 'member_emergency_contact', result.rows[0].id,
+    { member_id: member.id, relationship }, { ip_address: getClientIp(req), user_agent: req.get('user-agent') });
+  req.session.flash = { type: 'success', message: 'Emergency contact added.' };
+  res.redirect(`/members/${member.id}`);
 }));
 
 app.get('/change-password', requireLogin, (req, res) => {
@@ -835,6 +938,7 @@ app.post('/users', allow('admin'), asyncHandler(async (req, res) => {
   if (!req.body.name || !req.body.name.trim()) validationErrors.push('Name is required.');
   if (!req.body.email || !req.body.email.trim()) validationErrors.push('Email is required.');
   if (!req.body.password || req.body.password.length < 8) validationErrors.push('Password must be at least 8 characters.');
+  if (!USER_ROLES.includes(req.body.role)) validationErrors.push('Select a valid role.');
 
   if (validationErrors.length > 0) {
     const users = await dal.query('SELECT id, name, email, role, active FROM users ORDER BY name');

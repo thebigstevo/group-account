@@ -135,15 +135,22 @@ async function importWorkbook() {
       const phone = row[2] ? String(row[2]).trim() : null;
       const dob = row[3] ? excelDate(row[3]) : null;
 
-      await client.query(
-        `INSERT INTO members (name, opening_arrears, phone, dob, status)
-         VALUES ($1, $2, $3, $4, 'active')
-         ON CONFLICT(name) DO UPDATE SET
-           opening_arrears = EXCLUDED.opening_arrears,
-           phone = EXCLUDED.phone,
-           dob = EXCLUDED.dob`,
-        [name, openingArrears, phone, dob]
-      );
+      const matches = await client.query('SELECT id FROM members WHERE LOWER(name) = LOWER($1) ORDER BY id', [name]);
+      if (matches.rows.length > 1) {
+        throw new Error(`Multiple members named ${name}; use the reviewed member import workflow.`);
+      }
+      if (matches.rows.length === 1) {
+        await client.query(
+          'UPDATE members SET opening_arrears = $1, phone = $2, dob = $3 WHERE id = $4',
+          [openingArrears, phone, dob, matches.rows[0].id]
+        );
+      } else {
+        await client.query(
+          `INSERT INTO members (name, opening_arrears, phone, dob, status)
+           VALUES ($1, $2, $3, $4, 'active')`,
+          [name, openingArrears, phone, dob]
+        );
+      }
       imported += 1;
     }
   });

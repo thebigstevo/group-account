@@ -165,10 +165,17 @@ async function audit(userId, action, entity, entityId, details, options = {}) {
     : (details || null);
 
   const sql = `
-    INSERT INTO audit_log (user_id, action, entity, entity_id, details, created_at)
-    VALUES ($1, $2, $3, $4, $5, NOW())
+    INSERT INTO audit_log (
+      user_id, action, entity, entity_id, details, before_value, after_value,
+      ip_address, user_agent, reason, created_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
   `;
-  const params = [userId, action, entity, entityId, detailsStr];
+  const serialize = (value) => value == null ? null : (typeof value === 'string' ? value : JSON.stringify(value));
+  const params = [
+    userId, action, entity, entityId, detailsStr,
+    serialize(options.before_value), serialize(options.after_value),
+    options.ip_address || null, options.user_agent || null, options.reason || null
+  ];
 
   if (options && options.client) {
     await options.client.query(sql, params);

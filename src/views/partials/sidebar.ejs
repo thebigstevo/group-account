@@ -19,8 +19,15 @@
   function roleLabel(r) {
     const labels = {
       admin: 'Admin',
+      president: 'President',
+      first_vice_president: '1st Vice Pres.',
+      second_vice_president: '2nd Vice Pres.',
+      secretary: 'Secretary',
       finance_secretary: 'Finance Sec.',
       treasurer: 'Treasurer',
+      commander: 'Commander',
+      trustee: 'Trustee',
+      executive: 'Executive',
       viewer: 'Viewer',
       auditor: 'Auditor'
     };
@@ -54,7 +61,7 @@
     </div>
 
     <!-- Administration Group (role-based) -->
-    <% if (['admin', 'finance_secretary', 'treasurer'].includes(role)) { %>
+    <% if (role === 'admin') { %>
     <div class="sidebar__group">
       <div class="sidebar__group-title">Administration</div>
       <a href="/config" class="sidebar__link<%= isActive('/config') ? ' active' : '' %>">Config</a>
@@ -62,6 +69,13 @@
       <a href="/fiscal-years" class="sidebar__link<%= isActive('/fiscal-years') ? ' active' : '' %>">Fiscal Years</a>
       <a href="/users" class="sidebar__link<%= isActive('/users') ? ' active' : '' %>">Users</a>
       <a href="/audit" class="sidebar__link<%= isActive('/audit') ? ' active' : '' %>">Audit</a>
+    </div>
+    <% } else if (['finance_secretary', 'treasurer'].includes(role)) { %>
+    <div class="sidebar__group">
+      <div class="sidebar__group-title">Administration</div>
+      <a href="/config" class="sidebar__link<%= isActive('/config') ? ' active' : '' %>">Config</a>
+      <a href="/dues" class="sidebar__link<%= isActive('/dues') ? ' active' : '' %>">Dues</a>
+      <a href="/fiscal-years" class="sidebar__link<%= isActive('/fiscal-years') ? ' active' : '' %>">Fiscal Years</a>
     </div>
     <% } else if (role === 'auditor') { %>
     <div class="sidebar__group">
