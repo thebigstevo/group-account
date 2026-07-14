@@ -10,6 +10,7 @@ const dal = require('./dal');
 const { verifyPassword, hashPassword } = require('./security');
 const { formatDate, formatDateTime } = require('./viewHelpers');
 const { validateActiveFiscalDate } = require('./fiscalYearDomain');
+const { validateDuesRule, ageBandsOverlap, validateCategory } = require('./configDomain');
 const pgSession = require('connect-pg-simple')(session);
 const {
   accountBalances,
@@ -224,6 +225,39 @@ async function transactionYearError(req, txDate) {
   const validationError = validateActiveFiscalDate(req.activeFiscalYear, txDate);
   if (validationError) return validationError;
   return (await isYearClosed(txDate)) ? 'That year is closed. No new transactions are allowed.' : null;
+}
+
+async function duesRulesAreLocked(year) {
+  const fiscalYear = await dal.queryOne('SELECT status FROM fiscal_years WHERE year = $1', [year]);
+  if (!fiscalYear || fiscalYear.status === 'closed') return true;
+  const usage = await dal.queryOne(`
+    SELECT COUNT(*)::int AS count
+    FROM transactions t
+    JOIN transaction_categories c ON c.name = t.category
+    WHERE c.purpose = 'assessment' AND t.status = 'posted'
+      AND SUBSTRING(t.tx_date FROM 1 FOR 4) = $1
+  `, [String(year)]);
+  return Number(usage.count) > 0;
+}
+
+async function paymentSplitIsLocked(year, category) {
+  const usage = await dal.queryOne(`
+    SELECT COUNT(*)::int AS count
+    FROM transactions
+    WHERE category = $1 AND status = 'posted'
+      AND SUBSTRING(tx_date FROM 1 FOR 4) = $2
+  `, [category, String(year)]);
+  return Number(usage.count) > 0;
+}
+
+async function overlappingDuesRule(year, values, excludeId = null) {
+  const rules = await dal.query(
+    'SELECT * FROM dues_rules WHERE year = $1 AND active = true AND ($2::int IS NULL OR id <> $2)',
+    [year, excludeId]
+  );
+  return rules.find(rule => ageBandsOverlap(
+    { min_age: values.minAge, max_age: values.maxAge }, rule
+  ));
 }
 
 function monthPeriod(year, month) {
@@ -600,6 +634,28 @@ app.post('/config/payment-splits', allow('admin', 'finance_secretary'), asyncHan
     req.session.flash = { type: 'error', message: `Configuration changes must use active fiscal year ${selectedYear(req)}.` };
     return res.redirect('/config');
   }
+  const splitCategory = await dal.queryOne(
+    "SELECT * FROM transaction_categories WHERE name = $1 AND kind = 'income' AND purpose = 'assessment' AND active = true",
+    [req.body.category]
+  );
+  if (!splitCategory) {
+    req.session.flash = { type: 'error', message: 'Select an active assessment category before configuring its welfare split.' };
+    return res.redirect('/config');
+  }
+  const existingSplit = await dal.queryOne(
+    'SELECT * FROM payment_splits WHERE year = $1 AND category = $2',
+    [Number(req.body.year), req.body.category]
+  );
+  if (existingSplit && await paymentSplitIsLocked(existingSplit.year, existingSplit.category)) {
+    req.session.flash = { type: 'error', message: 'This split already affects posted receipts and is locked to preserve historical welfare calculations.' };
+    return res.redirect('/config');
+  }
+  const assessmentAmount = Number(req.body.assessment_amount);
+  const welfareAmount = Number(req.body.welfare_amount);
+  if (!Number.isFinite(assessmentAmount) || assessmentAmount <= 0 || !Number.isFinite(welfareAmount) || welfareAmount < 0 || welfareAmount > assessmentAmount) {
+    req.session.flash = { type: 'error', message: 'Split amounts are invalid. Welfare must be between zero and the full assessment amount.' };
+    return res.redirect('/config');
+  }
   await dal.run(`
     INSERT INTO payment_splits (year, category, assessment_amount, welfare_amount, active)
     VALUES ($1, $2, $3, $4, true)
@@ -610,11 +666,28 @@ app.post('/config/payment-splits', allow('admin', 'finance_secretary'), asyncHan
   `, [
     Number(req.body.year),
     req.body.category,
-    Number(req.body.assessment_amount || 0),
-    Number(req.body.welfare_amount || 0)
+    assessmentAmount,
+    welfareAmount
   ]);
   await dal.audit(req.session.user.id, 'upsert', 'payment_split', null, `${req.body.year} ${req.body.category}`);
   req.session.flash = { type: 'success', message: 'Payment split saved successfully.' };
+  res.redirect('/config');
+}));
+
+app.post('/config/payment-splits/:id/delete', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+  const split = await dal.queryOne('SELECT * FROM payment_splits WHERE id = $1', [Number(req.params.id)]);
+  if (!split) return res.status(404).render('error', { message: 'Payment split not found.' });
+  if (Number(split.year) !== selectedYear(req)) {
+    req.session.flash = { type: 'error', message: 'Historical payment splits cannot be removed.' };
+    return res.redirect('/config');
+  }
+  if (await paymentSplitIsLocked(split.year, split.category)) {
+    req.session.flash = { type: 'error', message: 'This split affects posted receipts and cannot be removed.' };
+    return res.redirect('/config');
+  }
+  await dal.run('DELETE FROM payment_splits WHERE id = $1', [split.id]);
+  await dal.audit(req.session.user.id, 'delete', 'payment_split', split.id, `${split.year} ${split.category}`);
+  req.session.flash = { type: 'success', message: 'Payment split removed.' };
   res.redirect('/config');
 }));
 
@@ -626,13 +699,19 @@ app.post('/config/accounts', allow('admin', 'treasurer'), asyncHandler(async (re
     const categories = await dal.query('SELECT * FROM transaction_categories ORDER BY kind, sort_order, name');
     return res.status(400).render('config', { accounts, splits, rules, categories, year: selectedYear(req), errors: ['Account name is required.'], values: req.body });
   }
+  const accountType = String(req.body.type || '');
+  const openingBalance = Number(req.body.opening_balance || 0);
+  if (!['cash', 'bank', 'mobile_money'].includes(accountType) || !Number.isFinite(openingBalance)) {
+    req.session.flash = { type: 'error', message: 'Select a valid account type and enter a valid opening balance.' };
+    return res.redirect('/config');
+  }
   const result = await dal.run(`
     INSERT INTO accounts (name, type, opening_balance) VALUES ($1, $2, $3)
     RETURNING id
   `, [
     req.body.name,
-    req.body.type,
-    Number(req.body.opening_balance || 0)
+    accountType,
+    openingBalance
   ]);
   await dal.audit(req.session.user.id, 'create', 'account', result.rows[0].id, req.body.name);
   req.session.flash = { type: 'success', message: 'Account added successfully.' };
@@ -640,39 +719,139 @@ app.post('/config/accounts', allow('admin', 'treasurer'), asyncHandler(async (re
 }));
 
 app.post('/config/accounts/:id', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const openingBalance = Number(req.body.opening_balance || 0);
+  if (!name || !Number.isFinite(openingBalance)) {
+    req.session.flash = { type: 'error', message: 'Account name and opening balance must be valid.' };
+    return res.redirect('/config');
+  }
   await dal.run(`
     UPDATE accounts
     SET name = $1, opening_balance = $2, active = $3
     WHERE id = $4
   `, [
-    req.body.name,
-    Number(req.body.opening_balance || 0),
+    name,
+    openingBalance,
     req.body.active ? true : false,
     Number(req.params.id)
   ]);
-  await dal.audit(req.session.user.id, 'update', 'account', Number(req.params.id), req.body.name);
+  await dal.audit(req.session.user.id, 'update', 'account', Number(req.params.id), name);
   req.session.flash = { type: 'success', message: 'Account updated successfully.' };
   res.redirect('/config');
 }));
 
-app.post('/config/categories', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
-  if (!req.body.name || !req.body.name.trim()) {
-    const accounts = await dal.query('SELECT * FROM accounts ORDER BY id');
-    const splits = await dal.query('SELECT * FROM payment_splits ORDER BY year DESC, category');
-    const rules = await dal.query('SELECT * FROM dues_rules ORDER BY year DESC, min_age');
-    const categories = await dal.query('SELECT * FROM transaction_categories ORDER BY kind, sort_order, name');
-    return res.status(400).render('config', { accounts, splits, rules, categories, year: selectedYear(req), errors: ['Category name is required.'], values: req.body });
+app.post('/config/accounts/:id/delete', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  const accountId = Number(req.params.id);
+  const account = await dal.queryOne('SELECT * FROM accounts WHERE id = $1', [accountId]);
+  if (!account) return res.status(404).render('error', { message: 'Account not found.' });
+  const dependencies = await dal.queryOne(`
+    SELECT
+      (SELECT COUNT(*)::int FROM transactions WHERE account_id = $1 OR to_account_id = $1) AS transactions,
+      (SELECT COUNT(*)::int FROM reconciliations WHERE account_id = $1) AS reconciliations
+  `, [accountId]);
+  if (Number(dependencies.transactions) > 0 || Number(dependencies.reconciliations) > 0) {
+    await dal.run('UPDATE accounts SET active = false WHERE id = $1', [accountId]);
+    req.session.flash = { type: 'success', message: `${account.name} has history, so it was deactivated rather than deleted.` };
+  } else {
+    await dal.run('DELETE FROM accounts WHERE id = $1', [accountId]);
+    req.session.flash = { type: 'success', message: `${account.name} was deleted.` };
   }
-  await dal.run(`
-    INSERT INTO transaction_categories (name, kind, active, sort_order)
-    VALUES ($1, $2, true, $3)
-    ON CONFLICT(name) DO UPDATE SET
-      kind = EXCLUDED.kind,
-      active = true,
-      sort_order = EXCLUDED.sort_order
-  `, [req.body.name, req.body.kind, Number(req.body.sort_order || 100)]);
-  await dal.audit(req.session.user.id, 'upsert', 'transaction_category', null, `${req.body.kind}: ${req.body.name}`);
-  req.session.flash = { type: 'success', message: 'Category saved successfully.' };
+  await dal.audit(req.session.user.id, 'remove', 'account', accountId, req.session.flash.message);
+  res.redirect('/config');
+}));
+
+app.post('/config/categories', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  const validated = validateCategory(req.body);
+  if (validated.errors.length) {
+    req.session.flash = { type: 'error', message: validated.errors.join(' ') };
+    return res.redirect('/config');
+  }
+  const duplicate = await dal.queryOne('SELECT id FROM transaction_categories WHERE LOWER(name) = LOWER($1)', [validated.values.name]);
+  if (duplicate) {
+    req.session.flash = { type: 'error', message: 'A category with that name already exists. Edit the existing category instead.' };
+    return res.redirect('/config');
+  }
+  if (validated.values.purpose !== 'standard') {
+    const purposeOwner = await dal.queryOne('SELECT name FROM transaction_categories WHERE purpose = $1 AND active = true', [validated.values.purpose]);
+    if (purposeOwner) {
+      req.session.flash = { type: 'error', message: `Only one active category may have that accounting purpose. It is currently assigned to ${purposeOwner.name}.` };
+      return res.redirect('/config');
+    }
+  }
+  const result = await dal.run(`
+    INSERT INTO transaction_categories (name, kind, purpose, active, sort_order)
+    VALUES ($1, $2, $3, true, $4) RETURNING id
+  `, [validated.values.name, validated.values.kind, validated.values.purpose, validated.values.sortOrder]);
+  await dal.audit(req.session.user.id, 'create', 'transaction_category', result.rows[0].id, validated.values);
+  req.session.flash = { type: 'success', message: 'Category added successfully.' };
+  res.redirect('/config');
+}));
+
+app.post('/config/categories/:id', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  const categoryId = Number(req.params.id);
+  const category = await dal.queryOne('SELECT * FROM transaction_categories WHERE id = $1', [categoryId]);
+  if (!category) return res.status(404).render('error', { message: 'Category not found.' });
+  const validated = validateCategory(req.body);
+  if (validated.errors.length) {
+    req.session.flash = { type: 'error', message: validated.errors.join(' ') };
+    return res.redirect('/config');
+  }
+  const duplicate = await dal.queryOne(
+    'SELECT id FROM transaction_categories WHERE LOWER(name) = LOWER($1) AND id <> $2',
+    [validated.values.name, categoryId]
+  );
+  if (duplicate) {
+    req.session.flash = { type: 'error', message: 'A category with that name already exists.' };
+    return res.redirect('/config');
+  }
+  const dependencies = await dal.queryOne(`
+    SELECT
+      (SELECT COUNT(*)::int FROM transactions WHERE category = $1) AS transactions,
+      (SELECT COUNT(*)::int FROM payment_splits WHERE category = $1) AS splits
+  `, [category.name]);
+  if ((Number(dependencies.transactions) > 0 || Number(dependencies.splits) > 0)
+      && (validated.values.kind !== category.kind || validated.values.purpose !== category.purpose)) {
+    req.session.flash = { type: 'error', message: 'A category used by transactions or payment splits may be renamed or deactivated, but its type and accounting purpose cannot change.' };
+    return res.redirect('/config');
+  }
+  const active = req.body.active === 'on';
+  if (active && validated.values.purpose !== 'standard') {
+    const purposeOwner = await dal.queryOne('SELECT name FROM transaction_categories WHERE purpose = $1 AND active = true AND id <> $2', [validated.values.purpose, categoryId]);
+    if (purposeOwner) {
+      req.session.flash = { type: 'error', message: `Deactivate ${purposeOwner.name} before assigning the same accounting purpose.` };
+      return res.redirect('/config');
+    }
+  }
+  await dal.transaction(async (client) => {
+    if (validated.values.name !== category.name) {
+      await client.query('UPDATE transactions SET category = $1 WHERE category = $2', [validated.values.name, category.name]);
+      await client.query('UPDATE payment_splits SET category = $1 WHERE category = $2', [validated.values.name, category.name]);
+    }
+    await client.query(`UPDATE transaction_categories SET name=$1, kind=$2, purpose=$3, active=$4, sort_order=$5 WHERE id=$6`,
+      [validated.values.name, validated.values.kind, validated.values.purpose, active, validated.values.sortOrder, categoryId]);
+    await dal.audit(req.session.user.id, 'update', 'transaction_category', categoryId, validated.values,
+      { client, before_value: category, after_value: { ...validated.values, active } });
+  });
+  req.session.flash = { type: 'success', message: 'Category updated. Related transactions and payment splits remain connected.' };
+  res.redirect('/config');
+}));
+
+app.post('/config/categories/:id/delete', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  const categoryId = Number(req.params.id);
+  const category = await dal.queryOne('SELECT * FROM transaction_categories WHERE id = $1', [categoryId]);
+  if (!category) return res.status(404).render('error', { message: 'Category not found.' });
+  const usage = await dal.queryOne('SELECT COUNT(*)::int AS count FROM transactions WHERE category = $1', [category.name]);
+  if (Number(usage.count) > 0) {
+    await dal.run('UPDATE transaction_categories SET active = false WHERE id = $1', [categoryId]);
+    req.session.flash = { type: 'success', message: `${category.name} has transaction history, so it was deactivated rather than deleted.` };
+  } else {
+    await dal.transaction(async (client) => {
+      await client.query('DELETE FROM payment_splits WHERE category = $1', [category.name]);
+      await client.query('DELETE FROM transaction_categories WHERE id = $1', [categoryId]);
+    });
+    req.session.flash = { type: 'success', message: `${category.name} and its unused payment splits were deleted.` };
+  }
+  await dal.audit(req.session.user.id, 'remove', 'transaction_category', categoryId, req.session.flash.message);
   res.redirect('/config');
 }));
 
@@ -720,20 +899,6 @@ app.post('/fiscal-years/open', allow('admin', 'finance_secretary', 'treasurer'),
         [year, r.label, r.min_age, r.max_age, r.annual_assessment, r.welfare_portion]
       );
     }
-    if (prevRules.length === 0) {
-      await dal.run(
-        'INSERT INTO dues_rules (year, label, min_age, max_age, annual_assessment, welfare_portion) VALUES ($1,$2,$3,$4,$5,$6)',
-        [year, 'Standard members', null, 59, 700, 300]
-      );
-      await dal.run(
-        'INSERT INTO dues_rules (year, label, min_age, max_age, annual_assessment, welfare_portion) VALUES ($1,$2,$3,$4,$5,$6)',
-        [year, 'Age 60 to 69', 60, 69, 350, 150]
-      );
-      await dal.run(
-        'INSERT INTO dues_rules (year, label, min_age, max_age, annual_assessment, welfare_portion) VALUES ($1,$2,$3,$4,$5,$6)',
-        [year, 'Age 70 and above', 70, null, 0, 0]
-      );
-    }
   }
 
   // Copy payment splits from previous year if none exist
@@ -744,12 +909,6 @@ app.post('/fiscal-years/open', allow('admin', 'finance_secretary', 'treasurer'),
       await dal.run(
         'INSERT INTO payment_splits (year, category, assessment_amount, welfare_amount) VALUES ($1, $2, $3, $4)',
         [year, s.category, s.assessment_amount, s.welfare_amount]
-      );
-    }
-    if (prevSplits.length === 0) {
-      await dal.run(
-        'INSERT INTO payment_splits (year, category, assessment_amount, welfare_amount) VALUES ($1,$2,$3,$4)',
-        [year, 'Assessment', 700, 300]
       );
     }
   }
@@ -814,7 +973,10 @@ app.get('/dues', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'vi
     JOIN members m ON m.id = md.member_id
     ORDER BY md.year DESC, m.name
   `);
-  res.render('dues', { rules, members, overrides, year: selectedYear(req) });
+  res.render('dues', {
+    rules, members, overrides, year: selectedYear(req),
+    canManage: ['admin', 'finance_secretary'].includes(req.session.user.role)
+  });
 }));
 
 app.post('/dues/rules', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
@@ -822,11 +984,19 @@ app.post('/dues/rules', allow('admin', 'finance_secretary'), asyncHandler(async 
     req.session.flash = { type: 'error', message: `Dues rules must use active fiscal year ${selectedYear(req)}.` };
     return res.redirect('/dues');
   }
-  if (!req.body.label || !req.body.label.trim()) {
-    const rules = await dal.query('SELECT * FROM dues_rules ORDER BY year DESC, min_age');
-    const members = await dal.query('SELECT id, name FROM members ORDER BY name');
-    const overrides = await dal.query(`SELECT md.*, m.name FROM member_dues md JOIN members m ON m.id = md.member_id ORDER BY md.year DESC, m.name`);
-    return res.status(400).render('dues', { rules, members, overrides, year: selectedYear(req), errors: ['Label is required.'], values: req.body });
+  if (await duesRulesAreLocked(selectedYear(req))) {
+    req.session.flash = { type: 'error', message: 'Dues rules are locked after assessment payments are posted. Use a member-specific override for exceptions.' };
+    return res.redirect('/dues');
+  }
+  const validated = validateDuesRule(req.body);
+  if (validated.errors.length) {
+    req.session.flash = { type: 'error', message: validated.errors.join(' ') };
+    return res.redirect('/dues');
+  }
+  const overlap = await overlappingDuesRule(selectedYear(req), validated.values);
+  if (overlap) {
+    req.session.flash = { type: 'error', message: `This age band overlaps the active rule “${overlap.label}”. Adjust or edit that rule first.` };
+    return res.redirect('/dues');
   }
   const result = await dal.run(`
     INSERT INTO dues_rules (year, label, min_age, max_age, annual_assessment, welfare_portion)
@@ -834,20 +1004,74 @@ app.post('/dues/rules', allow('admin', 'finance_secretary'), asyncHandler(async 
     RETURNING id
   `, [
     Number(req.body.year),
-    req.body.label,
-    req.body.min_age === '' ? null : Number(req.body.min_age),
-    req.body.max_age === '' ? null : Number(req.body.max_age),
-    Number(req.body.annual_assessment || 0),
-    Number(req.body.welfare_portion || 0)
+    validated.values.label,
+    validated.values.minAge,
+    validated.values.maxAge,
+    validated.values.assessment,
+    validated.values.welfare
   ]);
   await dal.audit(req.session.user.id, 'create', 'dues_rule', result.rows[0].id, req.body.label);
   req.session.flash = { type: 'success', message: 'Dues rule added successfully.' };
   res.redirect('/dues');
 }));
 
+app.post('/dues/rules/:id', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+  const ruleId = Number(req.params.id);
+  const rule = await dal.queryOne('SELECT * FROM dues_rules WHERE id = $1', [ruleId]);
+  if (!rule) return res.status(404).render('error', { message: 'Dues rule not found.' });
+  if (Number(rule.year) !== selectedYear(req) || await duesRulesAreLocked(rule.year)) {
+    req.session.flash = { type: 'error', message: 'This rule is historical or already affects posted assessment payments, so it is locked.' };
+    return res.redirect('/dues');
+  }
+  const validated = validateDuesRule(req.body);
+  if (validated.errors.length) {
+    req.session.flash = { type: 'error', message: validated.errors.join(' ') };
+    return res.redirect('/dues');
+  }
+  const overlap = await overlappingDuesRule(rule.year, validated.values, ruleId);
+  if (overlap) {
+    req.session.flash = { type: 'error', message: `This age band overlaps the active rule “${overlap.label}”.` };
+    return res.redirect('/dues');
+  }
+  const active = req.body.active === 'on';
+  await dal.run(`UPDATE dues_rules SET label=$1,min_age=$2,max_age=$3,annual_assessment=$4,welfare_portion=$5,active=$6 WHERE id=$7`,
+    [validated.values.label, validated.values.minAge, validated.values.maxAge,
+      validated.values.assessment, validated.values.welfare, active, ruleId]);
+  await dal.audit(req.session.user.id, 'update', 'dues_rule', ruleId, validated.values,
+    { before_value: rule, after_value: { ...validated.values, active } });
+  req.session.flash = { type: 'success', message: 'Dues rule updated.' };
+  res.redirect('/dues');
+}));
+
+app.post('/dues/rules/:id/delete', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+  const ruleId = Number(req.params.id);
+  const rule = await dal.queryOne('SELECT * FROM dues_rules WHERE id = $1', [ruleId]);
+  if (!rule) return res.status(404).render('error', { message: 'Dues rule not found.' });
+  if (Number(rule.year) !== selectedYear(req) || await duesRulesAreLocked(rule.year)) {
+    req.session.flash = { type: 'error', message: 'This rule is historical or already affects posted assessment payments and cannot be deleted.' };
+    return res.redirect('/dues');
+  }
+  await dal.run('DELETE FROM dues_rules WHERE id = $1', [ruleId]);
+  await dal.audit(req.session.user.id, 'delete', 'dues_rule', ruleId, rule);
+  req.session.flash = { type: 'success', message: 'Dues rule deleted.' };
+  res.redirect('/dues');
+}));
+
 app.post('/dues/overrides', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
   if (Number(req.body.year) !== selectedYear(req)) {
     req.session.flash = { type: 'error', message: `Dues overrides must use active fiscal year ${selectedYear(req)}.` };
+    return res.redirect('/dues');
+  }
+  const assessmentDue = Number(req.body.assessment_due);
+  const welfarePortion = Number(req.body.welfare_portion);
+  if (!Number.isFinite(assessmentDue) || assessmentDue < 0 || !Number.isFinite(welfarePortion)
+      || welfarePortion < 0 || welfarePortion > assessmentDue) {
+    req.session.flash = { type: 'error', message: 'Override amounts are invalid. Welfare must be between zero and the assessment due.' };
+    return res.redirect('/dues');
+  }
+  const member = await dal.queryOne('SELECT id FROM members WHERE id = $1', [Number(req.body.member_id)]);
+  if (!member) {
+    req.session.flash = { type: 'error', message: 'Select a valid member.' };
     return res.redirect('/dues');
   }
   await dal.run(`
@@ -860,12 +1084,25 @@ app.post('/dues/overrides', allow('admin', 'finance_secretary'), asyncHandler(as
   `, [
     Number(req.body.member_id),
     Number(req.body.year),
-    Number(req.body.assessment_due || 0),
-    Number(req.body.welfare_portion || 0),
+    assessmentDue,
+    welfarePortion,
     req.body.reason || null
   ]);
   await dal.audit(req.session.user.id, 'upsert', 'member_due', Number(req.body.member_id), String(req.body.year));
   req.session.flash = { type: 'success', message: 'Member dues override saved.' };
+  res.redirect('/dues');
+}));
+
+app.post('/dues/overrides/:id/delete', allow('admin', 'finance_secretary'), asyncHandler(async (req, res) => {
+  const override = await dal.queryOne('SELECT * FROM member_dues WHERE id = $1', [Number(req.params.id)]);
+  if (!override) return res.status(404).render('error', { message: 'Member dues override not found.' });
+  if (Number(override.year) !== selectedYear(req)) {
+    req.session.flash = { type: 'error', message: 'Historical member dues overrides cannot be removed.' };
+    return res.redirect('/dues');
+  }
+  await dal.run('DELETE FROM member_dues WHERE id = $1', [override.id]);
+  await dal.audit(req.session.user.id, 'delete', 'member_due', override.id, override);
+  req.session.flash = { type: 'success', message: 'Member dues override removed; the annual age-band rule now applies.' };
   res.redirect('/dues');
 }));
 
@@ -896,10 +1133,15 @@ app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer
     const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
     return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: [receiptYearError], values: req.body });
   }
+  const receiptCategory = await dal.queryOne(
+    "SELECT * FROM transaction_categories WHERE name = $1 AND kind = 'income' AND active = true",
+    [req.body.category]
+  );
+  if (!receiptCategory) return res.status(400).render('error', { message: 'Select an active income category.' });
   const amount = Number(req.body.amount || 0);
   const welfare = await calculateWelfareComponent({
     memberId: req.body.member_id || null,
-    category: req.body.category || 'Assessment',
+    category: receiptCategory.name,
     amount,
     txDate: req.body.tx_date,
     enteredWelfare: req.body.welfare_component
@@ -916,7 +1158,7 @@ app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer
     INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, created_by)
     VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, $8)
     RETURNING id
-  `, [req.body.tx_date, req.body.member_id || null, Number(req.body.account_id), req.body.category || 'Assessment', req.body.description || null, amount, welfare, req.session.user.id]);
+  `, [req.body.tx_date, req.body.member_id || null, Number(req.body.account_id), receiptCategory.name, req.body.description || null, amount, welfare, req.session.user.id]);
   await dal.audit(req.session.user.id, 'create', 'receipt', result.rows[0].id, `${req.body.category} ${amount}`);
   req.session.flash = { type: 'success', message: 'Receipt saved successfully.' };
   res.redirect('/transactions');
@@ -932,12 +1174,17 @@ app.post('/transactions/expense', allow('admin', 'treasurer'), asyncHandler(asyn
     const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
     return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: [expenseYearError], values: req.body });
   }
-  const type = req.body.category === 'Welfare Payout' ? 'welfare_payout' : 'expense';
+  const expenseCategory = await dal.queryOne(
+    "SELECT * FROM transaction_categories WHERE name = $1 AND kind = 'expense' AND active = true",
+    [req.body.category]
+  );
+  if (!expenseCategory) return res.status(400).render('error', { message: 'Select an active expense category.' });
+  const type = expenseCategory.purpose === 'welfare_payout' ? 'welfare_payout' : 'expense';
   const result = await dal.run(`
     INSERT INTO transactions (tx_date, tx_type, account_id, category, description, amount, created_by)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
     RETURNING id
-  `, [req.body.tx_date, type, Number(req.body.account_id), req.body.category || 'General Expense', req.body.description || null, Number(req.body.amount || 0), req.session.user.id]);
+  `, [req.body.tx_date, type, Number(req.body.account_id), expenseCategory.name, req.body.description || null, Number(req.body.amount || 0), req.session.user.id]);
   await dal.audit(req.session.user.id, 'create', type, result.rows[0].id, `${req.body.category} ${req.body.amount}`);
   req.session.flash = { type: 'success', message: 'Expense saved successfully.' };
   res.redirect('/transactions');

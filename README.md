@@ -7,7 +7,8 @@ A lightweight, self-hosted financial management application for groups, clubs, a
 - **Member Management** — Track members, dues, arrears, and welfare eligibility
 - **Transaction Recording** — Receipts, expenses, transfers, and welfare payouts with full audit trail
 - **Account Balances** — Cash, bank, and mobile money accounts with reconciliation support
-- **Dues & Assessments** — Configurable age-based dues rules with automatic welfare allocation
+- **Dues & Assessments** — Per-fiscal-year age bands, amounts, member overrides, and welfare splits managed by administrators
+- **Financial Configuration** — Administrators can add, edit, deactivate, or safely remove accounts and transaction categories without relying on fixed category names
 - **Reports** — Monthly summaries, arrears reports, income/expense breakdowns, running balance ledgers
 - **CSV Export** — Export transactions, arrears, reports, reconciliations, and audit logs
 - **Fiscal Year Management** — Open/close fiscal years with arrears carry-forward
@@ -39,6 +40,8 @@ Default login after first boot:
 - Password: `ChangeMe123!`
 
 Change the default password immediately after deployment.
+
+On a fresh installation, open the fiscal year first, then use **Configuration** and **Dues** to create the organization's accounts, transaction categories, accounting purposes, and annual dues rules. Business-specific financial data is intentionally not seeded by migrations.
 
 ## Environment Variables
 

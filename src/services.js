@@ -188,13 +188,14 @@ async function totalExpenses(startDate = null, endDate = null) {
 
 async function memberPaid(memberId, year) {
   const row = await dal.queryOne(`
-    SELECT COALESCE(SUM(amount), 0) AS total
-    FROM transactions
-    WHERE tx_type = 'receipt'
-      AND member_id = $1
-      AND category = 'Assessment'
-      AND SUBSTRING(tx_date FROM 1 FOR 4) = $2
-      AND status = 'posted'
+    SELECT COALESCE(SUM(t.amount), 0) AS total
+    FROM transactions t
+    JOIN transaction_categories c ON c.name = t.category
+    WHERE t.tx_type = 'receipt'
+      AND t.member_id = $1
+      AND c.purpose = 'assessment'
+      AND SUBSTRING(t.tx_date FROM 1 FOR 4) = $2
+      AND t.status = 'posted'
   `, [memberId, String(year)]);
   return money(row.total);
 }
@@ -239,8 +240,13 @@ async function calculateWelfareComponent({ memberId, category, amount, txDate, e
     return money(enteredWelfare);
   }
 
-  if (category === 'Welfare') return money(amount);
-  if (category !== 'Assessment') return 0;
+  const categoryConfig = await dal.queryOne(
+    'SELECT purpose FROM transaction_categories WHERE name = $1 AND active = true',
+    [category]
+  );
+  if (!categoryConfig) return 0;
+  if (categoryConfig.purpose === 'welfare_income') return money(amount);
+  if (categoryConfig.purpose !== 'assessment') return 0;
 
   const year = Number(String(txDate || '').slice(0, 4)) || currentYear();
   let member = null;

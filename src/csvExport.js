@@ -105,21 +105,23 @@ async function exportArrearsCsv(year) {
       COALESCE(md.welfare_portion, dr.welfare_portion, 0) as welfare_portion,
       COALESCE((
         SELECT SUM(amount)
-        FROM transactions
-        WHERE tx_type = 'receipt'
-          AND member_id = m.id
-          AND category = 'Assessment'
-          AND SUBSTRING(tx_date FROM 1 FOR 4) = $1
-          AND status = 'posted'
+        FROM transactions t
+        JOIN transaction_categories c ON c.name = t.category
+        WHERE t.tx_type = 'receipt'
+          AND t.member_id = m.id
+          AND c.purpose = 'assessment'
+          AND SUBSTRING(t.tx_date FROM 1 FOR 4) = $1
+          AND t.status = 'posted'
       ), 0) as paid,
       m.opening_arrears + COALESCE(md.assessment_due, dr.annual_assessment, 0) - COALESCE((
         SELECT SUM(amount)
-        FROM transactions
-        WHERE tx_type = 'receipt'
-          AND member_id = m.id
-          AND category = 'Assessment'
-          AND SUBSTRING(tx_date FROM 1 FOR 4) = $2
-          AND status = 'posted'
+        FROM transactions t
+        JOIN transaction_categories c ON c.name = t.category
+        WHERE t.tx_type = 'receipt'
+          AND t.member_id = m.id
+          AND c.purpose = 'assessment'
+          AND SUBSTRING(t.tx_date FROM 1 FOR 4) = $2
+          AND t.status = 'posted'
       ), 0) as balance
     FROM members m
     LEFT JOIN member_dues md ON md.member_id = m.id AND md.year = $3

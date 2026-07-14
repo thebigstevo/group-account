@@ -96,4 +96,37 @@ describe('view date helpers', () => {
     expect(html).toContain('No active fiscal year');
     expect(html).toContain('Operations are paused');
   });
+
+  test('renders configurable categories and their edit controls', async () => {
+    const filename = path.join(__dirname, '..', 'views', 'config.ejs');
+    const html = await ejs.renderFile(filename, {
+      accounts: [], splits: [], rules: [], year: 2026,
+      categories: [{ id: 4, name: 'Annual Levy', kind: 'income', purpose: 'assessment', active: true, sort_order: 10 }],
+      activeFiscalYear: { year: 2026, status: 'open', is_active: true },
+      csrfToken: 'test-token', user: { id: 1, name: 'Admin', role: 'admin' },
+      currentPath: '/config', groupName: 'Test Commandery', groupCurrency: 'GHS',
+      formatMoney: value => `GHS ${value}`, formatDate, formatDateTime, flash: null,
+    });
+
+    expect(html).toContain('Annual Levy');
+    expect(html).toContain('/config/categories/4');
+    expect(html).toContain('Member assessment');
+  });
+
+  test('renders dues rule and override removal controls for the active year', async () => {
+    const filename = path.join(__dirname, '..', 'views', 'dues.ejs');
+    const html = await ejs.renderFile(filename, {
+      rules: [{ id: 2, year: 2026, label: 'Custom band', min_age: 20, max_age: 40, annual_assessment: 500, welfare_portion: 100, active: true }],
+      members: [{ id: 8, name: 'Member One' }],
+      overrides: [{ id: 6, member_id: 8, year: 2026, name: 'Member One', assessment_due: 450, welfare_portion: 90, reason: 'Approved' }],
+      year: 2026, canManage: true,
+      activeFiscalYear: { year: 2026, status: 'open', is_active: true },
+      csrfToken: 'test-token', user: { id: 1, name: 'Admin', role: 'admin' },
+      currentPath: '/dues', groupName: 'Test Commandery', groupCurrency: 'GHS',
+      formatMoney: value => `GHS ${value}`, formatDate, formatDateTime, flash: null,
+    });
+
+    expect(html).toContain('/dues/rules/2/delete');
+    expect(html).toContain('/dues/overrides/6/delete');
+  });
 });

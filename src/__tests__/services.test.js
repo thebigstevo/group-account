@@ -41,6 +41,7 @@ describe('Services: calculateWelfareComponent', () => {
   });
 
   test('returns full amount for Welfare category', async () => {
+    dal.queryOne.mockResolvedValueOnce({ purpose: 'welfare_income' });
     const welfare = await calculateWelfareComponent({
       memberId: 1,
       category: 'Welfare',
@@ -52,6 +53,7 @@ describe('Services: calculateWelfareComponent', () => {
   });
 
   test('returns 0 for non-Assessment, non-Welfare category', async () => {
+    dal.queryOne.mockResolvedValueOnce({ purpose: 'standard' });
     const welfare = await calculateWelfareComponent({
       memberId: 1,
       category: 'Offertory',
@@ -63,8 +65,8 @@ describe('Services: calculateWelfareComponent', () => {
   });
 
   test('calculates welfare from payment splits ratio for Assessment', async () => {
-    // Mock: member_dues not overridden, falls through to payment_splits
-    dal.queryOne.mockResolvedValueOnce(null); // no member_dues override
+    dal.queryOne.mockResolvedValueOnce({ purpose: 'assessment' });
+    dal.queryOne.mockResolvedValueOnce(null); // no member selected; use payment split
     dal.queryOne.mockResolvedValueOnce({
       assessment_amount: 1000,
       welfare_amount: 400,

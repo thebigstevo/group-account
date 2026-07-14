@@ -285,9 +285,11 @@ async function memberStatementReport(memberId, year) {
   const endDate = `${year}-12-31`;
 
   const transactions = await dal.query(`
-    SELECT t.tx_date, t.tx_type, t.category, t.amount, t.welfare_component, t.description, a.name AS account_name
+    SELECT t.tx_date, t.tx_type, t.category, t.amount, t.welfare_component, t.description,
+      a.name AS account_name, c.purpose AS category_purpose
     FROM transactions t
     LEFT JOIN accounts a ON a.id = t.account_id
+    LEFT JOIN transaction_categories c ON c.name = t.category
     WHERE t.member_id = $1 AND t.status = 'posted'
       AND t.tx_date >= $2 AND t.tx_date <= $3
     ORDER BY t.tx_date ASC, t.id ASC
@@ -316,7 +318,7 @@ async function memberStatementReport(memberId, year) {
   }
 
   const totalPaid = transactions
-    .filter(t => t.tx_type === 'receipt' && t.category === 'Assessment')
+    .filter(t => t.tx_type === 'receipt' && t.category_purpose === 'assessment')
     .reduce((s, t) => s + Number(t.amount), 0);
   const balance = Number(member.opening_arrears) + Number(assessmentDue) - totalPaid;
 

@@ -5,17 +5,12 @@ const config = require('./config');
 
 /**
  * Idempotent PostgreSQL schema migration script.
- * Creates all tables, indexes, and seeds default data when tables are empty.
- * Safe to run multiple times — uses IF NOT EXISTS and count checks.
+ * Creates and upgrades all tables and indexes without injecting business data.
+ * Safe to run multiple times — uses idempotent DDL and guarded backfills.
  */
 async function migrate() {
   return dal.transaction(async (client) => {
     const run = (sql, params = []) => client.query(sql, params);
-    const queryOne = async (sql, params = []) => {
-      const result = await client.query(sql, params);
-      return result.rows[0] || null;
-    };
-
     // PostgreSQL's CREATE ... IF NOT EXISTS is not concurrency-safe when two
     // deploy processes create the same relation simultaneously. Serialize the
     // complete migration and keep all DDL atomic.
@@ -283,10 +278,18 @@ async function migrate() {
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL UNIQUE,
       kind VARCHAR(50) NOT NULL CHECK (kind IN ('income','expense')),
+      purpose VARCHAR(30) NOT NULL DEFAULT 'standard',
       active BOOLEAN NOT NULL DEFAULT true,
       sort_order INTEGER NOT NULL DEFAULT 100
     )
   `);
+  await run(`ALTER TABLE transaction_categories ADD COLUMN IF NOT EXISTS purpose VARCHAR(30) NOT NULL DEFAULT 'standard'`);
+  await run(`UPDATE transaction_categories SET purpose = 'assessment' WHERE name = 'Assessment' AND purpose = 'standard'`);
+  await run(`UPDATE transaction_categories SET purpose = 'welfare_income' WHERE name = 'Welfare' AND purpose = 'standard'`);
+  await run(`UPDATE transaction_categories SET purpose = 'welfare_payout' WHERE name = 'Welfare Payout' AND purpose = 'standard'`);
+  await run(`ALTER TABLE transaction_categories DROP CONSTRAINT IF EXISTS transaction_categories_purpose_check`);
+  await run(`ALTER TABLE transaction_categories ADD CONSTRAINT transaction_categories_purpose_check CHECK (purpose IN ('standard','assessment','welfare_income','welfare_payout'))`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_transaction_categories_unique_active_purpose ON transaction_categories(purpose) WHERE active = true AND purpose <> 'standard'`);
   console.log('[migrate]   ✓ transaction_categories');
 
   await run(`
@@ -389,49 +392,9 @@ async function migrate() {
 
   console.log('[migrate]   ✓ Indexes created');
 
-  // ─── SEED DEFAULT DATA ────────────────────────────────────────────────────────
+  // Business-specific accounts, categories, and dues are configured in the application.
 
-  console.log('[migrate] Checking seed data...');
-
-  // Seed default accounts only when table is empty
-  const accountCount = await queryOne('SELECT COUNT(*)::int AS count FROM accounts');
-  if (accountCount.count === 0) {
-    await run(`INSERT INTO accounts (name, type) VALUES ($1, $2)`, ['Cash', 'cash']);
-    await run(`INSERT INTO accounts (name, type) VALUES ($1, $2)`, ['Bank', 'bank']);
-    await run(`INSERT INTO accounts (name, type) VALUES ($1, $2)`, ['Mobile Money', 'mobile_money']);
-    console.log('[migrate]   ✓ Seeded default accounts (Cash, Bank, Mobile Money)');
-  } else {
-    console.log('[migrate]   ⊘ Accounts table not empty, skipping seed');
-  }
-
-  // Seed default transaction categories only when table is empty
-  const categoryCount = await queryOne('SELECT COUNT(*)::int AS count FROM transaction_categories');
-  if (categoryCount.count === 0) {
-    const categories = [
-      ['Assessment', 'income', 10],
-      ['Welfare', 'income', 20],
-      ['Anniversary', 'income', 30],
-      ['Offertory', 'income', 40],
-      ['Ad hoc', 'income', 50],
-      ['General Expense', 'expense', 10],
-      ['PCT', 'expense', 20],
-      ['Convention Fees', 'expense', 30],
-      ['Refreshment', 'expense', 40],
-      ['Support', 'expense', 50],
-      ['Welfare Payout', 'expense', 60],
-    ];
-    for (const [name, kind, sortOrder] of categories) {
-      await run(
-        `INSERT INTO transaction_categories (name, kind, sort_order) VALUES ($1, $2, $3)`,
-        [name, kind, sortOrder]
-      );
-    }
-    console.log('[migrate]   ✓ Seeded default transaction categories (11 categories)');
-  } else {
-    console.log('[migrate]   ⊘ Transaction categories table not empty, skipping seed');
-  }
-
-    console.log('[migrate] Migration complete.');
+  console.log('[migrate] Migration complete.');
   });
 }
 
