@@ -1,0 +1,10 @@
+<%- include('partials/header') %>
+<% locals.title = 'Accounts'; %>
+<div class="page-container">
+  <section class="page-title"><div><span class="eyebrow">Finance</span><h1>Accounts</h1><p>Current balances across active commandery accounts.</p></div><% if (['admin','treasurer'].includes(user.role)) { %><a class="btn btn--secondary" href="/config#accounts">Manage accounts</a><% } %></section>
+  <%- include('partials/finance-nav') %>
+  <% if (!balances.length) { %><section class="panel"><div class="empty-state"><h2>No active accounts</h2><p>An authorised user can add accounts in Settings.</p></div></section><% } else { %>
+  <section class="summary-strip" aria-label="Account summary"><% balances.slice(0,4).forEach(function(account) { %><div class="summary-strip__item"><span class="summary-strip__label"><%= account.name %></span><strong class="summary-strip__value"><%= formatMoney(account.balance) %></strong></div><% }) %></section>
+  <section class="panel"><div class="section-head"><div><h2>All account balances</h2><p>Balances reflect posted transactions.</p></div></div><div class="account-list"><% balances.forEach(function(account) { %><div class="account-row"><span class="account-row__name"><%= account.name %> <small><%= String(account.type || '').replace('_',' ') %></small></span><strong class="account-row__value"><%= formatMoney(account.balance) %></strong></div><% }) %></div></section><% } %>
+</div>
+<%- include('partials/footer') %>

@@ -20,6 +20,15 @@
 
   <!-- Sidebar navigation (left panel on desktop, drawer on mobile) -->
   <%- include('sidebar') %>
+
+  <header class="topbar-desktop">
+    <button type="button" class="topbar-desktop__collapse" data-sidebar-collapse aria-label="Collapse sidebar" aria-pressed="false">‹</button>
+    <span class="topbar-desktop__context"><%= locals.activeFiscalYear ? 'Fiscal year ' + locals.activeFiscalYear.year : groupName %></span>
+    <div class="topbar-desktop__user">
+      <span><%= locals.user.name %></span>
+      <a href="/change-password">Account</a>
+    </div>
+  </header>
   <% } %>
 
   <!-- Main content area -->

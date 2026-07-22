@@ -1,95 +1,83 @@
 <%
-  const user = locals.user || {};
-  const currentPath = locals.currentPath || '/';
-  const role = user.role || 'viewer';
+  const navUser = locals.user || {};
+  const navPath = locals.currentPath || '/';
+  const navRole = navUser.role || 'viewer';
+  const canRecordIncome = ['admin', 'finance_secretary', 'treasurer'].includes(navRole);
+  const canRecordExpense = ['admin', 'treasurer'].includes(navRole);
+  const canReconcile = ['admin', 'treasurer', 'auditor', 'viewer'].includes(navRole);
+  const canConfigure = ['admin', 'finance_secretary', 'treasurer'].includes(navRole);
 
-  // Helper to determine if a link is active
-  function isActive(path) {
-    if (path === '/') return currentPath === '/';
-    return currentPath === path || currentPath.startsWith(path + '/');
+  function navActive(path) {
+    if (path === '/') return navPath === '/';
+    return navPath === path || navPath.startsWith(path + '/');
   }
 
-  // Truncate name to 20 chars with ellipsis
-  function truncateName(name) {
-    if (!name) return '';
-    return name.length > 20 ? name.substring(0, 20) + '…' : name;
-  }
-
-  // Role display label
-  function roleLabel(r) {
+  function navRoleLabel(role) {
     const labels = {
-      admin: 'Admin',
-      president: 'President',
-      first_vice_president: '1st Vice Pres.',
-      second_vice_president: '2nd Vice Pres.',
-      secretary: 'Secretary',
-      finance_secretary: 'Finance Sec.',
-      treasurer: 'Treasurer',
-      commander: 'Commander',
-      trustee: 'Trustee',
-      executive: 'Executive',
-      viewer: 'Viewer',
-      auditor: 'Auditor'
+      admin: 'Administrator', president: 'President', first_vice_president: 'First Vice President',
+      second_vice_president: 'Second Vice President', secretary: 'Secretary',
+      finance_secretary: 'Finance Secretary', treasurer: 'Treasurer', commander: 'Commander',
+      trustee: 'Trustee', executive: 'Executive', viewer: 'Viewer', auditor: 'Auditor'
     };
-    return labels[r] || r;
+    return labels[role] || role;
   }
 %>
 
-<aside class="sidebar" id="sidebar">
-  <!-- Brand Header -->
+<aside class="sidebar" id="app-navigation" aria-label="Application navigation" aria-hidden="false">
   <div class="sidebar__brand">
-    <img src="/public/logo.png" alt="" style="height:24px;width:auto;margin-right:8px;vertical-align:middle;" onerror="this.style.display='none'">
-    <span>Treasurio</span>
+    <div>
+      <span class="sidebar__product">Treasurio</span>
+      <span class="sidebar__organisation"><%= locals.groupName || 'Group management' %></span>
+    </div>
+    <button type="button" class="sidebar__close" data-sidebar-close aria-label="Close navigation">×</button>
   </div>
 
-  <!-- Navigation -->
+  <div class="sidebar__identity">
+    <strong title="<%= navUser.name || '' %>"><%= navUser.name || 'Signed-in user' %></strong>
+    <span><%= navRoleLabel(navRole) %></span>
+  </div>
+
   <nav class="sidebar__nav" aria-label="Main navigation">
-    <!-- Operations Group -->
     <div class="sidebar__group">
-      <div class="sidebar__group-title">Operations</div>
-      <a href="/" class="sidebar__link<%= isActive('/') ? ' active' : '' %>">Dashboard</a>
-      <a href="/transactions" class="sidebar__link<%= isActive('/transactions') ? ' active' : '' %>">Transactions</a>
-      <a href="/members" class="sidebar__link<%= isActive('/members') ? ' active' : '' %>">Members</a>
+      <div class="sidebar__group-title">Overview</div>
+      <a href="/" class="sidebar__link<%= navActive('/') ? ' active' : '' %>" <%- navActive('/') ? 'aria-current="page"' : '' %>>Dashboard</a>
+      <a href="/members" class="sidebar__link<%= navActive('/members') ? ' active' : '' %>" <%- navActive('/members') ? 'aria-current="page"' : '' %>>Members</a>
     </div>
 
-    <!-- Reporting Group -->
+    <div class="sidebar__group">
+      <div class="sidebar__group-title">Finance</div>
+      <a href="/finance" class="sidebar__link<%= navPath === '/finance' ? ' active' : '' %>" <%- navPath === '/finance' ? 'aria-current="page"' : '' %>>Overview</a>
+      <a href="/finance/income" class="sidebar__link<%= navPath === '/finance/income' ? ' active' : '' %>" <%- navPath === '/finance/income' ? 'aria-current="page"' : '' %>>Income</a>
+      <% if (canRecordIncome) { %><a href="/finance/income/new" class="sidebar__link sidebar__link--nested<%= navPath === '/finance/income/new' ? ' active' : '' %>">Record income</a><% } %>
+      <a href="/finance/expenses" class="sidebar__link<%= navPath === '/finance/expenses' ? ' active' : '' %>" <%- navPath === '/finance/expenses' ? 'aria-current="page"' : '' %>>Expenses</a>
+      <% if (canRecordExpense) { %><a href="/finance/expenses/new" class="sidebar__link sidebar__link--nested<%= navPath === '/finance/expenses/new' ? ' active' : '' %>">Record expense</a><% } %>
+      <% if (canReconcile) { %><a href="/finance/reconciliation" class="sidebar__link<%= navActive('/finance/reconciliation') ? ' active' : '' %>">Reconciliation</a><% } %>
+      <a href="/finance/accounts" class="sidebar__link<%= navActive('/finance/accounts') ? ' active' : '' %>">Accounts</a>
+      <a href="/finance/reports" class="sidebar__link<%= navActive('/finance/reports') ? ' active' : '' %>">Reports</a>
+    </div>
+
     <div class="sidebar__group">
       <div class="sidebar__group-title">Reporting</div>
-      <a href="/reports" class="sidebar__link<%= isActive('/reports') ? ' active' : '' %>">Reports</a>
-      <a href="/reconciliation" class="sidebar__link<%= isActive('/reconciliation') ? ' active' : '' %>">Reconciliation</a>
-      <a href="/download-reports" class="sidebar__link<%= isActive('/download-reports') ? ' active' : '' %>">Downloads</a>
+      <a href="/download-reports" class="sidebar__link<%= navActive('/download-reports') ? ' active' : '' %>">Downloads</a>
+      <% if (['admin', 'auditor'].includes(navRole)) { %><a href="/audit" class="sidebar__link<%= navActive('/audit') ? ' active' : '' %>">Audit</a><% } %>
     </div>
 
-    <!-- Administration Group (role-based) -->
-    <% if (role === 'admin') { %>
+    <% if (canConfigure || navRole === 'admin') { %>
     <div class="sidebar__group">
       <div class="sidebar__group-title">Administration</div>
-      <a href="/config" class="sidebar__link<%= isActive('/config') ? ' active' : '' %>">Config</a>
-      <a href="/dues" class="sidebar__link<%= isActive('/dues') ? ' active' : '' %>">Dues</a>
-      <a href="/fiscal-years" class="sidebar__link<%= isActive('/fiscal-years') ? ' active' : '' %>">Fiscal Years</a>
-      <a href="/users" class="sidebar__link<%= isActive('/users') ? ' active' : '' %>">Users</a>
-      <a href="/audit" class="sidebar__link<%= isActive('/audit') ? ' active' : '' %>">Audit</a>
-    </div>
-    <% } else if (['finance_secretary', 'treasurer'].includes(role)) { %>
-    <div class="sidebar__group">
-      <div class="sidebar__group-title">Administration</div>
-      <a href="/config" class="sidebar__link<%= isActive('/config') ? ' active' : '' %>">Config</a>
-      <a href="/dues" class="sidebar__link<%= isActive('/dues') ? ' active' : '' %>">Dues</a>
-      <a href="/fiscal-years" class="sidebar__link<%= isActive('/fiscal-years') ? ' active' : '' %>">Fiscal Years</a>
-    </div>
-    <% } else if (role === 'auditor') { %>
-    <div class="sidebar__group">
-      <div class="sidebar__group-title">Administration</div>
-      <a href="/audit" class="sidebar__link<%= isActive('/audit') ? ' active' : '' %>">Audit</a>
+      <% if (canConfigure) { %>
+        <a href="/config" class="sidebar__link<%= navActive('/config') ? ' active' : '' %>">Settings</a>
+        <a href="/dues" class="sidebar__link<%= navActive('/dues') ? ' active' : '' %>">Dues</a>
+        <a href="/fiscal-years" class="sidebar__link<%= navActive('/fiscal-years') ? ' active' : '' %>">Fiscal years</a>
+      <% } %>
+      <% if (navRole === 'admin') { %><a href="/users" class="sidebar__link<%= navActive('/users') ? ' active' : '' %>">Users</a><% } %>
     </div>
     <% } %>
   </nav>
 
-  <!-- User Info -->
   <div class="sidebar__user">
     <% if (locals.activeFiscalYear) { %><span class="badge badge--success">FY <%= locals.activeFiscalYear.year %></span><% } %>
-    <span class="sidebar__user-name" title="<%= user.name || '' %>"><%= truncateName(user.name) %></span>
-    <span class="badge badge--primary"><%= roleLabel(role) %></span>
+    <a href="/change-password" class="sidebar__account-link">Account</a>
     <form method="post" action="/logout" class="sidebar__signout-form">
       <%- include('csrf') %>
       <button type="submit" class="sidebar__signout">Sign out</button>
@@ -97,5 +85,4 @@
   </div>
 </aside>
 
-<!-- Backdrop for mobile drawer -->
-<div class="sidebar__backdrop" id="sidebar-backdrop"></div>
+<button type="button" class="sidebar__backdrop" id="sidebar-backdrop" data-sidebar-backdrop aria-label="Close navigation" tabindex="-1"></button>

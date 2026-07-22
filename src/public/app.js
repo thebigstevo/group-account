@@ -612,6 +612,7 @@
     let sidebarEl = null;
     let backdropEl = null;
     let isOpen = false;
+    let triggerEl = null;
 
     /**
      * Initialize sidebar references.
@@ -619,65 +620,70 @@
     function initSidebar() {
       sidebarEl = document.querySelector('.sidebar');
       if (!sidebarEl) return;
-
-      // Set active link based on current path
+      backdropEl = document.querySelector('[data-sidebar-backdrop]');
+      if (backdropEl) backdropEl.addEventListener('click', closeSidebar);
+      sidebarEl.querySelectorAll('[data-sidebar-close]').forEach(function (button) {
+        button.addEventListener('click', closeSidebar);
+      });
+      sidebarEl.querySelectorAll('a').forEach(function (link) {
+        link.addEventListener('click', closeSidebar);
+      });
       setActive(window.location.pathname);
     }
 
     /**
      * Toggle the mobile sidebar drawer open/closed.
      */
-    function toggle() {
+    function toggle(event) {
       if (!sidebarEl) initSidebar();
       if (!sidebarEl) return;
-
       if (isOpen) {
         closeSidebar();
       } else {
-        openSidebar();
+        openSidebar(event && event.currentTarget);
       }
     }
 
     /**
      * Open the sidebar drawer with backdrop.
      */
-    function openSidebar() {
+    function openSidebar(opener) {
       if (!sidebarEl) return;
-
+      triggerEl = opener || document.querySelector('[data-sidebar-toggle]');
       sidebarEl.classList.add('sidebar--open');
-      isOpen = true;
-
-      // Create backdrop
-      if (!backdropEl) {
-        backdropEl = document.createElement('div');
-        backdropEl.className = 'sidebar-backdrop';
-        backdropEl.addEventListener('click', closeSidebar);
-      }
-      document.body.appendChild(backdropEl);
-
-      // Listen for Escape key
-      document.addEventListener('keydown', handleSidebarEscape);
-
-      // Listen for link clicks to auto-close
-      sidebarEl.querySelectorAll('a').forEach(function (link) {
-        link.addEventListener('click', closeSidebar);
+      sidebarEl.setAttribute('aria-hidden', 'false');
+      if (backdropEl) backdropEl.classList.add('active');
+      document.body.classList.add('drawer-open');
+      document.querySelectorAll('[data-sidebar-toggle]').forEach(function (button) {
+        button.setAttribute('aria-expanded', 'true');
+        button.setAttribute('aria-label', 'Close navigation');
       });
+      isOpen = true;
+      document.addEventListener('keydown', handleSidebarEscape);
+      const focusTarget = sidebarEl.querySelector('[data-sidebar-close], a, button');
+      if (focusTarget) focusTarget.focus();
     }
 
     /**
      * Close the sidebar drawer and remove backdrop.
      */
-    function closeSidebar() {
+    function closeSidebar(options) {
       if (!sidebarEl) return;
-
       sidebarEl.classList.remove('sidebar--open');
-      isOpen = false;
-
-      if (backdropEl && backdropEl.parentElement) {
-        backdropEl.remove();
+      if (window.matchMedia && window.matchMedia('(max-width: 1023px)').matches) {
+        sidebarEl.setAttribute('aria-hidden', 'true');
       }
-
+      if (backdropEl) backdropEl.classList.remove('active');
+      document.body.classList.remove('drawer-open');
+      document.querySelectorAll('[data-sidebar-toggle]').forEach(function (button) {
+        button.setAttribute('aria-expanded', 'false');
+        button.setAttribute('aria-label', 'Open navigation');
+      });
+      isOpen = false;
       document.removeEventListener('keydown', handleSidebarEscape);
+      if ((!options || options.returnFocus !== false) && triggerEl && typeof triggerEl.focus === 'function') {
+        triggerEl.focus();
+      }
     }
 
     /**
@@ -687,6 +693,18 @@
     function handleSidebarEscape(e) {
       if (e.key === 'Escape') {
         closeSidebar();
+        return;
+      }
+      if (e.key === 'Tab' && isOpen) {
+        const focusable = Array.from(sidebarEl.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault(); last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault(); first.focus();
+        }
       }
     }
 
@@ -730,7 +748,18 @@
       }
     }
 
-    return { toggle: toggle, setActive: setActive, close: closeSidebar };
+    function resetForViewport() {
+      if (!sidebarEl) initSidebar();
+      if (!sidebarEl) return;
+      if (window.matchMedia && window.matchMedia('(min-width: 1024px)').matches) {
+        closeSidebar({ returnFocus: false });
+        sidebarEl.setAttribute('aria-hidden', 'false');
+      } else if (!isOpen) {
+        sidebarEl.setAttribute('aria-hidden', 'true');
+      }
+    }
+
+    return { init: initSidebar, toggle: toggle, open: openSidebar, setActive: setActive, close: closeSidebar, resetForViewport: resetForViewport };
   })();
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -945,12 +974,31 @@
     });
 
     // Initialize Sidebar
-    Treasurio.Sidebar.setActive(window.location.pathname);
+    Treasurio.Sidebar.init();
+    Treasurio.Sidebar.resetForViewport();
 
     // Hamburger menu toggle
     document.querySelectorAll('[data-sidebar-toggle]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        Treasurio.Sidebar.toggle();
+      btn.addEventListener('click', function (event) {
+        Treasurio.Sidebar.toggle(event);
+      });
+    });
+
+    window.addEventListener('resize', debounce(Treasurio.Sidebar.resetForViewport, 100));
+
+    document.querySelectorAll('[data-sidebar-collapse]').forEach(function (button) {
+      const collapsed = window.localStorage && window.localStorage.getItem('treasurio-sidebar-collapsed') === 'true';
+      document.body.classList.toggle('sidebar-collapsed', collapsed);
+      button.setAttribute('aria-pressed', String(collapsed));
+      button.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+      button.textContent = collapsed ? '›' : '‹';
+      button.addEventListener('click', function () {
+        const next = !document.body.classList.contains('sidebar-collapsed');
+        document.body.classList.toggle('sidebar-collapsed', next);
+        button.setAttribute('aria-pressed', String(next));
+        button.setAttribute('aria-label', next ? 'Expand sidebar' : 'Collapse sidebar');
+        button.textContent = next ? '›' : '‹';
+        if (window.localStorage) window.localStorage.setItem('treasurio-sidebar-collapsed', String(next));
       });
     });
 

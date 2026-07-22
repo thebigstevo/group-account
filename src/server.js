@@ -304,6 +304,8 @@ app.get('/', requireLogin, asyncHandler(async (req, res) => {
     const yearStart = `${year}-01-01`;
     const yearEnd = `${year}-12-31`;
     const summary = await reportSummary(yearStart, yearEnd);
+    const dashboardMonth = monthPeriod(year, year === new Date().getFullYear() ? new Date().getMonth() + 1 : 1);
+    const monthSummary = await reportSummary(dashboardMonth.startDate, dashboardMonth.endDate);
     const recent = await dal.query(`
       SELECT t.*, m.name AS member_name, a.name AS account_name
       FROM transactions t
@@ -321,12 +323,14 @@ app.get('/', requireLogin, asyncHandler(async (req, res) => {
     const arrearsCount = arrearsData.filter((row) => row.balance > 0).length;
     const lastRecRow = await dal.queryOne('SELECT MAX(period_end) AS date FROM reconciliations');
     const lastReconciliation = lastRecRow ? lastRecRow.date : null;
-    res.render('dashboard', { summary, recent, memberCount, unreconciledCount, arrearsCount, lastReconciliation });
+    res.render('dashboard', { summary, monthSummary, dashboardMonth, recent, memberCount, unreconciledCount, arrearsCount, lastReconciliation });
   } catch (err) {
     console.error('Dashboard data load error:', err.message);
     res.render('dashboard', {
       error: true,
       summary: { balances: [], income: 0, expenses: 0, welfareLiability: 0, spendableBalance: 0 },
+      monthSummary: { income: 0, expenses: 0 },
+      dashboardMonth: { label: 'Current period' },
       recent: [],
       memberCount: 0,
       unreconciledCount: 0,
@@ -1106,39 +1110,88 @@ app.post('/dues/overrides/:id/delete', allow('admin', 'finance_secretary'), asyn
   res.redirect('/dues');
 }));
 
-app.get('/transactions', requireLogin, asyncHandler(async (req, res) => {
-  const transactions = await dal.query(`
-    SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name
+async function financeFormData(kind) {
+  const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
+  const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
+  const categories = await dal.query('SELECT name FROM transaction_categories WHERE active = true AND kind = $1 ORDER BY sort_order, name', [kind]);
+  return { members, accounts, categories, kind };
+}
+
+async function financeTransactions(kind, limit = 100) {
+  const types = kind === 'income' ? ['receipt'] : ['expense', 'welfare_payout'];
+  return dal.query(`
+    SELECT t.*, m.name AS member_name, a.name AS account_name, u.name AS recorded_by
     FROM transactions t
     LEFT JOIN members m ON m.id = t.member_id
     LEFT JOIN accounts a ON a.id = t.account_id
-    LEFT JOIN accounts ta ON ta.id = t.to_account_id
+    LEFT JOIN users u ON u.id = t.created_by
+    WHERE t.tx_type = ANY($1::varchar[])
     ORDER BY t.tx_date DESC, t.id DESC
-    LIMIT 100
-  `);
-  const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
-  const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
-  const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'income' ORDER BY sort_order, name");
-  const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'expense' ORDER BY sort_order, name");
-  res.render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories });
+    LIMIT $2
+  `, [types, limit]);
+}
+
+app.get('/finance', requireLogin, asyncHandler(async (req, res) => {
+  const year = selectedYear(req);
+  const yearStart = `${year}-01-01`;
+  const yearEnd = `${year}-12-31`;
+  const [summary, recent, unreconciledRow, arrearsData, lastRecRow] = await Promise.all([
+    reportSummary(yearStart, yearEnd),
+    dal.query(`SELECT t.*, a.name AS account_name FROM transactions t LEFT JOIN accounts a ON a.id = t.account_id WHERE t.status = 'posted' AND t.tx_date >= $1 AND t.tx_date <= $2 ORDER BY t.tx_date DESC, t.id DESC LIMIT 8`, [yearStart, yearEnd]),
+    dal.queryOne("SELECT COUNT(*) AS count FROM transactions WHERE status = 'posted' AND reconciled = false AND tx_date >= $1 AND tx_date <= $2", [yearStart, yearEnd]),
+    arrearsReport(year),
+    dal.queryOne('SELECT MAX(period_end) AS date FROM reconciliations')
+  ]);
+  res.render('finance_overview', {
+    summary,
+    recent,
+    unreconciledCount: Number(unreconciledRow.count),
+    arrearsCount: arrearsData.filter((row) => row.balance > 0).length,
+    lastReconciliation: lastRecRow ? lastRecRow.date : null
+  });
 }));
+
+app.get('/finance/income/new', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  res.render('finance_form', await financeFormData('income'));
+}));
+
+app.get('/finance/expenses/new', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  res.render('finance_form', await financeFormData('expense'));
+}));
+
+app.get('/finance/income', requireLogin, asyncHandler(async (req, res) => {
+  res.render('finance_list', { kind: 'income', transactions: await financeTransactions('income') });
+}));
+
+app.get('/finance/expenses', requireLogin, asyncHandler(async (req, res) => {
+  res.render('finance_list', { kind: 'expense', transactions: await financeTransactions('expense') });
+}));
+
+app.get('/finance/accounts', requireLogin, asyncHandler(async (req, res) => {
+  res.render('finance_accounts', { balances: await accountBalances() });
+}));
+
+app.get('/finance/reconciliation', allow('admin', 'treasurer', 'auditor', 'viewer'), (req, res) => res.redirect('/reconciliation'));
+app.get('/finance/reports', requireLogin, (req, res) => res.redirect('/reports'));
+
+app.get('/transactions', requireLogin, (req, res) => {
+  res.redirect('/finance');
+});
 
 app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
   const receiptYearError = await transactionYearError(req, req.body.tx_date);
   if (receiptYearError) {
-    const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
-    const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
-    const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'income' ORDER BY sort_order, name");
-    const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'expense' ORDER BY sort_order, name");
-    const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
-    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: [receiptYearError], values: req.body });
+    return res.status(400).render('finance_form', { ...(await financeFormData('income')), errors: [receiptYearError], values: req.body });
   }
   const receiptCategory = await dal.queryOne(
     "SELECT * FROM transaction_categories WHERE name = $1 AND kind = 'income' AND active = true",
     [req.body.category]
   );
-  if (!receiptCategory) return res.status(400).render('error', { message: 'Select an active income category.' });
+  if (!receiptCategory) return res.status(400).render('finance_form', { ...(await financeFormData('income')), errors: ['Select an active income category.'], values: req.body });
+  const receiptAccount = await dal.queryOne('SELECT id FROM accounts WHERE id = $1 AND active = true', [Number(req.body.account_id)]);
+  if (!receiptAccount) return res.status(400).render('finance_form', { ...(await financeFormData('income')), errors: ['Select an active account to receive the income.'], values: req.body });
   const amount = Number(req.body.amount || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return res.status(400).render('finance_form', { ...(await financeFormData('income')), errors: ['Amount must be greater than zero.'], values: req.body });
   const welfare = await calculateWelfareComponent({
     memberId: req.body.member_id || null,
     category: receiptCategory.name,
@@ -1146,48 +1199,42 @@ app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer
     txDate: req.body.tx_date,
     enteredWelfare: req.body.welfare_component
   });
-  if (welfare > amount) {
-    const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
-    const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
-    const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'income' ORDER BY sort_order, name");
-    const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'expense' ORDER BY sort_order, name");
-    const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
-    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: ['Welfare component cannot exceed total amount received.'], values: req.body });
+  if (welfare < 0 || welfare > amount) {
+    return res.status(400).render('finance_form', { ...(await financeFormData('income')), errors: ['Welfare component must be between zero and the total amount received.'], values: req.body });
   }
   const result = await dal.run(`
-    INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, created_by)
-    VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, $8)
+    INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
+    VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, $8, $9)
     RETURNING id
-  `, [req.body.tx_date, req.body.member_id || null, Number(req.body.account_id), receiptCategory.name, req.body.description || null, amount, welfare, req.session.user.id]);
+  `, [req.body.tx_date, req.body.member_id || null, Number(req.body.account_id), receiptCategory.name, req.body.description || null, amount, welfare, req.body.reference || null, req.session.user.id]);
   await dal.audit(req.session.user.id, 'create', 'receipt', result.rows[0].id, `${req.body.category} ${amount}`);
   req.session.flash = { type: 'success', message: 'Receipt saved successfully.' };
-  res.redirect('/transactions');
+  res.redirect('/finance/income');
 }));
 
 app.post('/transactions/expense', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
   const expenseYearError = await transactionYearError(req, req.body.tx_date);
   if (expenseYearError) {
-    const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
-    const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
-    const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'income' ORDER BY sort_order, name");
-    const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'expense' ORDER BY sort_order, name");
-    const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
-    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: [expenseYearError], values: req.body });
+    return res.status(400).render('finance_form', { ...(await financeFormData('expense')), errors: [expenseYearError], values: req.body });
   }
   const expenseCategory = await dal.queryOne(
     "SELECT * FROM transaction_categories WHERE name = $1 AND kind = 'expense' AND active = true",
     [req.body.category]
   );
-  if (!expenseCategory) return res.status(400).render('error', { message: 'Select an active expense category.' });
+  if (!expenseCategory) return res.status(400).render('finance_form', { ...(await financeFormData('expense')), errors: ['Select an active expense category.'], values: req.body });
+  const expenseAccount = await dal.queryOne('SELECT id FROM accounts WHERE id = $1 AND active = true', [Number(req.body.account_id)]);
+  if (!expenseAccount) return res.status(400).render('finance_form', { ...(await financeFormData('expense')), errors: ['Select an active account to pay from.'], values: req.body });
+  const expenseAmount = Number(req.body.amount || 0);
+  if (!Number.isFinite(expenseAmount) || expenseAmount <= 0) return res.status(400).render('finance_form', { ...(await financeFormData('expense')), errors: ['Amount must be greater than zero.'], values: req.body });
   const type = expenseCategory.purpose === 'welfare_payout' ? 'welfare_payout' : 'expense';
   const result = await dal.run(`
-    INSERT INTO transactions (tx_date, tx_type, account_id, category, description, amount, created_by)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    INSERT INTO transactions (tx_date, tx_type, account_id, category, description, amount, reference, created_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING id
-  `, [req.body.tx_date, type, Number(req.body.account_id), expenseCategory.name, req.body.description || null, Number(req.body.amount || 0), req.session.user.id]);
+  `, [req.body.tx_date, type, Number(req.body.account_id), expenseCategory.name, req.body.description || null, expenseAmount, req.body.reference || null, req.session.user.id]);
   await dal.audit(req.session.user.id, 'create', type, result.rows[0].id, `${req.body.category} ${req.body.amount}`);
   req.session.flash = { type: 'success', message: 'Expense saved successfully.' };
-  res.redirect('/transactions');
+  res.redirect('/finance/expenses');
 }));
 
 app.post('/transactions/transfer', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
@@ -1240,7 +1287,7 @@ app.post('/transactions/:id/reverse', allow('admin', 'finance_secretary', 'treas
   await dal.run('UPDATE transactions SET status = $1, reversed_by = $2 WHERE id = $3', ['reversed', reversalResult.rows[0].id, txId]);
   await dal.audit(req.session.user.id, 'reverse', 'transaction', txId, `Reversed by transaction ${reversalResult.rows[0].id}`);
   req.session.flash = { type: 'success', message: 'Transaction reversed successfully.' };
-  res.redirect('/transactions');
+  res.redirect(original.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses');
 }));
 
 app.post('/transactions/:id/reconcile', allow('admin', 'finance_secretary', 'treasurer', 'auditor'), asyncHandler(async (req, res) => {
@@ -1251,7 +1298,7 @@ app.post('/transactions/:id/reconcile', allow('admin', 'finance_secretary', 'tre
   const isReconciled = tx.reconciled ? false : true;
   await dal.run('UPDATE transactions SET reconciled = $1, updated_at = NOW() WHERE id = $2', [isReconciled, txId]);
   await dal.audit(req.session.user.id, 'update', 'transaction', txId, `Reconciled: ${isReconciled ? 'Yes' : 'No'}`);
-  res.redirect('/transactions');
+  res.redirect(tx.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses');
 }));
 
 app.get('/reconciliation', allow('admin', 'treasurer', 'auditor', 'viewer'), asyncHandler(async (req, res) => {
