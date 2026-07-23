@@ -34,10 +34,14 @@ function validateCategory(values) {
   const purpose = String(values.purpose || 'standard');
   const sortOrder = Number(values.sort_order == null || values.sort_order === '' ? 100 : values.sort_order);
   if (!name) errors.push('Category name is required.');
-  if (!['income', 'expense'].includes(kind)) errors.push('Select a valid category type.');
+  if (!['income', 'expense', 'both'].includes(kind)) errors.push('Select a valid category type.');
   if (!CATEGORY_PURPOSES.includes(purpose)) errors.push('Select a valid accounting purpose.');
-  if (['assessment', 'welfare_income'].includes(purpose) && kind !== 'income') errors.push('Assessment and welfare collection purposes must be income categories.');
-  if (purpose === 'welfare_payout' && kind !== 'expense') errors.push('Welfare payout purpose must be an expense category.');
+  if (kind === 'both' && purpose !== 'standard') {
+    errors.push('A category used for both income and expense must use the standard accounting purpose.');
+  } else {
+    if (['assessment', 'welfare_income'].includes(purpose) && kind !== 'income') errors.push('Assessment and welfare collection purposes must be income-only categories.');
+    if (purpose === 'welfare_payout' && kind !== 'expense') errors.push('Welfare payout purpose must be an expense category.');
+  }
   if (!Number.isInteger(sortOrder)) errors.push('Sort order must be a whole number.');
   return { errors, values: { name, kind, purpose, sortOrder } };
 }

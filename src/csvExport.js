@@ -1,6 +1,6 @@
 const { stringify } = require('csv-stringify/sync');
 const dal = require('./dal');
-const { arrearsReport } = require('./services');
+const { arrearsReport, budgetVsActual } = require('./services');
 
 /**
  * Convert array of objects to CSV string
@@ -43,13 +43,17 @@ async function exportTransactionsCsv(filters = {}) {
       ta.name AS to_account,
       t.amount,
       t.welfare_component,
+      t.reference,
       t.description,
       t.reconciled,
-      t.status
+      t.status,
+      t.created_at,
+      u.name AS recorded_by
     FROM transactions t
     LEFT JOIN members m ON m.id = t.member_id
     LEFT JOIN accounts a ON a.id = t.account_id
     LEFT JOIN accounts ta ON ta.id = t.to_account_id
+    LEFT JOIN users u ON u.id = t.created_by
     WHERE 1=1
   `;
 
@@ -84,9 +88,12 @@ async function exportTransactionsCsv(filters = {}) {
     'To Account': row.to_account || '',
     Amount: formatCurrency(row.amount),
     'Welfare Component': formatCurrency(row.welfare_component),
+    Reference: row.reference || '',
     Cleared: row.reconciled ? 'Yes' : 'No',
     Status: row.status,
-    Description: row.description || ''
+    Description: row.description || '',
+    'Recorded By': row.recorded_by || '',
+    'Recorded At': row.created_at || ''
   }));
 
   return arrayToCsv(formatted);
@@ -286,7 +293,11 @@ async function exportAuditLogCsv(limitDays = 90) {
       l.entity,
       l.entity_id,
       l.details,
-      l.ip_address
+      l.before_value,
+      l.after_value,
+      l.reason,
+      l.ip_address,
+      l.user_agent
     FROM audit_log l
     LEFT JOIN users u ON u.id = l.user_id
     WHERE l.created_at >= NOW() - ($1 || ' days')::interval
@@ -300,10 +311,27 @@ async function exportAuditLogCsv(limitDays = 90) {
     Entity: row.entity,
     'Entity ID': row.entity_id || '',
     Details: row.details || '',
-    'IP Address': row.ip_address || ''
+    'Before Value': row.before_value || '',
+    'After Value': row.after_value || '',
+    Reason: row.reason || '',
+    'IP Address': row.ip_address || '',
+    'User Agent': row.user_agent || ''
   }));
 
   return arrayToCsv(formatted);
+}
+
+async function exportBudgetActualCsv(year) {
+  const report = await budgetVsActual(year);
+  return arrayToCsv(report.lines.map((line) => ({
+    Year: year,
+    Direction: line.kind === 'income' ? 'Income' : 'Expense',
+    Category: line.category,
+    Budget: formatCurrency(line.budget),
+    Actual: formatCurrency(line.actual),
+    'Variance (Actual - Budget)': formatCurrency(line.variance),
+    Notes: line.notes || ''
+  })));
 }
 
 module.exports = {
@@ -313,6 +341,7 @@ module.exports = {
   exportReportCsv,
   exportReconciliationsCsv,
   exportAuditLogCsv,
+  exportBudgetActualCsv,
   arrayToCsv,
   formatCurrency
 };

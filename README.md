@@ -8,12 +8,14 @@ A lightweight, self-hosted financial management application for groups, clubs, a
 - **Transaction Recording** — Receipts, expenses, transfers, and welfare payouts with full audit trail
 - **Account Balances** — Cash, bank, and mobile money accounts with reconciliation support
 - **Dues & Assessments** — Per-fiscal-year age bands, amounts, member overrides, and welfare splits managed by administrators
-- **Financial Configuration** — Administrators can add, edit, deactivate, or safely remove accounts and transaction categories without relying on fixed category names
+- **Financial Configuration** — Administrators can add, edit, deactivate, or safely remove accounts and transaction categories; standard categories can be income-only, expense-only, or available in both flows
+- **Annual Budgets** — Draft and approve category-level income and expense budgets, retain locked plans, and compare them with posted actuals and unbudgeted activity
 - **Reports** — Monthly summaries, arrears reports, income/expense breakdowns, running balance ledgers
 - **CSV Export** — Export transactions, arrears, reports, reconciliations, and audit logs
 - **Fiscal Year Management** — Open/close fiscal years with arrears carry-forward
-- **Role-Based Access** — Admin, finance secretary, treasurer, viewer, and auditor roles
-- **Audit Log** — Every action is logged with user, timestamp, and details
+- **Role-Based Access** — Admin, finance secretary, treasurer, trustee, viewer, and auditor roles
+- **Trustee Audit Workspace** — Annual evidence pack with account books, exceptions, reconciliations, budget variance, transaction support, and a signed trustee checklist
+- **Audit Log** — Every action is logged with user, timestamp, change evidence, and reason where supplied
 - **Responsive UI** — Works on desktop, tablet, and mobile (down to 320px)
 - **Print-Friendly** — Clean print layouts for reports and transaction lists
 - **Health Endpoint** — `GET /health` for load balancer and monitoring checks
@@ -42,6 +44,8 @@ Default login after first boot:
 Change the default password immediately after deployment.
 
 On a fresh installation, open the fiscal year first, then use **Configuration** and **Dues** to create the organization's accounts, transaction categories, accounting purposes, and annual dues rules. Business-specific financial data is intentionally not seeded by migrations.
+
+For annual governance, prepare the plan under **Annual budget**, approve it when agreed, and use **Trustee audit** to start the independent year review. Trustees or auditors record each checklist outcome and any exception before signing the review; exports remain available as supporting evidence.
 
 ## Environment Variables
 

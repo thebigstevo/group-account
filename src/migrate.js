@@ -277,13 +277,15 @@ async function migrate() {
     CREATE TABLE IF NOT EXISTS transaction_categories (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL UNIQUE,
-      kind VARCHAR(50) NOT NULL CHECK (kind IN ('income','expense')),
+      kind VARCHAR(50) NOT NULL CHECK (kind IN ('income','expense','both')),
       purpose VARCHAR(30) NOT NULL DEFAULT 'standard',
       active BOOLEAN NOT NULL DEFAULT true,
       sort_order INTEGER NOT NULL DEFAULT 100
     )
   `);
   await run(`ALTER TABLE transaction_categories ADD COLUMN IF NOT EXISTS purpose VARCHAR(30) NOT NULL DEFAULT 'standard'`);
+  await run(`ALTER TABLE transaction_categories DROP CONSTRAINT IF EXISTS transaction_categories_kind_check`);
+  await run(`ALTER TABLE transaction_categories ADD CONSTRAINT transaction_categories_kind_check CHECK (kind IN ('income','expense','both'))`);
   await run(`UPDATE transaction_categories SET purpose = 'assessment' WHERE name = 'Assessment' AND purpose = 'standard'`);
   await run(`UPDATE transaction_categories SET purpose = 'welfare_income' WHERE name = 'Welfare' AND purpose = 'standard'`);
   await run(`UPDATE transaction_categories SET purpose = 'welfare_payout' WHERE name = 'Welfare Payout' AND purpose = 'standard'`);
@@ -291,6 +293,34 @@ async function migrate() {
   await run(`ALTER TABLE transaction_categories ADD CONSTRAINT transaction_categories_purpose_check CHECK (purpose IN ('standard','assessment','welfare_income','welfare_payout'))`);
   await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_transaction_categories_unique_active_purpose ON transaction_categories(purpose) WHERE active = true AND purpose <> 'standard'`);
   console.log('[migrate]   ✓ transaction_categories');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS annual_budgets (
+      year INTEGER PRIMARY KEY REFERENCES fiscal_years(year) ON DELETE RESTRICT,
+      status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','approved')),
+      notes TEXT,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      approved_at TIMESTAMP
+    )
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS annual_budget_lines (
+      id SERIAL PRIMARY KEY,
+      year INTEGER NOT NULL REFERENCES annual_budgets(year) ON DELETE CASCADE,
+      category VARCHAR(255) NOT NULL REFERENCES transaction_categories(name) ON UPDATE CASCADE ON DELETE RESTRICT,
+      kind VARCHAR(20) NOT NULL CHECK (kind IN ('income','expense')),
+      amount NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (amount >= 0),
+      notes TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      UNIQUE(year, category, kind)
+    )
+  `);
+  console.log('[migrate]   ✓ annual budgets');
 
   await run(`
     CREATE TABLE IF NOT EXISTS member_dues (
@@ -365,6 +395,35 @@ async function migrate() {
   await run(`ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS reason TEXT`);
   console.log('[migrate]   ✓ audit_log');
 
+  await run(`
+    CREATE TABLE IF NOT EXISTS audit_reviews (
+      id SERIAL PRIMARY KEY,
+      year INTEGER NOT NULL REFERENCES fiscal_years(year) ON DELETE RESTRICT,
+      status VARCHAR(20) NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress','completed')),
+      scope_start VARCHAR(10) NOT NULL,
+      scope_end VARCHAR(10) NOT NULL,
+      overall_notes TEXT,
+      started_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      completed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMP,
+      UNIQUE(year)
+    )
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS audit_review_items (
+      id SERIAL PRIMARY KEY,
+      review_id INTEGER NOT NULL REFERENCES audit_reviews(id) ON DELETE CASCADE,
+      item_key VARCHAR(60) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','pass','exception','not_applicable')),
+      notes TEXT,
+      reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      reviewed_at TIMESTAMP,
+      UNIQUE(review_id, item_key)
+    )
+  `);
+  console.log('[migrate]   ✓ trustee audit reviews');
+
   // Sessions table for connect-pg-simple
   await run(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -385,6 +444,8 @@ async function migrate() {
   await run(`CREATE INDEX IF NOT EXISTS idx_transactions_account_date ON transactions(account_id, tx_date)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_reconciliations_account_period ON reconciliations(account_id, period_start, period_end)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_budget_lines_year_kind ON annual_budget_lines(year, kind)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_audit_review_items_review ON audit_review_items(review_id, status)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_members_commandery_status ON members(commandery_id, status)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_member_status_history_member_date ON member_status_history(member_id, effective_date DESC)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_emergency_contacts_member ON member_emergency_contacts(member_id)`);

@@ -361,6 +361,123 @@ async function reportSummary(startDate = null, endDate = null) {
   };
 }
 
+async function budgetVsActual(year) {
+  const startDate = `${year}-01-01`;
+  const endDate = `${year}-12-31`;
+  const [header, budgetLines, actualRows] = await Promise.all([
+    dal.queryOne('SELECT * FROM annual_budgets WHERE year = $1', [year]),
+    dal.query(`
+      SELECT l.*, c.active AS category_active
+      FROM annual_budget_lines l
+      LEFT JOIN transaction_categories c ON c.name = l.category
+      WHERE l.year = $1
+      ORDER BY l.kind, l.category
+    `, [year]),
+    dal.query(`
+      SELECT category,
+        CASE WHEN tx_type = 'receipt' THEN 'income' ELSE 'expense' END AS kind,
+        COALESCE(SUM(amount), 0) AS actual
+      FROM transactions
+      WHERE status = 'posted'
+        AND tx_type IN ('receipt','expense','welfare_payout')
+        AND tx_date >= $1 AND tx_date <= $2
+      GROUP BY category, CASE WHEN tx_type = 'receipt' THEN 'income' ELSE 'expense' END
+      ORDER BY kind, category
+    `, [startDate, endDate])
+  ]);
+
+  const byKey = new Map();
+  budgetLines.forEach((line) => {
+    byKey.set(`${line.kind}:${line.category}`, {
+      id: line.id,
+      category: line.category,
+      kind: line.kind,
+      budget: money(line.amount),
+      actual: 0,
+      notes: line.notes || '',
+      categoryActive: line.category_active !== false
+    });
+  });
+  actualRows.forEach((row) => {
+    const key = `${row.kind}:${row.category}`;
+    const item = byKey.get(key) || {
+      id: null,
+      category: row.category,
+      kind: row.kind,
+      budget: 0,
+      actual: 0,
+      notes: '',
+      categoryActive: true
+    };
+    item.actual = money(row.actual);
+    byKey.set(key, item);
+  });
+
+  const lines = Array.from(byKey.values())
+    .map((line) => ({ ...line, variance: line.actual - line.budget }))
+    .sort((a, b) => a.kind.localeCompare(b.kind) || a.category.localeCompare(b.category));
+  const totals = ['income', 'expense'].reduce((result, kind) => {
+    const matching = lines.filter((line) => line.kind === kind);
+    result[kind] = {
+      budget: matching.reduce((sum, line) => sum + line.budget, 0),
+      actual: matching.reduce((sum, line) => sum + line.actual, 0)
+    };
+    result[kind].variance = result[kind].actual - result[kind].budget;
+    return result;
+  }, {});
+  return { year, header, lines, totals };
+}
+
+async function auditEvidence(year) {
+  const startDate = `${year}-01-01`;
+  const endDate = `${year}-12-31`;
+  const [summary, transactions, balances, reconciliations] = await Promise.all([
+    dal.queryOne(`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'posted')::int AS posted_count,
+        COUNT(*) FILTER (WHERE status = 'reversed')::int AS reversed_count,
+        COUNT(*) FILTER (WHERE status = 'posted' AND tx_type <> 'transfer' AND reconciled = false)::int AS unreconciled_count,
+        COUNT(*) FILTER (WHERE status = 'posted' AND tx_type <> 'transfer' AND COALESCE(TRIM(reference), '') = '')::int AS missing_reference_count,
+        COUNT(*) FILTER (WHERE status = 'posted' AND tx_type <> 'transfer' AND COALESCE(TRIM(description), '') = '')::int AS missing_description_count,
+        COALESCE(SUM(amount) FILTER (WHERE status = 'posted' AND tx_type = 'receipt'), 0) AS receipts,
+        COALESCE(SUM(amount) FILTER (WHERE status = 'posted' AND tx_type IN ('expense','welfare_payout')), 0) AS outflows
+      FROM transactions
+      WHERE tx_date >= $1 AND tx_date <= $2
+    `, [startDate, endDate]),
+    dal.query(`
+      SELECT t.id, t.tx_date, t.tx_type, t.category, t.amount, t.reference,
+        t.description, t.reconciled, t.status, a.name AS account_name,
+        ta.name AS to_account_name, u.name AS recorded_by
+      FROM transactions t
+      LEFT JOIN accounts a ON a.id = t.account_id
+      LEFT JOIN accounts ta ON ta.id = t.to_account_id
+      LEFT JOIN users u ON u.id = t.created_by
+      WHERE t.tx_date >= $1 AND t.tx_date <= $2
+      ORDER BY t.tx_date DESC, t.id DESC
+      LIMIT 250
+    `, [startDate, endDate]),
+    accountBalances(endDate),
+    latestReconciliations(endDate)
+  ]);
+  return {
+    year,
+    startDate,
+    endDate,
+    summary: {
+      postedCount: Number(summary && summary.posted_count || 0),
+      reversedCount: Number(summary && summary.reversed_count || 0),
+      unreconciledCount: Number(summary && summary.unreconciled_count || 0),
+      missingReferenceCount: Number(summary && summary.missing_reference_count || 0),
+      missingDescriptionCount: Number(summary && summary.missing_description_count || 0),
+      receipts: money(summary && summary.receipts),
+      outflows: money(summary && summary.outflows)
+    },
+    transactions,
+    balances,
+    reconciliations
+  };
+}
+
 module.exports = {
   accountBalances,
   welfareLiability,
@@ -374,6 +491,8 @@ module.exports = {
   reportSummary,
   latestReconciliations,
   runningBalanceRows,
+  budgetVsActual,
+  auditEvidence,
   calculateWelfareComponent,
   currentYear
 };

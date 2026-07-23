@@ -14,6 +14,7 @@ const baseLocals = {
   csrfToken: 'csrf-token',
   groupName: 'KSJI Commandery',
   groupCurrency: 'GHS',
+  assetVersion: 'test-build-123',
   activeFiscalYear: { year: 2026 },
   formatMoney: (value) => `GHS ${Number(value).toFixed(2)}`,
   formatDate: (value) => String(value).slice(0, 10),
@@ -99,6 +100,49 @@ describe('finance and dashboard template rendering', () => {
       recent: [], memberCount: 0, unreconciledCount: 0, arrearsCount: 0, lastReconciliation: null
     });
     expect(html).toContain('Unable to load financial data');
+  });
+
+  test('layouts fingerprint both CSS and JavaScript assets to prevent stale releases', async () => {
+    const html = await ejs.renderFile(path.join(views, 'dashboard.ejs'), {
+      ...baseLocals,
+      error: true,
+      summary: { balances: [], totalCashPosition: 0 },
+      monthSummary: { income: 0, expenses: 0 },
+      dashboardMonth: { label: 'July 2026' },
+      recent: [], memberCount: 0, unreconciledCount: 0, arrearsCount: 0, lastReconciliation: null
+    });
+    expect(html).toContain('/app.css?v=test-build-123');
+    expect(html).toContain('/app.js?v=test-build-123');
+    expect(serverSource).toContain("createHash('sha256')");
+    expect(serverSource).not.toContain('20260713-login-shell');
+  });
+
+  test('monthly report renders inside the shared constrained layout', async () => {
+    const html = await ejs.renderFile(path.join(views, 'reports.ejs'), {
+      ...baseLocals,
+      year: 2026,
+      month: 7,
+      period: { label: 'July 2026', startDate: '2026-07-01', endDate: '2026-07-31' },
+      summary: {
+        balances: [{ id: 1, name: 'Republic Bank Main Operating Account', balance: 12000 }],
+        grossReceipts: 500, income: 450, expenses: 125, welfareCollected: 50,
+        welfareLiability: 200, totalCashPosition: 12000, spendableBalance: 11800
+      },
+      reconciliations: [], incomeByCategory: [], expensesByCategory: [], runningRows: [], arrears: []
+    });
+    expect(html).toContain('class="page-container"');
+    expect(html).toContain('class="report-toolbar no-print"');
+    expect(html).toContain('class="summary-strip"');
+    expect(html).toContain('No income recorded for this month.');
+    expect(html).toContain('No expenses recorded for this month.');
+  });
+
+  test('legacy metric cards contain long financial values during a rolling deployment', () => {
+    expect(cssSource).toMatch(/\.metric-card\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?overflow:\s*hidden;/);
+    expect(cssSource).toMatch(/\.metric-card__label\s*\{[\s\S]*?display:\s*block;[\s\S]*?overflow-wrap:\s*anywhere;/);
+    expect(cssSource).toMatch(/\.metric-card__value\s*\{[\s\S]*?display:\s*block;[\s\S]*?max-width:\s*100%;[\s\S]*?overflow-wrap:\s*anywhere;/);
+    expect(cssSource).toMatch(/@media \(max-width: 767px\)[\s\S]*?\.metric-card\s*\{\s*display:grid;\s*grid-template-columns:minmax\(0,1fr\);/);
+    expect(cssSource).toMatch(/@media \(max-width: 767px\)[\s\S]*?\.metric-card__value\s*\{[\s\S]*?font-size:clamp\(1\.35rem,7vw,1\.65rem\);/);
   });
 });
 

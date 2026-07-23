@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Treasurio — Group & Club Financial Management">
   <title><%= typeof locals.title !== 'undefined' && locals.title ? locals.title + ' – Treasurio' : 'Treasurio' %></title>
-  <link rel="stylesheet" href="/app.css?v=20260713-login-shell">
+  <link rel="stylesheet" href="/app.css?v=<%= locals.assetVersion || 'dev' %>">
 </head>
 <%
   const hasAuthenticatedUser = Boolean(locals.user && locals.user.id);

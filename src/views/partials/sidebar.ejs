@@ -53,13 +53,15 @@
       <% if (canRecordExpense) { %><a href="/finance/expenses/new" class="sidebar__link sidebar__link--nested<%= navPath === '/finance/expenses/new' ? ' active' : '' %>">Record expense</a><% } %>
       <% if (canReconcile) { %><a href="/finance/reconciliation" class="sidebar__link<%= navActive('/finance/reconciliation') ? ' active' : '' %>">Reconciliation</a><% } %>
       <a href="/finance/accounts" class="sidebar__link<%= navActive('/finance/accounts') ? ' active' : '' %>">Accounts</a>
+      <a href="/budgets" class="sidebar__link<%= navActive('/budgets') ? ' active' : '' %>">Annual budget</a>
       <a href="/finance/reports" class="sidebar__link<%= navActive('/finance/reports') ? ' active' : '' %>">Reports</a>
     </div>
 
     <div class="sidebar__group">
       <div class="sidebar__group-title">Reporting</div>
       <a href="/download-reports" class="sidebar__link<%= navActive('/download-reports') ? ' active' : '' %>">Downloads</a>
-      <% if (['admin', 'auditor'].includes(navRole)) { %><a href="/audit" class="sidebar__link<%= navActive('/audit') ? ' active' : '' %>">Audit</a><% } %>
+      <% if (['admin', 'auditor', 'trustee', 'treasurer'].includes(navRole)) { %><a href="/trustee-audit" class="sidebar__link<%= navActive('/trustee-audit') ? ' active' : '' %>">Trustee audit</a><% } %>
+      <% if (['admin', 'auditor', 'trustee'].includes(navRole)) { %><a href="/audit" class="sidebar__link sidebar__link--nested<%= navActive('/audit') ? ' active' : '' %>">System audit trail</a><% } %>
     </div>
 
     <% if (canConfigure || navRole === 'admin') { %>

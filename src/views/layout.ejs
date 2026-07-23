@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Treasurio — Group & Club Financial Management">
   <title><%= typeof title !== 'undefined' ? title : 'Dashboard' %> – Treasurio</title>
-  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/app.css?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : 'dev' %>">
 </head>
 <body>
   <!-- Skip navigation link (first focusable element) -->
@@ -33,6 +33,6 @@
   <!-- Modal shell -->
   <%- include('partials/modal') %>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : 'dev' %>"></script>
 </body>
 </html>

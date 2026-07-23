@@ -42,6 +42,11 @@ describe('Phase 1 migration contract', () => {
     expect(sql).toContain('idx_fiscal_years_one_active');
     expect(sql).toContain("ADD COLUMN IF NOT EXISTS purpose VARCHAR(30)");
     expect(sql).toContain('idx_transaction_categories_unique_active_purpose');
+    expect(sql).toContain("CHECK (kind IN ('income','expense','both'))");
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS annual_budgets');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS annual_budget_lines');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS audit_reviews');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS audit_review_items');
     expect(sql).toContain('ADD COLUMN IF NOT EXISTS fiscal_year');
     expect(sql).toContain('CREATE OR REPLACE FUNCTION assign_member_foundation_defaults');
     expect(sql).toContain("CHECK (status IN ('active','suspended','expelled','transferred','resigned'))");

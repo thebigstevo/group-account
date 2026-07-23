@@ -1,5 +1,6 @@
 const express = require('express');
 const session = require('express-session');
+const fs = require('fs');
 const path = require('path');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
@@ -11,11 +12,14 @@ const { verifyPassword, hashPassword } = require('./security');
 const { formatDate, formatDateTime } = require('./viewHelpers');
 const { validateActiveFiscalDate } = require('./fiscalYearDomain');
 const { validateDuesRule, ageBandsOverlap, validateCategory } = require('./configDomain');
+const { AUDIT_CHECKLIST, validateAuditItem, validateBudgetLine } = require('./governanceDomain');
 const pgSession = require('connect-pg-simple')(session);
 const {
   accountBalances,
   arrearsReport,
   calculateWelfareComponent,
+  auditEvidence,
+  budgetVsActual,
   currentYear,
   latestReconciliations,
   runningBalanceRows,
@@ -27,7 +31,8 @@ const {
   exportMemberCleanupCsv,
   exportReportCsv,
   exportReconciliationsCsv,
-  exportAuditLogCsv
+  exportAuditLogCsv,
+  exportBudgetActualCsv
 } = require('./csvExport');
 const { importMembers, rollbackMemberImport } = require('./importMembers');
 const {
@@ -49,6 +54,12 @@ const {
 } = require('./downloadableReports');
 
 const app = express();
+const publicDirectory = path.join(__dirname, 'public');
+const assetVersion = crypto.createHash('sha256')
+  .update(fs.readFileSync(path.join(publicDirectory, 'app.css')))
+  .update(fs.readFileSync(path.join(publicDirectory, 'app.js')))
+  .digest('hex')
+  .slice(0, 12);
 
 // Nginx is the only service that can reach the container's loopback-bound port.
 // Trust exactly that proxy hop so rate limits and audit logs use the client IP.
@@ -71,7 +82,7 @@ app.use(helmet({
 }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(publicDirectory));
 
 // Health check endpoint (before rate limiter and auth)
 app.get('/health', async (req, res) => {
@@ -145,6 +156,7 @@ app.use((req, res, next) => {
   res.locals.title = 'Treasurio';
   res.locals.groupName = config.groupName;
   res.locals.groupCurrency = config.groupCurrency;
+  res.locals.assetVersion = assetVersion;
   res.locals.formatMoney = (value) => Number(value || 0).toLocaleString(undefined, {
     style: 'currency',
     currency: config.groupCurrency
@@ -811,12 +823,19 @@ app.post('/config/categories/:id', allow('admin', 'finance_secretary', 'treasure
   const dependencies = await dal.queryOne(`
     SELECT
       (SELECT COUNT(*)::int FROM transactions WHERE category = $1) AS transactions,
-      (SELECT COUNT(*)::int FROM payment_splits WHERE category = $1) AS splits
+      (SELECT COUNT(*)::int FROM payment_splits WHERE category = $1) AS splits,
+      (SELECT COUNT(*)::int FROM annual_budget_lines WHERE category = $1) AS budget_lines
   `, [category.name]);
-  if ((Number(dependencies.transactions) > 0 || Number(dependencies.splits) > 0)
+  const safeDirectionWidening = category.purpose === 'standard'
+    && validated.values.purpose === 'standard'
+    && ['income', 'expense'].includes(category.kind)
+    && validated.values.kind === 'both';
+  if ((Number(dependencies.transactions) > 0 || Number(dependencies.splits) > 0 || Number(dependencies.budget_lines) > 0)
       && (validated.values.kind !== category.kind || validated.values.purpose !== category.purpose)) {
-    req.session.flash = { type: 'error', message: 'A category used by transactions or payment splits may be renamed or deactivated, but its type and accounting purpose cannot change.' };
-    return res.redirect('/config');
+    if (!safeDirectionWidening) {
+      req.session.flash = { type: 'error', message: 'A category with financial history may be renamed, deactivated, or widened to Income & expense, but it cannot be narrowed or assigned a different accounting purpose.' };
+      return res.redirect('/config');
+    }
   }
   const active = req.body.active === 'on';
   if (active && validated.values.purpose !== 'standard') {
@@ -830,6 +849,7 @@ app.post('/config/categories/:id', allow('admin', 'finance_secretary', 'treasure
     if (validated.values.name !== category.name) {
       await client.query('UPDATE transactions SET category = $1 WHERE category = $2', [validated.values.name, category.name]);
       await client.query('UPDATE payment_splits SET category = $1 WHERE category = $2', [validated.values.name, category.name]);
+      await client.query('UPDATE annual_budget_lines SET category = $1 WHERE category = $2', [validated.values.name, category.name]);
     }
     await client.query(`UPDATE transaction_categories SET name=$1, kind=$2, purpose=$3, active=$4, sort_order=$5 WHERE id=$6`,
       [validated.values.name, validated.values.kind, validated.values.purpose, active, validated.values.sortOrder, categoryId]);
@@ -844,10 +864,14 @@ app.post('/config/categories/:id/delete', allow('admin', 'finance_secretary', 't
   const categoryId = Number(req.params.id);
   const category = await dal.queryOne('SELECT * FROM transaction_categories WHERE id = $1', [categoryId]);
   if (!category) return res.status(404).render('error', { message: 'Category not found.' });
-  const usage = await dal.queryOne('SELECT COUNT(*)::int AS count FROM transactions WHERE category = $1', [category.name]);
-  if (Number(usage.count) > 0) {
+  const usage = await dal.queryOne(`
+    SELECT
+      (SELECT COUNT(*)::int FROM transactions WHERE category = $1) AS transactions,
+      (SELECT COUNT(*)::int FROM annual_budget_lines WHERE category = $1) AS budget_lines
+  `, [category.name]);
+  if (Number(usage.transactions) > 0 || Number(usage.budget_lines) > 0) {
     await dal.run('UPDATE transaction_categories SET active = false WHERE id = $1', [categoryId]);
-    req.session.flash = { type: 'success', message: `${category.name} has transaction history, so it was deactivated rather than deleted.` };
+    req.session.flash = { type: 'success', message: `${category.name} has transaction or budget history, so it was deactivated rather than deleted.` };
   } else {
     await dal.transaction(async (client) => {
       await client.query('DELETE FROM payment_splits WHERE category = $1', [category.name]);
@@ -857,6 +881,125 @@ app.post('/config/categories/:id/delete', allow('admin', 'finance_secretary', 't
   }
   await dal.audit(req.session.user.id, 'remove', 'transaction_category', categoryId, req.session.flash.message);
   res.redirect('/config');
+}));
+
+app.get('/budgets', requireLogin, asyncHandler(async (req, res) => {
+  const years = await dal.query('SELECT year, status FROM fiscal_years ORDER BY year DESC');
+  const requestedYear = Number(req.query.year || selectedYear(req));
+  const year = years.some((item) => Number(item.year) === requestedYear) ? requestedYear : selectedYear(req);
+  const [report, categories] = await Promise.all([
+    budgetVsActual(year),
+    dal.query("SELECT name, kind FROM transaction_categories WHERE active = true ORDER BY sort_order, name")
+  ]);
+  const role = req.session.user.role;
+  const canManage = ['admin', 'treasurer'].includes(role);
+  const fiscalYear = years.find((item) => Number(item.year) === Number(year));
+  const canEdit = canManage && fiscalYear && fiscalYear.status === 'open' && (!report.header || report.header.status === 'draft');
+  res.render('budgets', { year, years, report, categories, canEdit, canApprove: role === 'admin' });
+}));
+
+app.post('/budgets/lines', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  const validated = validateBudgetLine(req.body);
+  if (validated.errors.length) {
+    req.session.flash = { type: 'error', message: validated.errors.join(' ') };
+    return res.redirect(`/budgets?year=${encodeURIComponent(req.body.year || selectedYear(req))}`);
+  }
+  const { year, category, kind, amount, notes } = validated.values;
+  const [fiscalYear, header, categoryConfig, existingLine] = await Promise.all([
+    dal.queryOne('SELECT * FROM fiscal_years WHERE year = $1', [year]),
+    dal.queryOne('SELECT * FROM annual_budgets WHERE year = $1', [year]),
+    dal.queryOne('SELECT * FROM transaction_categories WHERE name = $1 AND active = true', [category]),
+    dal.queryOne('SELECT * FROM annual_budget_lines WHERE year=$1 AND category=$2 AND kind=$3', [year, category, kind])
+  ]);
+  if (!fiscalYear || fiscalYear.status !== 'open') {
+    req.session.flash = { type: 'error', message: 'Budgets can only be changed for an open fiscal year.' };
+    return res.redirect(`/budgets?year=${year}`);
+  }
+  if (header && header.status === 'approved') {
+    req.session.flash = { type: 'error', message: 'This budget is approved and locked. An administrator must reopen it before changes can be made.' };
+    return res.redirect(`/budgets?year=${year}`);
+  }
+  if (!categoryConfig || ![kind, 'both'].includes(categoryConfig.kind)) {
+    req.session.flash = { type: 'error', message: `The selected category is not available for ${kind} budgeting.` };
+    return res.redirect(`/budgets?year=${year}`);
+  }
+  await dal.transaction(async (client) => {
+    await client.query(`
+      INSERT INTO annual_budgets (year, status, notes, created_by, updated_by)
+      VALUES ($1, 'draft', $2, $3, $3)
+      ON CONFLICT(year) DO UPDATE SET notes = EXCLUDED.notes, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+    `, [year, String(req.body.budget_notes || '').trim() || null, req.session.user.id]);
+    const result = await client.query(`
+      INSERT INTO annual_budget_lines (year, category, kind, amount, notes)
+      VALUES ($1,$2,$3,$4,$5)
+      ON CONFLICT(year, category, kind) DO UPDATE SET amount=EXCLUDED.amount, notes=EXCLUDED.notes, updated_at=NOW()
+      RETURNING id
+    `, [year, category, kind, amount, notes || null]);
+    await dal.audit(req.session.user.id, 'upsert', 'annual_budget_line', result.rows[0].id,
+      { year, category, kind, amount, notes }, {
+        client, before_value: existingLine, after_value: { year, category, kind, amount, notes },
+        ip_address: getClientIp(req), user_agent: req.get('user-agent')
+      });
+  });
+  req.session.flash = { type: 'success', message: 'Budget line saved.' };
+  res.redirect(`/budgets?year=${year}`);
+}));
+
+app.post('/budgets/lines/:id/delete', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  const line = await dal.queryOne(`SELECT l.*, b.status FROM annual_budget_lines l JOIN annual_budgets b ON b.year=l.year WHERE l.id=$1`, [Number(req.params.id)]);
+  if (!line) return res.status(404).render('error', { message: 'Budget line not found.' });
+  const fiscalYear = await dal.queryOne('SELECT status FROM fiscal_years WHERE year=$1', [line.year]);
+  if (!fiscalYear || fiscalYear.status !== 'open' || line.status !== 'draft') {
+    req.session.flash = { type: 'error', message: 'Only draft budgets in an open fiscal year can be changed.' };
+    return res.redirect(`/budgets?year=${line.year}`);
+  }
+  await dal.run('DELETE FROM annual_budget_lines WHERE id=$1', [line.id]);
+  await dal.audit(req.session.user.id, 'delete', 'annual_budget_line', line.id, line,
+    { before_value: line, ip_address: getClientIp(req), user_agent: req.get('user-agent') });
+  req.session.flash = { type: 'success', message: 'Budget line removed.' };
+  res.redirect(`/budgets?year=${line.year}`);
+}));
+
+app.post('/budgets/:year/approve', allow('admin'), asyncHandler(async (req, res) => {
+  const year = Number(req.params.year);
+  const [lineCount, fiscalYear] = await Promise.all([
+    dal.queryOne('SELECT COUNT(*)::int AS count FROM annual_budget_lines WHERE year=$1', [year]),
+    dal.queryOne('SELECT status FROM fiscal_years WHERE year=$1', [year])
+  ]);
+  if (!fiscalYear || fiscalYear.status !== 'open') {
+    req.session.flash = { type: 'error', message: 'Only a budget for an open fiscal year can be approved.' };
+    return res.redirect(`/budgets?year=${year}`);
+  }
+  if (!lineCount || Number(lineCount.count) === 0) {
+    req.session.flash = { type: 'error', message: 'Add at least one budget line before approval.' };
+    return res.redirect(`/budgets?year=${year}`);
+  }
+  const result = await dal.run(`UPDATE annual_budgets SET status='approved', approved_by=$1, approved_at=NOW(), updated_by=$1, updated_at=NOW() WHERE year=$2 AND status='draft' RETURNING year`, [req.session.user.id, year]);
+  if (!result.rowCount) return res.status(409).render('error', { message: 'The budget is already approved or does not exist.' });
+  await dal.audit(req.session.user.id, 'approve', 'annual_budget', year, `Approved annual budget ${year}`,
+    { ip_address: getClientIp(req), user_agent: req.get('user-agent') });
+  req.session.flash = { type: 'success', message: `Budget ${year} approved and locked.` };
+  res.redirect(`/budgets?year=${year}`);
+}));
+
+app.post('/budgets/:year/reopen', allow('admin'), asyncHandler(async (req, res) => {
+  const year = Number(req.params.year);
+  const reason = String(req.body.reason || '').trim();
+  if (!reason) {
+    req.session.flash = { type: 'error', message: 'A reason is required to reopen an approved budget.' };
+    return res.redirect(`/budgets?year=${year}`);
+  }
+  const fiscalYear = await dal.queryOne('SELECT status FROM fiscal_years WHERE year=$1', [year]);
+  if (!fiscalYear || fiscalYear.status !== 'open') {
+    req.session.flash = { type: 'error', message: 'A budget can only be reopened while its fiscal year is open.' };
+    return res.redirect(`/budgets?year=${year}`);
+  }
+  const result = await dal.run(`UPDATE annual_budgets SET status='draft', approved_by=NULL, approved_at=NULL, updated_by=$1, updated_at=NOW() WHERE year=$2 AND status='approved' RETURNING year`, [req.session.user.id, year]);
+  if (!result.rowCount) return res.status(409).render('error', { message: 'The budget is not currently approved.' });
+  await dal.audit(req.session.user.id, 'reopen', 'annual_budget', year, reason,
+    { reason, ip_address: getClientIp(req), user_agent: req.get('user-agent') });
+  req.session.flash = { type: 'success', message: `Budget ${year} reopened for amendment.` };
+  res.redirect(`/budgets?year=${year}`);
 }));
 
 app.get('/fiscal-years', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
@@ -1113,7 +1256,7 @@ app.post('/dues/overrides/:id/delete', allow('admin', 'finance_secretary'), asyn
 async function financeFormData(kind) {
   const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
   const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
-  const categories = await dal.query('SELECT name FROM transaction_categories WHERE active = true AND kind = $1 ORDER BY sort_order, name', [kind]);
+  const categories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind IN ($1, 'both') ORDER BY sort_order, name", [kind]);
   return { members, accounts, categories, kind };
 }
 
@@ -1184,7 +1327,7 @@ app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer
     return res.status(400).render('finance_form', { ...(await financeFormData('income')), errors: [receiptYearError], values: req.body });
   }
   const receiptCategory = await dal.queryOne(
-    "SELECT * FROM transaction_categories WHERE name = $1 AND kind = 'income' AND active = true",
+    "SELECT * FROM transaction_categories WHERE name = $1 AND kind IN ('income','both') AND active = true",
     [req.body.category]
   );
   if (!receiptCategory) return res.status(400).render('finance_form', { ...(await financeFormData('income')), errors: ['Select an active income category.'], values: req.body });
@@ -1218,7 +1361,7 @@ app.post('/transactions/expense', allow('admin', 'treasurer'), asyncHandler(asyn
     return res.status(400).render('finance_form', { ...(await financeFormData('expense')), errors: [expenseYearError], values: req.body });
   }
   const expenseCategory = await dal.queryOne(
-    "SELECT * FROM transaction_categories WHERE name = $1 AND kind = 'expense' AND active = true",
+    "SELECT * FROM transaction_categories WHERE name = $1 AND kind IN ('expense','both') AND active = true",
     [req.body.category]
   );
   if (!expenseCategory) return res.status(400).render('finance_form', { ...(await financeFormData('expense')), errors: ['Select an active expense category.'], values: req.body });
@@ -1242,8 +1385,8 @@ app.post('/transactions/transfer', allow('admin', 'treasurer'), asyncHandler(asy
   if (transferYearError) {
     const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
     const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
-    const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'income' ORDER BY sort_order, name");
-    const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind = 'expense' ORDER BY sort_order, name");
+    const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind IN ('income','both') ORDER BY sort_order, name");
+    const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind IN ('expense','both') ORDER BY sort_order, name");
     const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
     return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: [transferYearError], values: req.body });
   }
@@ -1436,7 +1579,105 @@ app.post('/users/:id/reset-password', allow('admin'), asyncHandler(async (req, r
   res.redirect('/users');
 }));
 
-app.get('/audit', allow('admin', 'auditor'), asyncHandler(async (req, res) => {
+app.get('/trustee-audit', allow('admin', 'auditor', 'trustee', 'treasurer'), asyncHandler(async (req, res) => {
+  const years = await dal.query('SELECT year, status FROM fiscal_years ORDER BY year DESC');
+  const requestedYear = Number(req.query.year || selectedYear(req));
+  const year = years.some((item) => Number(item.year) === requestedYear) ? requestedYear : selectedYear(req);
+  const [evidence, budget, review] = await Promise.all([
+    auditEvidence(year),
+    budgetVsActual(year),
+    dal.queryOne(`
+      SELECT r.*, starter.name AS started_by_name, completer.name AS completed_by_name
+      FROM audit_reviews r
+      LEFT JOIN users starter ON starter.id=r.started_by
+      LEFT JOIN users completer ON completer.id=r.completed_by
+      WHERE r.year=$1
+    `, [year])
+  ]);
+  const items = review ? await dal.query(`
+    SELECT i.*, u.name AS reviewed_by_name
+    FROM audit_review_items i LEFT JOIN users u ON u.id=i.reviewed_by
+    WHERE i.review_id=$1 ORDER BY i.id
+  `, [review.id]) : [];
+  const itemByKey = Object.fromEntries(items.map((item) => [item.item_key, item]));
+  res.render('trustee_audit', {
+    year, years, evidence, budget, review, checklist: AUDIT_CHECKLIST, itemByKey,
+    canReview: ['auditor', 'trustee'].includes(req.session.user.role)
+  });
+}));
+
+app.post('/trustee-audit/start', allow('auditor', 'trustee'), asyncHandler(async (req, res) => {
+  const year = Number(req.body.year);
+  const fiscalYear = await dal.queryOne('SELECT * FROM fiscal_years WHERE year=$1', [year]);
+  if (!fiscalYear) return res.status(404).render('error', { message: 'Fiscal year not found.' });
+  const existing = await dal.queryOne('SELECT id FROM audit_reviews WHERE year=$1', [year]);
+  if (existing) {
+    req.session.flash = { type: 'error', message: 'An audit review already exists for this fiscal year.' };
+    return res.redirect(`/trustee-audit?year=${year}`);
+  }
+  await dal.transaction(async (client) => {
+    const result = await client.query(`
+      INSERT INTO audit_reviews (year, scope_start, scope_end, started_by)
+      VALUES ($1,$2,$3,$4) RETURNING id
+    `, [year, `${year}-01-01`, `${year}-12-31`, req.session.user.id]);
+    for (const item of AUDIT_CHECKLIST) {
+      await client.query('INSERT INTO audit_review_items (review_id, item_key) VALUES ($1,$2)', [result.rows[0].id, item.key]);
+    }
+    await dal.audit(req.session.user.id, 'start', 'audit_review', result.rows[0].id, { year },
+      { client, ip_address: getClientIp(req), user_agent: req.get('user-agent') });
+  });
+  req.session.flash = { type: 'success', message: `Trustee audit for ${year} started.` };
+  res.redirect(`/trustee-audit?year=${year}`);
+}));
+
+app.post('/trustee-audit/items/:key', allow('auditor', 'trustee'), asyncHandler(async (req, res) => {
+  const year = Number(req.body.year);
+  const definition = AUDIT_CHECKLIST.find((item) => item.key === req.params.key);
+  if (!definition) return res.status(404).render('error', { message: 'Audit checklist item not found.' });
+  const validated = validateAuditItem(req.body);
+  if (validated.errors.length) {
+    req.session.flash = { type: 'error', message: validated.errors.join(' ') };
+    return res.redirect(`/trustee-audit?year=${year}`);
+  }
+  const review = await dal.queryOne("SELECT * FROM audit_reviews WHERE year=$1 AND status='in_progress'", [year]);
+  if (!review) return res.status(409).render('error', { message: 'This audit is not open for review.' });
+  const existingItem = await dal.queryOne('SELECT * FROM audit_review_items WHERE review_id=$1 AND item_key=$2', [review.id, definition.key]);
+  if (!existingItem) return res.status(404).render('error', { message: 'Audit checklist item not found.' });
+  const result = await dal.run(`
+    UPDATE audit_review_items SET status=$1, notes=$2, reviewed_by=$3, reviewed_at=NOW()
+    WHERE review_id=$4 AND item_key=$5 RETURNING id
+  `, [validated.values.status, validated.values.notes || null, req.session.user.id, review.id, definition.key]);
+  if (!result.rowCount) return res.status(404).render('error', { message: 'Audit checklist item not found.' });
+  await dal.audit(req.session.user.id, 'review', 'audit_review_item', result.rows[0].id,
+    { year, item: definition.key, ...validated.values },
+    {
+      before_value: existingItem, after_value: { ...existingItem, ...validated.values, reviewed_by: req.session.user.id },
+      ip_address: getClientIp(req), user_agent: req.get('user-agent')
+    });
+  req.session.flash = { type: 'success', message: `${definition.label} review saved.` };
+  res.redirect(`/trustee-audit?year=${year}`);
+}));
+
+app.post('/trustee-audit/complete', allow('auditor', 'trustee'), asyncHandler(async (req, res) => {
+  const year = Number(req.body.year);
+  const overallNotes = String(req.body.overall_notes || '').trim();
+  const review = await dal.queryOne("SELECT * FROM audit_reviews WHERE year=$1 AND status='in_progress'", [year]);
+  if (!review) return res.status(409).render('error', { message: 'This audit is not open for completion.' });
+  const progress = await dal.queryOne(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE status='pending')::int AS pending FROM audit_review_items WHERE review_id=$1`, [review.id]);
+  if (Number(progress.total) !== AUDIT_CHECKLIST.length || Number(progress.pending) > 0 || !overallNotes) {
+    req.session.flash = { type: 'error', message: 'Review every checklist item and enter an overall conclusion before completing the audit.' };
+    return res.redirect(`/trustee-audit?year=${year}`);
+  }
+  await dal.transaction(async (client) => {
+    await client.query(`UPDATE audit_reviews SET status='completed', overall_notes=$1, completed_by=$2, completed_at=NOW() WHERE id=$3`, [overallNotes, req.session.user.id, review.id]);
+    await dal.audit(req.session.user.id, 'complete', 'audit_review', review.id, { year, conclusion: overallNotes },
+      { client, ip_address: getClientIp(req), user_agent: req.get('user-agent') });
+  });
+  req.session.flash = { type: 'success', message: `Trustee audit for ${year} completed and signed.` };
+  res.redirect(`/trustee-audit?year=${year}`);
+}));
+
+app.get('/audit', allow('admin', 'auditor', 'trustee'), asyncHandler(async (req, res) => {
   const rows = await dal.query(`
     SELECT l.*, u.name AS user_name
     FROM audit_log l
@@ -1667,7 +1908,21 @@ app.get('/export/reconciliations', allow('admin', 'treasurer', 'auditor', 'viewe
   }
 }));
 
-app.get('/export/audit-log', allow('admin', 'auditor'), asyncHandler(async (req, res) => {
+app.get('/export/budget-actual', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'trustee', 'viewer'), asyncHandler(async (req, res) => {
+  try {
+    const year = Number(req.query.year || selectedYear(req));
+    const csv = await exportBudgetActualCsv(year);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="budget-vs-actual-${year}.csv"`);
+    res.send(csv);
+    await dal.audit(req.session.user.id, 'export', 'budget_actual', null, `Year ${year}`);
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).render('error', { message: 'Failed to export budget versus actual.' });
+  }
+}));
+
+app.get('/export/audit-log', allow('admin', 'auditor', 'trustee'), asyncHandler(async (req, res) => {
   try {
     const limitDays = Number(req.query.days || 90);
     const csv = await exportAuditLogCsv(limitDays);

@@ -86,7 +86,7 @@
           <% categories.forEach(function(category) { %>
             <tr>
               <td><%= category.name %></td>
-              <td><span class="badge"><%= category.kind %></span></td>
+              <td><span class="badge"><%= category.kind === 'both' ? 'Income & expense' : category.kind %></span></td>
               <td><%= category.purpose.replace(/_/g, ' ') %></td>
               <td><span class="badge <%= category.active ? 'badge--success' : 'badge--soft' %>"><%= category.active ? 'Active' : 'Inactive' %></span></td>
             </tr>
@@ -112,7 +112,9 @@
           <select id="cat-kind" name="kind">
             <option value="income">Income</option>
             <option value="expense">Expense</option>
+            <option value="both">Income &amp; expense</option>
           </select>
+          <small class="text-muted">Use Income &amp; expense for flows such as appeals, offertory, or transport support that may be received and later paid out.</small>
         </div>
 
         <div class="form-group">
@@ -142,7 +144,7 @@
         <form method="post" action="/config/categories/<%= category.id %>" class="stack compact-form" data-validate>
           <%- include('partials/csrf') %>
           <div class="form-group"><label for="category-name-<%= category.id %>">Name</label><input id="category-name-<%= category.id %>" name="name" value="<%= category.name %>" required></div>
-          <div class="grid two"><div class="form-group"><label for="category-kind-<%= category.id %>">Type</label><select id="category-kind-<%= category.id %>" name="kind"><option value="income" <%= category.kind === 'income' ? 'selected' : '' %>>Income</option><option value="expense" <%= category.kind === 'expense' ? 'selected' : '' %>>Expense</option></select></div><div class="form-group"><label for="category-purpose-<%= category.id %>">Purpose</label><select id="category-purpose-<%= category.id %>" name="purpose"><option value="standard" <%= category.purpose === 'standard' ? 'selected' : '' %>>Standard</option><option value="assessment" <%= category.purpose === 'assessment' ? 'selected' : '' %>>Member assessment</option><option value="welfare_income" <%= category.purpose === 'welfare_income' ? 'selected' : '' %>>Welfare collection</option><option value="welfare_payout" <%= category.purpose === 'welfare_payout' ? 'selected' : '' %>>Welfare payout</option></select></div></div>
+          <div class="grid two"><div class="form-group"><label for="category-kind-<%= category.id %>">Type</label><select id="category-kind-<%= category.id %>" name="kind"><option value="income" <%= category.kind === 'income' ? 'selected' : '' %>>Income</option><option value="expense" <%= category.kind === 'expense' ? 'selected' : '' %>>Expense</option><option value="both" <%= category.kind === 'both' ? 'selected' : '' %>>Income &amp; expense</option></select></div><div class="form-group"><label for="category-purpose-<%= category.id %>">Purpose</label><select id="category-purpose-<%= category.id %>" name="purpose"><option value="standard" <%= category.purpose === 'standard' ? 'selected' : '' %>>Standard</option><option value="assessment" <%= category.purpose === 'assessment' ? 'selected' : '' %>>Member assessment</option><option value="welfare_income" <%= category.purpose === 'welfare_income' ? 'selected' : '' %>>Welfare collection</option><option value="welfare_payout" <%= category.purpose === 'welfare_payout' ? 'selected' : '' %>>Welfare payout</option></select></div></div>
           <div class="form-group"><label for="category-sort-<%= category.id %>">Sort order</label><input id="category-sort-<%= category.id %>" name="sort_order" type="number" value="<%= category.sort_order %>"></div>
           <label class="check"><input name="active" type="checkbox" <%= category.active ? 'checked' : '' %>> Active</label>
           <button class="btn btn--primary btn--sm" type="submit">Save category</button>

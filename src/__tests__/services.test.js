@@ -19,6 +19,7 @@ jest.mock('../dal', () => ({
 const dal = require('../dal');
 const {
   calculateWelfareComponent,
+  budgetVsActual,
   currentYear,
 } = require('../services');
 
@@ -86,5 +87,30 @@ describe('Services: calculateWelfareComponent', () => {
 describe('Services: currentYear', () => {
   test('returns the current calendar year', () => {
     expect(currentYear()).toBe(new Date().getFullYear());
+  });
+});
+
+describe('Services: budgetVsActual', () => {
+  test('combines budget lines with actual income, expense, and unbudgeted activity', async () => {
+    dal.queryOne.mockResolvedValueOnce({ year: 2026, status: 'approved' });
+    dal.query
+      .mockResolvedValueOnce([
+        { id: 1, year: 2026, category: 'Appeal', kind: 'income', amount: '1000', notes: '', category_active: true },
+        { id: 2, year: 2026, category: 'Appeal', kind: 'expense', amount: '600', notes: '', category_active: true }
+      ])
+      .mockResolvedValueOnce([
+        { category: 'Appeal', kind: 'income', actual: '1200' },
+        { category: 'Appeal', kind: 'expense', actual: '450' },
+        { category: 'Offertory', kind: 'income', actual: '100' }
+      ]);
+
+    const report = await budgetVsActual(2026);
+    expect(report.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: 'Appeal', kind: 'income', budget: 1000, actual: 1200, variance: 200 }),
+      expect.objectContaining({ category: 'Appeal', kind: 'expense', budget: 600, actual: 450, variance: -150 }),
+      expect.objectContaining({ category: 'Offertory', kind: 'income', budget: 0, actual: 100, variance: 100 })
+    ]));
+    expect(report.totals.income).toEqual({ budget: 1000, actual: 1300, variance: 300 });
+    expect(report.totals.expense).toEqual({ budget: 600, actual: 450, variance: -150 });
   });
 });

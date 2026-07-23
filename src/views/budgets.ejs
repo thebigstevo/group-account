@@ -1,0 +1,48 @@
+<%- include('partials/header') %>
+<% locals.title = 'Annual Budget' %>
+<div class="page-container">
+  <section class="page-title">
+    <div><span class="eyebrow">Finance · Planning</span><h1>Annual budget</h1><p>Set planned income and expenditure, then compare the year with posted actuals.</p></div>
+    <a class="btn btn--secondary" href="/export/budget-actual?year=<%= year %>">Export budget vs actual</a>
+  </section>
+  <%- include('partials/finance-nav') %>
+
+  <form method="get" action="/budgets" class="report-toolbar" aria-label="Budget year">
+    <div class="report-toolbar__fields"><div class="form-group"><label for="budget-year">Fiscal year</label><select id="budget-year" name="year"><% years.forEach(function(item) { %><option value="<%= item.year %>" <%= Number(item.year) === Number(year) ? 'selected' : '' %>><%= item.year %> · <%= item.status %></option><% }) %></select></div></div>
+    <div class="report-toolbar__actions"><button class="btn btn--primary" type="submit">View year</button></div>
+  </form>
+
+  <section class="summary-strip" aria-label="Budget summary">
+    <div class="summary-strip__item"><span class="summary-strip__label">Budgeted income</span><strong class="summary-strip__value"><%= formatMoney(report.totals.income.budget) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Actual income</span><strong class="summary-strip__value"><%= formatMoney(report.totals.income.actual) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Budgeted expense</span><strong class="summary-strip__value"><%= formatMoney(report.totals.expense.budget) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Actual expense</span><strong class="summary-strip__value"><%= formatMoney(report.totals.expense.actual) %></strong></div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head"><div><h2>Budget versus actual</h2><p>Variance is actual minus budget. Unbudgeted activity is included automatically.</p></div><span class="badge <%= report.header && report.header.status === 'approved' ? 'badge--success' : 'badge--soft' %>"><%= report.header ? report.header.status : 'not started' %></span></div>
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Direction</th><th>Category</th><th class="num">Budget</th><th class="num">Actual</th><th class="num">Variance</th><th>Notes</th><th></th></tr></thead><tbody>
+      <% report.lines.forEach(function(line) { %><tr><td><span class="badge"><%= line.kind %></span></td><td><%= line.category %><% if (!line.categoryActive) { %> <span class="text-muted">(inactive)</span><% } %></td><td class="num"><%= formatMoney(line.budget) %></td><td class="num"><%= formatMoney(line.actual) %></td><td class="num <%= line.variance === 0 ? '' : (line.kind === 'income' ? (line.variance > 0 ? 'variance-good' : 'variance-bad') : (line.variance < 0 ? 'variance-good' : 'variance-bad')) %>"><%= formatMoney(line.variance) %></td><td><%= line.notes %></td><td><% if (canEdit && line.id) { %><form method="post" action="/budgets/lines/<%= line.id %>/delete" data-confirm="Remove this budget line?"><%- include('partials/csrf') %><input type="hidden" name="year" value="<%= year %>"><button class="btn btn--danger btn--sm" type="submit">Remove</button></form><% } %></td></tr><% }) %>
+      <% if (report.lines.length === 0) { %><tr><td colspan="7">No budget lines or actual activity for this year.</td></tr><% } %>
+    </tbody></table></div>
+  </section>
+
+  <% if (canEdit) { %>
+  <section class="grid two budget-actions">
+    <div class="panel"><h2>Add or update a budget line</h2><form method="post" action="/budgets/lines" class="stack"><%- include('partials/csrf') %><input type="hidden" name="year" value="<%= year %>">
+      <div class="form-group"><label for="budget-kind">Direction</label><select id="budget-kind" name="kind" required><option value="income">Income</option><option value="expense">Expense</option></select></div>
+      <div class="form-group"><label for="budget-category">Category</label><select id="budget-category" name="category" required><option value="">Select category</option><% categories.forEach(function(category) { %><option value="<%= category.name %>"><%= category.name %> · <%= category.kind === 'both' ? 'income & expense' : category.kind %></option><% }) %></select></div>
+      <div class="form-group"><label for="budget-amount">Annual amount</label><div class="amount-input"><span class="amount-input__currency"><%= groupCurrency %></span><input id="budget-amount" name="amount" type="number" min="0" step="0.01" required></div></div>
+      <div class="form-group"><label for="budget-line-notes">Line notes</label><input id="budget-line-notes" name="notes" maxlength="500"></div>
+      <div class="form-group"><label for="budget-notes">Overall budget notes</label><textarea id="budget-notes" name="budget_notes" rows="3"><%= report.header && report.header.notes || '' %></textarea></div>
+      <button class="btn btn--primary" type="submit">Save budget line</button>
+    </form></div>
+    <div class="panel"><h2>Budget control</h2><p class="text-muted">Approval locks the budget against accidental changes. Actuals continue updating from posted transactions.</p>
+      <% if (report.header && report.header.status === 'draft' && canApprove && report.lines.some(function(line) { return line.id; })) { %><form method="post" action="/budgets/<%= year %>/approve" data-confirm="Approve and lock this annual budget?"><%- include('partials/csrf') %><button class="btn btn--primary" type="submit">Approve and lock budget</button></form><% } %>
+      <% if (report.header && report.header.status === 'approved' && canApprove) { %><form method="post" action="/budgets/<%= year %>/reopen" class="stack"><%- include('partials/csrf') %><div class="form-group"><label for="reopen-reason">Reason for reopening</label><textarea id="reopen-reason" name="reason" required rows="3"></textarea></div><button class="btn btn--secondary" type="submit">Reopen budget</button></form><% } %>
+      <% if (!canApprove) { %><p>Only an administrator can approve or reopen a budget.</p><% } %>
+    </div>
+  </section>
+  <% } %>
+</div>
+<%- include('partials/footer') %>

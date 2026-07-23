@@ -18,8 +18,12 @@ describe('financial configuration validation', () => {
 
   test('enforces compatible category purposes and types', () => {
     expect(validateCategory({ name: 'Annual Levy', kind: 'income', purpose: 'assessment' }).errors).toEqual([]);
+    expect(validateCategory({ name: 'Appeal for transport', kind: 'both', purpose: 'standard' }).errors).toEqual([]);
     expect(validateCategory({ name: 'Payout', kind: 'income', purpose: 'welfare_payout' }).errors).toEqual([
       'Welfare payout purpose must be an expense category.'
     ]);
+    expect(validateCategory({ name: 'Invalid dual welfare', kind: 'both', purpose: 'welfare_income' }).errors).toContain(
+      'A category used for both income and expense must use the standard accounting purpose.'
+    );
   });
 });
