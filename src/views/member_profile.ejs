@@ -37,7 +37,7 @@
   </div>
   <% if (canEdit) { %><div class="panel"><h2>Add Rank Entry</h2>
     <form method="post" action="/members/<%= member.id %>/ranks" class="stack" data-validate><%- include('partials/csrf') %>
-      <div class="form-group"><label for="rank-title">Rank title *</label><input id="rank-title" name="rank_title" required maxlength="100"></div>
+      <div class="form-group"><label for="rank-title">Rank *</label><select id="rank-title" name="rank_title" required><option value="">Select rank…</option><% if (locals.rankDefinitions) { rankDefinitions.forEach(function(r) { %><option value="<%= r.title %>"><%= r.title %></option><% }) } %></select></div>
       <div class="form-group"><label for="rank-date">Date conferred *</label><input id="rank-date" name="date_conferred" type="date" required></div>
       <div class="form-group"><label for="rank-authority">Conferring authority</label><input id="rank-authority" name="conferring_authority" maxlength="200"></div>
       <button class="btn btn--secondary" type="submit">Add rank entry</button>
@@ -49,8 +49,11 @@
 <section class="grid two">
   <div class="panel"><h2>Position History</h2>
     <% if (positionHistory && positionHistory.length) { %>
-    <div class="table-wrap"><table class="data-table"><thead><tr><th>Position</th><th>Start date</th><th>End date</th><% if (canEdit) { %><th></th><% } %></tr></thead><tbody>
-      <% positionHistory.forEach(function(entry) { %><tr><td><%= entry.position_title %></td><td><%= formatDate(entry.start_date) %></td><td><%= entry.end_date ? formatDate(entry.end_date) : 'Current' %></td><% if (canEdit) { %><td><% if (!entry.end_date) { %><form method="post" action="/members/<%= member.id %>/positions/<%= entry.id %>/end" style="display:inline"><%- include('partials/csrf') %><input type="date" name="end_date" required style="width:auto;display:inline-block"><button class="btn btn--small btn--secondary" type="submit">End Position</button></form><% } %></td><% } %></tr><% }) %>
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Position</th><th>Level</th><th>Start date</th><th>End date</th><% if (canEdit) { %><th></th><% } %></tr></thead><tbody>
+      <%
+        var levelLabels = { local_commandery: 'Local Commandery', district_regiment: 'District/Regiment', grand_commandery: 'Grand Commandery', supreme_subordinate: 'Supreme Subordinate', supreme_commandery: 'Supreme Commandery' };
+      %>
+      <% positionHistory.forEach(function(entry) { %><tr><td><%= entry.position_title %></td><td><%= levelLabels[entry.position_level] || entry.position_level || 'Local Commandery' %></td><td><%= formatDate(entry.start_date) %></td><td><%= entry.end_date ? formatDate(entry.end_date) : 'Current' %></td><% if (canEdit) { %><td><% if (!entry.end_date) { %><form method="post" action="/members/<%= member.id %>/positions/<%= entry.id %>/end" style="display:inline"><%- include('partials/csrf') %><input type="date" name="end_date" required style="width:auto;display:inline-block"><button class="btn btn--small btn--secondary" type="submit">End</button></form><% } %></td><% } %></tr><% }) %>
     </tbody></table></div>
     <% } else { %>
     <p>No position history recorded.</p>
@@ -58,7 +61,8 @@
   </div>
   <% if (canEdit) { %><div class="panel"><h2>Add Position Entry</h2>
     <form method="post" action="/members/<%= member.id %>/positions" class="stack" data-validate><%- include('partials/csrf') %>
-      <div class="form-group"><label for="position-title">Position title *</label><input id="position-title" name="position_title" required maxlength="100"></div>
+      <div class="form-group"><label for="position-title">Position *</label><select id="position-title" name="position_title" required><option value="">Select position…</option><% if (locals.positionDefinitions) { positionDefinitions.forEach(function(p) { %><option value="<%= p.title %>"><%= p.title %> (<%= levelLabels[p.level] || p.level %>)</option><% }) } %></select></div>
+      <div class="form-group"><label for="position-level">Level *</label><select id="position-level" name="position_level" required><option value="local_commandery">Local Commandery</option><option value="district_regiment">District / Regiment</option><option value="grand_commandery">Grand Commandery</option><option value="supreme_subordinate">Supreme Subordinate</option><option value="supreme_commandery">Supreme Commandery</option></select></div>
       <div class="form-group"><label for="position-start">Start date *</label><input id="position-start" name="start_date" type="date" required></div>
       <div class="form-group"><label for="position-end">End date</label><input id="position-end" name="end_date" type="date"></div>
       <button class="btn btn--secondary" type="submit">Add position entry</button>
@@ -71,9 +75,9 @@
   <div class="panel"><h2>Transfer Information</h2>
     <% if (transferRecord) { %>
     <dl class="detail-list">
-      <dt>Origin commandery</dt><dd><%= transferRecord.origin_commandery_name %></dd>
+      <dt>Commandery name and location</dt><dd><%= transferRecord.origin_commandery_name %></dd>
       <dt>Transfer date</dt><dd><%= formatDate(transferRecord.transfer_date) %></dd>
-      <dt>Reference number</dt><dd><%= transferRecord.reference_number || '—' %></dd>
+      <dt>Commandery number</dt><dd><%= transferRecord.reference_number || '—' %></dd>
     </dl>
     <% } else { %>
     <p>Direct admission (not transferred).</p>
@@ -81,9 +85,9 @@
   </div>
   <% if (canEdit) { %><div class="panel"><h2><%= transferRecord ? 'Edit' : 'Add' %> Transfer Record</h2>
     <form method="post" action="/members/<%= member.id %>/transfer" class="stack" data-validate><%- include('partials/csrf') %>
-      <div class="form-group"><label for="transfer-origin">Origin commandery *</label><input id="transfer-origin" name="origin_commandery_name" required maxlength="150" value="<%= transferRecord ? transferRecord.origin_commandery_name : '' %>"></div>
+      <div class="form-group"><label for="transfer-origin">Commandery name and location *</label><input id="transfer-origin" name="origin_commandery_name" required maxlength="150" value="<%= transferRecord ? transferRecord.origin_commandery_name : '' %>"></div>
       <div class="form-group"><label for="transfer-date">Transfer date *</label><input id="transfer-date" name="transfer_date" type="date" required value="<%= transferRecord ? transferRecord.transfer_date : '' %>"></div>
-      <div class="form-group"><label for="transfer-ref">Reference number</label><input id="transfer-ref" name="reference_number" maxlength="100" value="<%= transferRecord ? (transferRecord.reference_number || '') : '' %>"></div>
+      <div class="form-group"><label for="transfer-ref">Commandery number</label><input id="transfer-ref" name="reference_number" maxlength="100" value="<%= transferRecord ? (transferRecord.reference_number || '') : '' %>"></div>
       <button class="btn btn--secondary" type="submit"><%= transferRecord ? 'Update' : 'Add' %> transfer record</button>
     </form>
   </div><% } %>

@@ -424,6 +424,40 @@ async function migrate() {
   `);
   console.log('[migrate]   ✓ trustee audit reviews');
 
+  // Lookup table: available ranks (admin-managed)
+  await run(`
+    CREATE TABLE IF NOT EXISTS rank_definitions (
+      id SERIAL PRIMARY KEY,
+      commandery_id INTEGER NOT NULL REFERENCES commanderies(id),
+      title VARCHAR(100) NOT NULL,
+      sort_order INTEGER DEFAULT 0,
+      active BOOLEAN DEFAULT TRUE,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT chk_rank_def_title CHECK (char_length(title) >= 1)
+    )
+  `);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_rank_definitions_unique ON rank_definitions(commandery_id, title)`);
+  console.log('[migrate]   ✓ rank_definitions');
+
+  // Lookup table: available positions (admin-managed)
+  await run(`
+    CREATE TABLE IF NOT EXISTS position_definitions (
+      id SERIAL PRIMARY KEY,
+      commandery_id INTEGER NOT NULL REFERENCES commanderies(id),
+      title VARCHAR(100) NOT NULL,
+      level VARCHAR(50) NOT NULL DEFAULT 'local_commandery',
+      sort_order INTEGER DEFAULT 0,
+      active BOOLEAN DEFAULT TRUE,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT chk_position_def_title CHECK (char_length(title) >= 1),
+      CONSTRAINT chk_position_level CHECK (level IN ('local_commandery', 'district_regiment', 'grand_commandery', 'supreme_subordinate', 'supreme_commandery'))
+    )
+  `);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_position_definitions_unique ON position_definitions(commandery_id, title, level)`);
+  console.log('[migrate]   ✓ position_definitions');
+
   // Member rank history (immutable records)
   await run(`
     CREATE TABLE IF NOT EXISTS member_rank_history (
@@ -448,6 +482,7 @@ async function migrate() {
       commandery_id INTEGER NOT NULL REFERENCES commanderies(id),
       member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
       position_title VARCHAR(100) NOT NULL,
+      position_level VARCHAR(50) NOT NULL DEFAULT 'local_commandery',
       start_date DATE NOT NULL,
       end_date DATE,
       created_by INTEGER NOT NULL REFERENCES users(id),
@@ -456,9 +491,12 @@ async function migrate() {
       updated_at TIMESTAMP,
       CONSTRAINT chk_position_title_length CHECK (char_length(position_title) BETWEEN 1 AND 100),
       CONSTRAINT chk_start_not_future CHECK (start_date <= CURRENT_DATE),
-      CONSTRAINT chk_end_after_start CHECK (end_date IS NULL OR end_date >= start_date)
+      CONSTRAINT chk_end_after_start CHECK (end_date IS NULL OR end_date >= start_date),
+      CONSTRAINT chk_pos_level CHECK (position_level IN ('local_commandery', 'district_regiment', 'grand_commandery', 'supreme_subordinate', 'supreme_commandery'))
     )
   `);
+  // Add level column if upgrading from previous schema
+  await run(`ALTER TABLE member_position_history ADD COLUMN IF NOT EXISTS position_level VARCHAR(50) NOT NULL DEFAULT 'local_commandery'`);
   console.log('[migrate]   ✓ member_position_history');
 
   // Member transfer records (one per member max)

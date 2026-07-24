@@ -1,0 +1,45 @@
+<%- include('partials/header') %>
+<% locals.title = 'Manage Ranks' %>
+<section class="page-title"><div><span class="eyebrow">Administration</span><h1>Manage Ranks</h1><p>Define the ranks available for selection when recording member rank history.</p></div></section>
+
+<section class="grid two">
+  <div class="panel"><h2>Current Ranks</h2>
+    <% if (ranks && ranks.length) { %>
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Title</th><th>Order</th><th>Status</th><th></th></tr></thead><tbody>
+      <% ranks.forEach(function(rank) { %>
+      <tr>
+        <td><strong><%= rank.title %></strong></td>
+        <td><%= rank.sort_order %></td>
+        <td><span class="badge <%= rank.active ? 'badge--success' : 'badge--soft' %>"><%= rank.active ? 'Active' : 'Inactive' %></span></td>
+        <td>
+          <form method="post" action="/config/ranks/<%= rank.id %>" style="display:inline">
+            <%- include('partials/csrf') %>
+            <input type="hidden" name="title" value="<%= rank.title %>">
+            <input type="hidden" name="sort_order" value="<%= rank.sort_order %>">
+            <% if (rank.active) { %>
+              <button class="btn btn--small btn--secondary" type="submit" name="active" value="">Deactivate</button>
+            <% } else { %>
+              <input type="hidden" name="active" value="on">
+              <button class="btn btn--small btn--secondary" type="submit">Activate</button>
+            <% } %>
+          </form>
+        </td>
+      </tr>
+      <% }) %>
+    </tbody></table></div>
+    <% } else { %>
+    <p>No ranks defined yet. Add one using the form.</p>
+    <% } %>
+  </div>
+
+  <div class="panel"><h2>Add New Rank</h2>
+    <form method="post" action="/config/ranks" class="stack" data-validate>
+      <%- include('partials/csrf') %>
+      <div class="form-group"><label for="rank-title">Rank title *</label><input id="rank-title" name="title" required maxlength="100" placeholder="e.g. Knight Commander"></div>
+      <div class="form-group"><label for="rank-sort">Display order</label><input id="rank-sort" name="sort_order" type="number" value="0" min="0"></div>
+      <button class="btn btn--primary" type="submit">Add rank</button>
+    </form>
+  </div>
+</section>
+
+<%- include('partials/footer') %>

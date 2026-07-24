@@ -184,6 +184,72 @@ async function audit(userId, action, entity, entityId, details, options = {}) {
   }
 }
 
+// ─── Rank Definitions (Admin-managed lookup) ──────────────────────────────
+
+/**
+ * Get all rank definitions for a commandery (active ones first, sorted by sort_order).
+ */
+async function getRankDefinitions(commanderyId, activeOnly = true) {
+  const condition = activeOnly ? 'AND active = true' : '';
+  return query(`SELECT * FROM rank_definitions WHERE commandery_id = $1 ${condition} ORDER BY sort_order, title`, [commanderyId]);
+}
+
+/**
+ * Create a new rank definition.
+ */
+async function createRankDefinition(commanderyId, title, sortOrder, createdBy) {
+  const result = await executeWithRetry(
+    `INSERT INTO rank_definitions (commandery_id, title, sort_order, created_by) VALUES ($1, $2, $3, $4) RETURNING *`,
+    [commanderyId, title.trim(), sortOrder || 0, createdBy]
+  );
+  return result.rows[0];
+}
+
+/**
+ * Update a rank definition (title, sort_order, active).
+ */
+async function updateRankDefinition(id, data) {
+  const result = await executeWithRetry(
+    `UPDATE rank_definitions SET title = $1, sort_order = $2, active = $3 WHERE id = $4 RETURNING *`,
+    [data.title.trim(), data.sort_order || 0, data.active !== false, id]
+  );
+  return result.rows[0];
+}
+
+// ─── Position Definitions (Admin-managed lookup) ──────────────────────────
+
+/**
+ * Get all position definitions for a commandery.
+ */
+async function getPositionDefinitions(commanderyId, activeOnly = true) {
+  const condition = activeOnly ? 'AND active = true' : '';
+  return query(`SELECT * FROM position_definitions WHERE commandery_id = $1 ${condition} ORDER BY level, sort_order, title`, [commanderyId]);
+}
+
+/**
+ * Create a new position definition.
+ */
+async function createPositionDefinition(commanderyId, title, level, sortOrder, createdBy) {
+  const result = await executeWithRetry(
+    `INSERT INTO position_definitions (commandery_id, title, level, sort_order, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [commanderyId, title.trim(), level, sortOrder || 0, createdBy]
+  );
+  return result.rows[0];
+}
+
+/**
+ * Update a position definition (title, level, sort_order, active).
+ */
+async function updatePositionDefinition(id, data) {
+  const result = await executeWithRetry(
+    `UPDATE position_definitions SET title = $1, level = $2, sort_order = $3, active = $4 WHERE id = $5 RETURNING *`,
+    [data.title.trim(), data.level, data.sort_order || 0, data.active !== false, id]
+  );
+  return result.rows[0];
+}
+
+// ─── Rank History ──────────────────────────────────────────────────────────
+
 /**
  * Get all rank history entries for a member, ordered by most recent first.
  * @param {number} memberId - The member ID
@@ -237,7 +303,7 @@ async function createRankEntry(commanderyId, memberId, data, createdBy) {
  */
 async function getPositionHistory(memberId) {
   const sql = `
-    SELECT id, position_title, start_date, end_date, created_at
+    SELECT id, position_title, position_level, start_date, end_date, created_at
     FROM member_position_history
     WHERE member_id = $1
     ORDER BY start_date DESC
@@ -259,14 +325,15 @@ async function getPositionHistory(memberId) {
 async function createPositionEntry(commanderyId, memberId, data, createdBy) {
   const sql = `
     INSERT INTO member_position_history
-      (commandery_id, member_id, position_title, start_date, end_date, created_by)
-    VALUES ($1, $2, $3, $4, $5, $6)
+      (commandery_id, member_id, position_title, position_level, start_date, end_date, created_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
     RETURNING *
   `;
   const params = [
     commanderyId,
     memberId,
     data.position_title,
+    data.position_level || 'local_commandery',
     data.start_date,
     data.end_date || null,
     createdBy,
@@ -426,6 +493,12 @@ module.exports = {
   transaction,
   shutdown,
   audit,
+  getRankDefinitions,
+  createRankDefinition,
+  updateRankDefinition,
+  getPositionDefinitions,
+  createPositionDefinition,
+  updatePositionDefinition,
   getRankHistory,
   createRankEntry,
   getPositionHistory,

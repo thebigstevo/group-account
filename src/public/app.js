@@ -1111,11 +1111,12 @@
       modalEl = document.getElementById('add-member-modal');
       if (!modalEl) return;
 
-      // Check if server rendered validation errors (error-summary visible on page)
-      var errorSummary = document.querySelector('.error-summary[role="alert"]');
-      if (errorSummary) {
+      // Only auto-open if there is an error-summary OUTSIDE the modal (server returned form errors)
+      // AND the modal's own error container has content or the page has form validation errors
+      var pageErrorSummary = document.querySelector('main > .error-summary[role="alert"], section + .error-summary[role="alert"]');
+      if (pageErrorSummary && pageErrorSummary.closest('#add-member-modal') === null) {
         // Collect error messages and display them in the modal
-        var errorItems = errorSummary.querySelectorAll('li');
+        var errorItems = pageErrorSummary.querySelectorAll('li');
         var errors = [];
         errorItems.forEach(function (li) {
           errors.push(li.textContent);
@@ -1126,7 +1127,7 @@
         showErrors(errors);
 
         // Hide the page-level error summary since errors are shown in modal
-        errorSummary.style.display = 'none';
+        pageErrorSummary.style.display = 'none';
       }
     }
 

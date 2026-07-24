@@ -61,7 +61,7 @@
       <div class="sidebar__group-title">Reporting</div>
       <a href="/download-reports" class="sidebar__link<%= navActive('/download-reports') ? ' active' : '' %>">Downloads</a>
       <% if (['admin', 'auditor', 'trustee', 'treasurer'].includes(navRole)) { %><a href="/trustee-audit" class="sidebar__link<%= navActive('/trustee-audit') ? ' active' : '' %>">Trustee audit</a><% } %>
-      <% if (['admin', 'auditor', 'trustee'].includes(navRole)) { %><a href="/audit" class="sidebar__link sidebar__link--nested<%= navActive('/audit') ? ' active' : '' %>">System audit trail</a><% } %>
+      <% if (['admin', 'auditor', 'trustee'].includes(navRole)) { %><a href="/audit" class="sidebar__link<%= navActive('/audit') ? ' active' : '' %>">System audit trail</a><% } %>
     </div>
 
     <% if (canConfigure || navRole === 'admin') { %>
@@ -69,6 +69,8 @@
       <div class="sidebar__group-title">Administration</div>
       <% if (canConfigure) { %>
         <a href="/config" class="sidebar__link<%= navActive('/config') ? ' active' : '' %>">Settings</a>
+        <a href="/config/ranks" class="sidebar__link<%= navActive('/config/ranks') ? ' active' : '' %>">Ranks</a>
+        <a href="/config/positions" class="sidebar__link<%= navActive('/config/positions') ? ' active' : '' %>">Positions</a>
         <a href="/dues" class="sidebar__link<%= navActive('/dues') ? ' active' : '' %>">Dues</a>
         <a href="/fiscal-years" class="sidebar__link<%= navActive('/fiscal-years') ? ' active' : '' %>">Fiscal years</a>
       <% } %>

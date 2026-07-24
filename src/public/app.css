@@ -1155,11 +1155,12 @@ body.auth-page {
   position: relative;
   width: 100%;
   max-width: 480px;
+  max-height: 90vh;
   margin: var(--space-4);
   background-color: var(--color-surface);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  overflow: hidden;
+  overflow-y: auto;
   animation: modal-fade-in 200ms ease;
 }
 
@@ -1209,6 +1210,8 @@ body.auth-page {
 
 .modal--form {
   max-width: 600px;
+  max-height: 85vh;
+  overflow-y: auto;
 }
 
 .modal__close {

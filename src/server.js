@@ -551,7 +551,7 @@ app.get('/members/:id', requireLogin, asyncHandler(async (req, res) => {
     WHERE m.id = $1
   `, [Number(req.params.id)]);
   if (!member) return res.status(404).render('error', { message: 'Member not found.' });
-  const [statusHistory, rankHistory, positionHistory, transferRecord] = await Promise.all([
+  const [statusHistory, rankHistory, positionHistory, transferRecord, rankDefinitions, positionDefinitions] = await Promise.all([
     dal.query(`
       SELECT h.*, u.name AS changed_by_name
       FROM member_status_history h LEFT JOIN users u ON u.id = h.changed_by
@@ -560,6 +560,8 @@ app.get('/members/:id', requireLogin, asyncHandler(async (req, res) => {
     dal.getRankHistory(member.id),
     dal.getPositionHistory(member.id),
     dal.getTransferRecord(member.id),
+    dal.getRankDefinitions(req.session.user.commandery_id),
+    dal.getPositionDefinitions(req.session.user.commandery_id),
   ]);
   const mayViewEmergency = canViewEmergencyContacts(req.session.user.role);
   const emergencyContacts = mayViewEmergency
@@ -567,6 +569,7 @@ app.get('/members/:id', requireLogin, asyncHandler(async (req, res) => {
     : [];
   res.render('member_profile', {
     member, statusHistory, rankHistory, positionHistory, transferRecord,
+    rankDefinitions, positionDefinitions,
     emergencyContacts, statuses: MEMBER_STATUSES,
     canEdit: canEditMembership(req.session.user.role), mayViewEmergency
   });
@@ -663,6 +666,7 @@ app.post('/members/:id/positions', requireLogin, asyncHandler(async (req, res) =
   }
   const data = {
     position_title: req.body.position_title.trim(),
+    position_level: req.body.position_level || 'local_commandery',
     start_date: req.body.start_date,
     end_date: req.body.end_date ? req.body.end_date.trim() : null,
   };
@@ -1005,6 +1009,83 @@ app.post('/config/categories/:id/delete', allow('admin', 'finance_secretary', 't
   }
   await dal.audit(req.session.user.id, 'remove', 'transaction_category', categoryId, req.session.flash.message);
   res.redirect('/config');
+}));
+
+// ─── Rank & Position Definitions (Admin) ──────────────────────────────────
+
+app.get('/config/ranks', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  const ranks = await dal.getRankDefinitions(req.session.user.commandery_id, false);
+  res.render('config_ranks', { ranks });
+}));
+
+app.post('/config/ranks', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  const title = (req.body.title || '').trim();
+  if (!title || title.length > 100) {
+    req.session.flash = { type: 'error', message: 'Rank title is required (max 100 characters).' };
+    return res.redirect('/config/ranks');
+  }
+  await dal.createRankDefinition(req.session.user.commandery_id, title, Number(req.body.sort_order) || 0, req.session.user.id);
+  req.session.flash = { type: 'success', message: `Rank "${title}" added.` };
+  res.redirect('/config/ranks');
+}));
+
+app.post('/config/ranks/:id', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  const title = (req.body.title || '').trim();
+  if (!title || title.length > 100) {
+    req.session.flash = { type: 'error', message: 'Rank title is required (max 100 characters).' };
+    return res.redirect('/config/ranks');
+  }
+  await dal.updateRankDefinition(Number(req.params.id), {
+    title,
+    sort_order: Number(req.body.sort_order) || 0,
+    active: req.body.active === 'on'
+  });
+  req.session.flash = { type: 'success', message: `Rank "${title}" updated.` };
+  res.redirect('/config/ranks');
+}));
+
+app.get('/config/positions', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  const positions = await dal.getPositionDefinitions(req.session.user.commandery_id, false);
+  res.render('config_positions', { positions });
+}));
+
+app.post('/config/positions', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  const title = (req.body.title || '').trim();
+  const level = req.body.level || 'local_commandery';
+  const validLevels = ['local_commandery', 'district_regiment', 'grand_commandery', 'supreme_subordinate', 'supreme_commandery'];
+  if (!title || title.length > 100) {
+    req.session.flash = { type: 'error', message: 'Position title is required (max 100 characters).' };
+    return res.redirect('/config/positions');
+  }
+  if (!validLevels.includes(level)) {
+    req.session.flash = { type: 'error', message: 'Select a valid position level.' };
+    return res.redirect('/config/positions');
+  }
+  await dal.createPositionDefinition(req.session.user.commandery_id, title, level, Number(req.body.sort_order) || 0, req.session.user.id);
+  req.session.flash = { type: 'success', message: `Position "${title}" added.` };
+  res.redirect('/config/positions');
+}));
+
+app.post('/config/positions/:id', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  const title = (req.body.title || '').trim();
+  const level = req.body.level || 'local_commandery';
+  const validLevels = ['local_commandery', 'district_regiment', 'grand_commandery', 'supreme_subordinate', 'supreme_commandery'];
+  if (!title || title.length > 100) {
+    req.session.flash = { type: 'error', message: 'Position title is required (max 100 characters).' };
+    return res.redirect('/config/positions');
+  }
+  if (!validLevels.includes(level)) {
+    req.session.flash = { type: 'error', message: 'Select a valid position level.' };
+    return res.redirect('/config/positions');
+  }
+  await dal.updatePositionDefinition(Number(req.params.id), {
+    title,
+    level,
+    sort_order: Number(req.body.sort_order) || 0,
+    active: req.body.active === 'on'
+  });
+  req.session.flash = { type: 'success', message: `Position "${title}" updated.` };
+  res.redirect('/config/positions');
 }));
 
 app.get('/budgets', requireLogin, asyncHandler(async (req, res) => {
