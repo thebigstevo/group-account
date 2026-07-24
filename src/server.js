@@ -308,6 +308,9 @@ app.post('/login', loginLimiter, asyncHandler(async (req, res) => {
     return res.status(401).render('login', { error: 'Invalid email or password.', values: { email: req.body.email } });
   }
   req.session.user = { id: user.id, name: user.name, email: user.email, role: user.role };
+  // Resolve commandery for the session (single-commandery app)
+  const cmdRow = await dal.queryOne('SELECT id FROM commanderies WHERE active = true ORDER BY id LIMIT 1');
+  if (cmdRow) req.session.user.commandery_id = cmdRow.id;
   await dal.audit(user.id, 'login', 'user', user.id, user.email, { ip_address: getClientIp(req) });
   // Redirect trustees to their dedicated financial overview dashboard
   if (user.role === 'trustee') {
