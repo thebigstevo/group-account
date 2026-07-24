@@ -83,12 +83,12 @@
 
 <!-- Position History Section -->
 <section class="grid two">
+  <%
+    var levelLabels = { local_commandery: 'Local Commandery', district_regiment: 'District/Regiment', grand_commandery: 'Grand Commandery', supreme_subordinate: 'Supreme Subordinate', supreme_commandery: 'Supreme Commandery' };
+  %>
   <div class="panel"><h2>Position History</h2>
     <% if (positionHistory && positionHistory.length) { %>
     <div class="table-wrap"><table class="data-table"><thead><tr><th>Position</th><th>Level</th><th>Start date</th><th>End date</th><% if (canEdit) { %><th></th><% } %></tr></thead><tbody>
-      <%
-        var levelLabels = { local_commandery: 'Local Commandery', district_regiment: 'District/Regiment', grand_commandery: 'Grand Commandery', supreme_subordinate: 'Supreme Subordinate', supreme_commandery: 'Supreme Commandery' };
-      %>
       <% positionHistory.forEach(function(entry) { %><tr><td><%= entry.position_title %></td><td><%= levelLabels[entry.position_level] || entry.position_level || 'Local Commandery' %></td><td><%= formatDate(entry.start_date) %></td><td><%= entry.end_date ? formatDate(entry.end_date) : 'Current' %></td><% if (canEdit) { %><td><% if (!entry.end_date) { %><form method="post" action="/members/<%= member.id %>/positions/<%= entry.id %>/end" style="display:inline"><%- include('partials/csrf') %><input type="date" name="end_date" required style="width:auto;display:inline-block"><button class="btn btn--small btn--secondary" type="submit">End</button></form><% } %></td><% } %></tr><% }) %>
     </tbody></table></div>
     <% } else { %>
