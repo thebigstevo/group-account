@@ -30,14 +30,60 @@ function validateAuditItem(input) {
   const notes = String(input.notes || '').trim();
   const errors = [];
   if (!AUDIT_ITEM_STATUSES.includes(status) || status === 'pending') errors.push('Select a completed review outcome.');
-  if (status === 'exception' && !notes) errors.push('Explain the exception and the action required.');
+  if (status === 'exception') {
+    if (notes.length < 10) errors.push('Exception notes must be at least 10 characters.');
+    if (notes.length > 2000) errors.push('Exception notes must not exceed 2000 characters.');
+  } else if (notes.length > 2000) {
+    errors.push('Notes must not exceed 2000 characters.');
+  }
   return { errors, values: { status, notes } };
+}
+
+function validateAuditFlag(input) {
+  const errors = [];
+  const transaction_id = input.transaction_id;
+  const reason = String(input.reason || '').trim();
+  if (!transaction_id) errors.push('A transaction is required.');
+  if (!reason) errors.push('Provide a reason for flagging this transaction.');
+  if (reason.length > 1000) errors.push('Flag reason must not exceed 1000 characters.');
+  return { errors, values: { transaction_id, reason } };
+}
+
+function validateTransactionNote(input) {
+  const errors = [];
+  const note = String(input.note || '').trim();
+  if (!note) errors.push('A note is required.');
+  if (note.length > 1000) errors.push('Note must not exceed 1000 characters.');
+  return { errors, values: { note } };
+}
+
+function validateAuditCompletion(checklistItems, totalRequired) {
+  const completed = ['pass', 'exception', 'not_applicable'];
+  const unreviewed = [];
+  for (const item of checklistItems) {
+    if (!completed.includes(item.status)) {
+      unreviewed.push(item.key);
+    }
+  }
+  return unreviewed;
+}
+
+function validateAuditConclusion(input) {
+  const errors = [];
+  const conclusion = String(input.conclusion || '').trim();
+  if (!conclusion) errors.push('An overall conclusion is required.');
+  if (conclusion.length > 5000) errors.push('Conclusion must not exceed 5000 characters.');
+  return { errors, values: { conclusion } };
 }
 
 module.exports = {
   AUDIT_CHECKLIST,
   AUDIT_ITEM_STATUSES,
   BUDGET_KINDS,
+  validateAuditCompletion,
+  validateAuditConclusion,
+  validateAuditFlag,
   validateAuditItem,
-  validateBudgetLine
+  validateBudgetLine,
+  validateTransactionNote
 };

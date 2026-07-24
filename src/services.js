@@ -478,6 +478,163 @@ async function auditEvidence(year) {
   };
 }
 
+async function latestCompletedAudit() {
+  const row = await dal.queryOne(`
+    SELECT r.completed_at AS date, r.overall_conclusion AS conclusion, u.name AS trustee_name
+    FROM audit_reviews r
+    LEFT JOIN users u ON u.id = r.completed_by
+    WHERE r.status = 'completed'
+    ORDER BY r.completed_at DESC
+    LIMIT 1
+  `);
+  if (!row) return null;
+  return {
+    date: row.date,
+    conclusion: row.conclusion,
+    trusteeName: row.trustee_name
+  };
+}
+
+async function periodComparison(currentYearParam) {
+  const previousYear = currentYearParam - 1;
+  const currentStart = `${currentYearParam}-01-01`;
+  const currentEnd = `${currentYearParam}-12-31`;
+  const previousStart = `${previousYear}-01-01`;
+  const previousEnd = `${previousYear}-12-31`;
+
+  // Query income and expense totals grouped by category for both years
+  const [currentRows, previousRows] = await Promise.all([
+    dal.query(`
+      SELECT category,
+        COALESCE(SUM(amount) FILTER (WHERE tx_type = 'receipt'), 0) AS income,
+        COALESCE(SUM(amount) FILTER (WHERE tx_type IN ('expense', 'welfare_payout')), 0) AS expense
+      FROM transactions
+      WHERE status = 'posted'
+        AND tx_type IN ('receipt', 'expense', 'welfare_payout')
+        AND tx_date >= $1 AND tx_date <= $2
+      GROUP BY category
+      ORDER BY category
+    `, [currentStart, currentEnd]),
+    dal.query(`
+      SELECT category,
+        COALESCE(SUM(amount) FILTER (WHERE tx_type = 'receipt'), 0) AS income,
+        COALESCE(SUM(amount) FILTER (WHERE tx_type IN ('expense', 'welfare_payout')), 0) AS expense
+      FROM transactions
+      WHERE status = 'posted'
+        AND tx_type IN ('receipt', 'expense', 'welfare_payout')
+        AND tx_date >= $1 AND tx_date <= $2
+      GROUP BY category
+      ORDER BY category
+    `, [previousStart, previousEnd])
+  ]);
+
+  // Build a map of all categories across both years
+  const categoryMap = new Map();
+
+  currentRows.forEach((row) => {
+    categoryMap.set(row.category, {
+      category: row.category,
+      currentIncome: money(row.income),
+      previousIncome: 0,
+      currentExpense: money(row.expense),
+      previousExpense: 0
+    });
+  });
+
+  previousRows.forEach((row) => {
+    const existing = categoryMap.get(row.category) || {
+      category: row.category,
+      currentIncome: 0,
+      previousIncome: 0,
+      currentExpense: 0,
+      previousExpense: 0
+    };
+    existing.previousIncome = money(row.income);
+    existing.previousExpense = money(row.expense);
+    categoryMap.set(row.category, existing);
+  });
+
+  // Compute variance and highlighting for each category
+  const results = Array.from(categoryMap.values()).map((item) => {
+    const currentTotal = item.currentIncome + item.currentExpense;
+    const previousTotal = item.previousIncome + item.previousExpense;
+
+    let variancePercent = 0;
+    if (previousTotal !== 0) {
+      variancePercent = ((currentTotal - previousTotal) / previousTotal) * 100;
+    } else if (currentTotal !== 0) {
+      // Previous was zero but current has activity — treat as 100% increase
+      variancePercent = 100;
+    }
+
+    // Round to 2 decimal places
+    variancePercent = Math.round(variancePercent * 100) / 100;
+
+    const highlighted = Math.abs(variancePercent) > 20;
+
+    return {
+      category: item.category,
+      currentIncome: item.currentIncome,
+      previousIncome: item.previousIncome,
+      currentExpense: item.currentExpense,
+      previousExpense: item.previousExpense,
+      variancePercent,
+      highlighted
+    };
+  });
+
+  return results.sort((a, b) => a.category.localeCompare(b.category));
+}
+
+/**
+ * Returns a count summary for an audit review:
+ * - flaggedCount: number of transactions flagged by the trustee
+ * - unreconciledCount: number of unreconciled transactions in the review's scope period
+ * - completedItems: number of checklist items that have been reviewed (status != 'pending')
+ * - totalItems: total number of checklist items for the review
+ *
+ * @param {number} reviewId - The audit review ID
+ * @returns {Promise<{flaggedCount: number, unreconciledCount: number, completedItems: number, totalItems: number}>}
+ */
+async function auditCountSummary(reviewId) {
+  // Get the review to determine its date scope
+  const review = await dal.queryOne('SELECT scope_start, scope_end FROM audit_reviews WHERE id = $1', [reviewId]);
+
+  // Count flagged transactions for this review
+  const flagRow = await dal.queryOne(
+    'SELECT COUNT(*)::int AS count FROM audit_flags WHERE review_id = $1',
+    [reviewId]
+  );
+  const flaggedCount = Number(flagRow && flagRow.count || 0);
+
+  // Count unreconciled transactions within the review's scope period
+  let unreconciledCount = 0;
+  if (review) {
+    const unreconciledRow = await dal.queryOne(`
+      SELECT COUNT(*)::int AS count
+      FROM transactions
+      WHERE status = 'posted'
+        AND tx_type <> 'transfer'
+        AND reconciled = false
+        AND tx_date >= $1 AND tx_date <= $2
+    `, [review.scope_start, review.scope_end]);
+    unreconciledCount = Number(unreconciledRow && unreconciledRow.count || 0);
+  }
+
+  // Count checklist progress
+  const progressRow = await dal.queryOne(`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE status <> 'pending')::int AS completed
+    FROM audit_review_items
+    WHERE review_id = $1
+  `, [reviewId]);
+  const totalItems = Number(progressRow && progressRow.total || 0);
+  const completedItems = Number(progressRow && progressRow.completed || 0);
+
+  return { flaggedCount, unreconciledCount, completedItems, totalItems };
+}
+
 module.exports = {
   accountBalances,
   welfareLiability,
@@ -493,6 +650,9 @@ module.exports = {
   runningBalanceRows,
   budgetVsActual,
   auditEvidence,
+  auditCountSummary,
   calculateWelfareComponent,
-  currentYear
+  currentYear,
+  latestCompletedAudit,
+  periodComparison
 };

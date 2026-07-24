@@ -12,7 +12,7 @@ const { verifyPassword, hashPassword } = require('./security');
 const { formatDate, formatDateTime } = require('./viewHelpers');
 const { validateActiveFiscalDate } = require('./fiscalYearDomain');
 const { validateDuesRule, ageBandsOverlap, validateCategory } = require('./configDomain');
-const { AUDIT_CHECKLIST, validateAuditItem, validateBudgetLine } = require('./governanceDomain');
+const { AUDIT_CHECKLIST, validateAuditItem, validateAuditFlag, validateAuditCompletion, validateAuditConclusion, validateBudgetLine, validateTransactionNote } = require('./governanceDomain');
 const pgSession = require('connect-pg-simple')(session);
 const {
   accountBalances,
@@ -21,9 +21,12 @@ const {
   auditEvidence,
   budgetVsActual,
   currentYear,
+  latestCompletedAudit,
   latestReconciliations,
   runningBalanceRows,
-  reportSummary
+  reportSummary,
+  periodComparison,
+  auditCountSummary
 } = require('./services');
 const {
   exportTransactionsCsv,
@@ -43,6 +46,9 @@ const {
   memberValues,
   normalizePhone,
   validateMemberInput,
+  validatePositionEntry,
+  validateRankEntry,
+  validateTransferRecord,
   validateStatusChange,
 } = require('./memberDomain');
 const {
@@ -182,7 +188,7 @@ app.use(async (req, res, next) => {
     );
     req.activeFiscalYear = activeFiscalYear;
     res.locals.activeFiscalYear = activeFiscalYear;
-    if (activeFiscalYear || req.path.startsWith('/fiscal-years') || req.path === '/logout') return next();
+    if (activeFiscalYear || req.path.startsWith('/fiscal-years') || req.path === '/logout' || req.path === '/trustee-dashboard') return next();
     if (FISCAL_SETUP_ROLES.has(req.session.user.role)) return res.redirect('/fiscal-years?setup=1');
     return res.status(503).render('setup_required');
   } catch (error) {
@@ -303,6 +309,10 @@ app.post('/login', loginLimiter, asyncHandler(async (req, res) => {
   }
   req.session.user = { id: user.id, name: user.name, email: user.email, role: user.role };
   await dal.audit(user.id, 'login', 'user', user.id, user.email, { ip_address: getClientIp(req) });
+  // Redirect trustees to their dedicated financial overview dashboard
+  if (user.role === 'trustee') {
+    return res.redirect('/trustee-dashboard');
+  }
   res.redirect('/');
 }));
 
@@ -541,17 +551,23 @@ app.get('/members/:id', requireLogin, asyncHandler(async (req, res) => {
     WHERE m.id = $1
   `, [Number(req.params.id)]);
   if (!member) return res.status(404).render('error', { message: 'Member not found.' });
-  const statusHistory = await dal.query(`
-    SELECT h.*, u.name AS changed_by_name
-    FROM member_status_history h LEFT JOIN users u ON u.id = h.changed_by
-    WHERE h.member_id = $1 ORDER BY h.effective_date DESC, h.id DESC
-  `, [member.id]);
+  const [statusHistory, rankHistory, positionHistory, transferRecord] = await Promise.all([
+    dal.query(`
+      SELECT h.*, u.name AS changed_by_name
+      FROM member_status_history h LEFT JOIN users u ON u.id = h.changed_by
+      WHERE h.member_id = $1 ORDER BY h.effective_date DESC, h.id DESC
+    `, [member.id]),
+    dal.getRankHistory(member.id),
+    dal.getPositionHistory(member.id),
+    dal.getTransferRecord(member.id),
+  ]);
   const mayViewEmergency = canViewEmergencyContacts(req.session.user.role);
   const emergencyContacts = mayViewEmergency
     ? await dal.query('SELECT * FROM member_emergency_contacts WHERE member_id = $1 ORDER BY is_primary DESC, id', [member.id])
     : [];
   res.render('member_profile', {
-    member, statusHistory, emergencyContacts, statuses: MEMBER_STATUSES,
+    member, statusHistory, rankHistory, positionHistory, transferRecord,
+    emergencyContacts, statuses: MEMBER_STATUSES,
     canEdit: canEditMembership(req.session.user.role), mayViewEmergency
   });
 }));
@@ -613,6 +629,114 @@ app.post('/members/:id/emergency-contacts', allow('admin', 'secretary'), asyncHa
     { member_id: member.id, relationship }, { ip_address: getClientIp(req), user_agent: req.get('user-agent') });
   req.session.flash = { type: 'success', message: 'Emergency contact added.' };
   res.redirect(`/members/${member.id}`);
+}));
+
+app.post('/members/:id/ranks', requireLogin, asyncHandler(async (req, res) => {
+  if (!canEditMembership(req.session.user.role)) {
+    return res.status(403).render('error', { message: 'You do not have permission to perform this action.' });
+  }
+  const memberId = Number(req.params.id);
+  const errors = validateRankEntry(req.body);
+  if (errors.length) {
+    req.session.flash = { type: 'error', message: errors.join(' ') };
+    return res.redirect(`/members/${memberId}`);
+  }
+  const data = {
+    rank_title: req.body.rank_title.trim(),
+    date_conferred: req.body.date_conferred,
+    conferring_authority: req.body.conferring_authority ? req.body.conferring_authority.trim() : null,
+  };
+  await dal.createRankEntry(req.session.user.commandery_id, memberId, data, req.session.user.id);
+  req.session.flash = { type: 'success', message: 'Rank entry added successfully.' };
+  res.redirect(`/members/${memberId}`);
+}));
+
+app.post('/members/:id/positions', requireLogin, asyncHandler(async (req, res) => {
+  if (!canEditMembership(req.session.user.role)) {
+    return res.status(403).render('error', { message: 'You do not have permission to perform this action.' });
+  }
+  const memberId = Number(req.params.id);
+  const errors = validatePositionEntry(req.body);
+  if (errors.length) {
+    req.session.flash = { type: 'error', message: errors.join(' ') };
+    return res.redirect(`/members/${memberId}`);
+  }
+  const data = {
+    position_title: req.body.position_title.trim(),
+    start_date: req.body.start_date,
+    end_date: req.body.end_date ? req.body.end_date.trim() : null,
+  };
+  await dal.createPositionEntry(req.session.user.commandery_id, memberId, data, req.session.user.id);
+  req.session.flash = { type: 'success', message: 'Position entry added successfully.' };
+  res.redirect(`/members/${memberId}`);
+}));
+
+app.post('/members/:id/positions/:posId/end', requireLogin, asyncHandler(async (req, res) => {
+  if (!canEditMembership(req.session.user.role)) {
+    return res.status(403).render('error', { message: 'You do not have permission to perform this action.' });
+  }
+  const memberId = Number(req.params.id);
+  const posId = Number(req.params.posId);
+
+  // Validate end_date is present and valid format
+  const endDate = (req.body.end_date || '').trim();
+  if (!endDate) {
+    req.session.flash = { type: 'error', message: 'End date is required.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    req.session.flash = { type: 'error', message: 'End date must be a valid date (YYYY-MM-DD).' };
+    return res.redirect(`/members/${memberId}`);
+  }
+
+  // Load the position to validate end_date >= start_date
+  const position = await dal.queryOne(
+    'SELECT * FROM member_position_history WHERE id = $1 AND member_id = $2',
+    [posId, memberId]
+  );
+  if (!position) {
+    req.session.flash = { type: 'error', message: 'Position not found.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+
+  const end = new Date(endDate + 'T00:00:00');
+  const start = new Date(position.start_date.toISOString().slice(0, 10) + 'T00:00:00');
+  if (end < start) {
+    req.session.flash = { type: 'error', message: 'End date must not be before the position start date.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+
+  // Update position end date via DAL
+  const updated = await dal.setPositionEndDate(posId, endDate, req.session.user.id);
+  if (!updated) {
+    req.session.flash = { type: 'error', message: 'Failed to update position end date.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+
+  req.session.flash = { type: 'success', message: 'Position end date set successfully.' };
+  res.redirect(`/members/${memberId}`);
+}));
+
+app.post('/members/:id/transfer', requireLogin, asyncHandler(async (req, res) => {
+  if (!canEditMembership(req.session.user.role)) {
+    return res.status(403).render('error', { message: 'You do not have permission to perform this action.' });
+  }
+  const memberId = Number(req.params.id);
+  const member = await dal.queryOne('SELECT id, date_first_admitted FROM members WHERE id = $1', [memberId]);
+  if (!member) return res.status(404).render('error', { message: 'Member not found.' });
+  const errors = validateTransferRecord(req.body, member.date_first_admitted);
+  if (errors.length) {
+    req.session.flash = { type: 'error', message: errors.join(' ') };
+    return res.redirect(`/members/${memberId}`);
+  }
+  const data = {
+    origin_commandery_name: req.body.origin_commandery_name.trim(),
+    transfer_date: req.body.transfer_date,
+    reference_number: req.body.reference_number ? req.body.reference_number.trim() : null,
+  };
+  await dal.upsertTransferRecord(req.session.user.commandery_id, memberId, data, req.session.user.id);
+  req.session.flash = { type: 'success', message: 'Transfer record saved successfully.' };
+  res.redirect(`/members/${memberId}`);
 }));
 
 app.get('/change-password', requireLogin, (req, res) => {
@@ -1579,6 +1703,57 @@ app.post('/users/:id/reset-password', allow('admin'), asyncHandler(async (req, r
   res.redirect('/users');
 }));
 
+app.get('/trustee-dashboard', allow('admin', 'trustee', 'auditor'), asyncHandler(async (req, res) => {
+  const balances = await accountBalances();
+  const latestAudit = await latestCompletedAudit();
+
+  // Handle no-open-fiscal-year gracefully
+  if (!req.activeFiscalYear) {
+    return res.render('trustee_dashboard', {
+      balances,
+      grossReceipts: null,
+      totalOutflows: null,
+      unreconciledCount: null,
+      latestAudit,
+      noActiveFiscalYear: true
+    });
+  }
+
+  const year = Number(req.activeFiscalYear.year);
+  const yearStart = `${year}-01-01`;
+  const yearEnd = `${year}-12-31`;
+
+  // Load fiscal year summary (receipts and outflows)
+  const summaryRow = await dal.queryOne(`
+    SELECT
+      COALESCE(SUM(amount) FILTER (WHERE tx_type = 'receipt'), 0) AS receipts,
+      COALESCE(SUM(amount) FILTER (WHERE tx_type IN ('expense', 'welfare_payout')), 0) AS outflows
+    FROM transactions
+    WHERE status = 'posted' AND tx_date >= $1 AND tx_date <= $2
+  `, [yearStart, yearEnd]);
+
+  const grossReceipts = Number(summaryRow.receipts || 0);
+  const totalOutflows = Number(summaryRow.outflows || 0);
+
+  // Unreconciled transaction count for the current fiscal year
+  const unreconciledRow = await dal.queryOne(`
+    SELECT COUNT(*)::int AS count
+    FROM transactions
+    WHERE status = 'posted' AND tx_type <> 'transfer' AND reconciled = false
+      AND tx_date >= $1 AND tx_date <= $2
+  `, [yearStart, yearEnd]);
+  const unreconciledCount = Number(unreconciledRow.count || 0);
+
+  res.render('trustee_dashboard', {
+    balances,
+    grossReceipts,
+    totalOutflows,
+    unreconciledCount,
+    latestAudit,
+    noActiveFiscalYear: false
+  });
+}));
+
 app.get('/trustee-audit', allow('admin', 'auditor', 'trustee', 'treasurer'), asyncHandler(async (req, res) => {
   const years = await dal.query('SELECT year, status FROM fiscal_years ORDER BY year DESC');
   const requestedYear = Number(req.query.year || selectedYear(req));
@@ -1658,23 +1833,291 @@ app.post('/trustee-audit/items/:key', allow('auditor', 'trustee'), asyncHandler(
   res.redirect(`/trustee-audit?year=${year}`);
 }));
 
-app.post('/trustee-audit/complete', allow('auditor', 'trustee'), asyncHandler(async (req, res) => {
+app.post('/trustee-audit/flag-transaction', allow('auditor', 'trustee'), asyncHandler(async (req, res) => {
   const year = Number(req.body.year);
-  const overallNotes = String(req.body.overall_notes || '').trim();
-  const review = await dal.queryOne("SELECT * FROM audit_reviews WHERE year=$1 AND status='in_progress'", [year]);
-  if (!review) return res.status(409).render('error', { message: 'This audit is not open for completion.' });
-  const progress = await dal.queryOne(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE status='pending')::int AS pending FROM audit_review_items WHERE review_id=$1`, [review.id]);
-  if (Number(progress.total) !== AUDIT_CHECKLIST.length || Number(progress.pending) > 0 || !overallNotes) {
-    req.session.flash = { type: 'error', message: 'Review every checklist item and enter an overall conclusion before completing the audit.' };
+  const validated = validateAuditFlag(req.body);
+  if (validated.errors.length) {
+    req.session.flash = { type: 'error', message: validated.errors.join(' ') };
     return res.redirect(`/trustee-audit?year=${year}`);
   }
+  const review = await dal.queryOne("SELECT * FROM audit_reviews WHERE year=$1 AND status='in_progress'", [year]);
+  if (!review) return res.status(409).render('error', { message: 'No active audit review. Start an audit before flagging transactions.' });
+  await dal.createAuditFlag(review.id, validated.values.transaction_id, validated.values.reason, req.session.user.id);
+  req.session.flash = { type: 'success', message: 'Transaction flagged for investigation.' };
+  res.redirect(`/trustee-audit?year=${year}`);
+}));
+
+app.get('/trustee-audit/flagged', allow('admin', 'auditor', 'trustee', 'treasurer'), asyncHandler(async (req, res) => {
+  const year = Number(req.query.year || selectedYear(req));
+  const review = await dal.queryOne("SELECT * FROM audit_reviews WHERE year=$1", [year]);
+  if (!review) {
+    return res.json({ flags: [], message: 'No audit review found for this year.' });
+  }
+  const flags = await dal.getAuditFlags(review.id);
+  res.json({ flags, year, reviewId: review.id });
+}));
+
+// --- Transaction Investigation Routes (Task 9.4) ---
+
+app.get('/trustee-audit/transaction/:id', allow('admin', 'trustee', 'auditor'), asyncHandler(async (req, res) => {
+  const txId = Number(req.params.id);
+  const transaction = await dal.queryOne(`
+    SELECT t.*, m.name AS member_name, a.name AS account_name, u.name AS recorded_by_name
+    FROM transactions t
+    LEFT JOIN members m ON m.id = t.member_id
+    LEFT JOIN accounts a ON a.id = t.account_id
+    LEFT JOIN users u ON u.id = t.created_by
+    WHERE t.id = $1
+  `, [txId]);
+  if (!transaction) return res.status(404).json({ error: 'Transaction not found.' });
+
+  // Load any investigation notes for this transaction (from the current active or most recent review)
+  const review = await dal.queryOne(
+    "SELECT id FROM audit_reviews WHERE status IN ('in_progress', 'completed') ORDER BY year DESC LIMIT 1"
+  );
+  const notes = review ? await dal.getTransactionNotes(review.id, txId) : [];
+
+  res.json({ transaction, notes });
+}));
+
+app.get('/trustee-audit/transactions', allow('admin', 'trustee', 'auditor'), asyncHandler(async (req, res) => {
+  const { tx_type, account_id, reconciled, date_start, date_end } = req.query;
+
+  const conditions = ["t.status = 'posted'"];
+  const params = [];
+  let paramIndex = 1;
+
+  if (tx_type) {
+    conditions.push(`t.tx_type = $${paramIndex++}`);
+    params.push(tx_type);
+  }
+  if (account_id) {
+    conditions.push(`t.account_id = $${paramIndex++}`);
+    params.push(Number(account_id));
+  }
+  if (reconciled !== undefined && reconciled !== '') {
+    conditions.push(`t.reconciled = $${paramIndex++}`);
+    params.push(reconciled === 'true');
+  }
+  if (date_start) {
+    conditions.push(`t.tx_date >= $${paramIndex++}`);
+    params.push(date_start);
+  }
+  if (date_end) {
+    conditions.push(`t.tx_date <= $${paramIndex++}`);
+    params.push(date_end);
+  }
+
+  const rows = await dal.query(`
+    SELECT t.*, m.name AS member_name, a.name AS account_name
+    FROM transactions t
+    LEFT JOIN members m ON m.id = t.member_id
+    LEFT JOIN accounts a ON a.id = t.account_id
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY t.tx_date DESC, t.id DESC
+    LIMIT 200
+  `, params);
+
+  res.json({ transactions: rows, count: rows.length });
+}));
+
+app.post('/trustee-audit/transaction/:id/note', allow('admin', 'trustee', 'auditor'), asyncHandler(async (req, res) => {
+  const txId = Number(req.params.id);
+
+  // Validate the note text
+  const validated = validateTransactionNote(req.body);
+  if (validated.errors.length) {
+    if (req.get('Accept') === 'application/json' || req.xhr) {
+      return res.status(400).json({ errors: validated.errors });
+    }
+    req.session.flash = { type: 'error', message: validated.errors.join(' ') };
+    return res.redirect('back');
+  }
+
+  // Ensure transaction exists
+  const transaction = await dal.queryOne('SELECT id FROM transactions WHERE id = $1', [txId]);
+  if (!transaction) {
+    if (req.get('Accept') === 'application/json' || req.xhr) {
+      return res.status(404).json({ error: 'Transaction not found.' });
+    }
+    return res.status(404).render('error', { message: 'Transaction not found.' });
+  }
+
+  // Find active or most recent review to attach the note to
+  const review = await dal.queryOne(
+    "SELECT id FROM audit_reviews WHERE status = 'in_progress' ORDER BY year DESC LIMIT 1"
+  );
+  if (!review) {
+    if (req.get('Accept') === 'application/json' || req.xhr) {
+      return res.status(400).json({ error: 'No active audit review. Start an audit before adding notes.' });
+    }
+    req.session.flash = { type: 'error', message: 'No active audit review. Start an audit before adding notes.' };
+    return res.redirect('back');
+  }
+
+  const note = await dal.createTransactionNote(review.id, txId, validated.values.note, req.session.user.id);
+
+  if (req.get('Accept') === 'application/json' || req.xhr) {
+    return res.status(201).json({ note });
+  }
+  req.session.flash = { type: 'success', message: 'Investigation note added.' };
+  res.redirect('back');
+}));
+
+app.get('/trustee-audit/period-comparison', allow('admin', 'trustee', 'auditor'), asyncHandler(async (req, res) => {
+  const year = Number(req.query.year || selectedYear(req));
+  const comparison = await periodComparison(year);
+  res.json({ year, comparison });
+}));
+
+app.post('/trustee-audit/complete', allow('auditor', 'trustee'), asyncHandler(async (req, res) => {
+  const year = Number(req.body.year);
+  const review = await dal.queryOne("SELECT * FROM audit_reviews WHERE year=$1 AND status='in_progress'", [year]);
+  if (!review) return res.status(409).render('error', { message: 'This audit is not open for completion.' });
+
+  // Load checklist items and validate all have been reviewed
+  const items = await dal.query('SELECT item_key AS key, status FROM audit_review_items WHERE review_id=$1', [review.id]);
+  const unreviewed = validateAuditCompletion(items, AUDIT_CHECKLIST.length);
+  if (unreviewed.length > 0) {
+    const unreviewedLabels = unreviewed.map(key => {
+      const def = AUDIT_CHECKLIST.find(c => c.key === key);
+      return def ? def.label : key;
+    });
+    req.session.flash = { type: 'error', message: `Complete all checklist items before finishing the audit. Unreviewed: ${unreviewedLabels.join(', ')}` };
+    return res.redirect(`/trustee-audit?year=${year}`);
+  }
+
+  // Validate the conclusion text
+  const conclusionValidated = validateAuditConclusion(req.body);
+  if (conclusionValidated.errors.length) {
+    req.session.flash = { type: 'error', message: conclusionValidated.errors.join(' ') };
+    return res.redirect(`/trustee-audit?year=${year}`);
+  }
+
   await dal.transaction(async (client) => {
-    await client.query(`UPDATE audit_reviews SET status='completed', overall_notes=$1, completed_by=$2, completed_at=NOW() WHERE id=$3`, [overallNotes, req.session.user.id, review.id]);
-    await dal.audit(req.session.user.id, 'complete', 'audit_review', review.id, { year, conclusion: overallNotes },
+    await client.query(
+      `UPDATE audit_reviews SET status='completed', overall_conclusion=$1, overall_notes=$2, completed_by=$3, completed_at=NOW() WHERE id=$4`,
+      [conclusionValidated.values.conclusion, conclusionValidated.values.conclusion, req.session.user.id, review.id]
+    );
+    await dal.audit(req.session.user.id, 'complete', 'audit_review', review.id, { year, conclusion: conclusionValidated.values.conclusion },
       { client, ip_address: getClientIp(req), user_agent: req.get('user-agent') });
   });
   req.session.flash = { type: 'success', message: `Trustee audit for ${year} completed and signed.` };
   res.redirect(`/trustee-audit?year=${year}`);
+}));
+
+app.get('/trustee-audit/report/:year', allow('admin', 'trustee', 'auditor'), asyncHandler(async (req, res) => {
+  const PDFDocument = require('pdfkit');
+  const year = Number(req.params.year);
+  if (!year || year < 1900 || year > 2100) {
+    return res.status(400).render('error', { message: 'Invalid year.' });
+  }
+
+  // Load audit review for the given year
+  const review = await dal.queryOne(`
+    SELECT r.*, starter.name AS started_by_name, completer.name AS completed_by_name
+    FROM audit_reviews r
+    LEFT JOIN users starter ON starter.id = r.started_by
+    LEFT JOIN users completer ON completer.id = r.completed_by
+    WHERE r.year = $1
+  `, [year]);
+  if (!review) {
+    return res.status(404).render('error', { message: `No audit review found for ${year}.` });
+  }
+
+  // Load checklist items, flagged transactions, and account balances
+  const [items, flags, balances] = await Promise.all([
+    dal.query(`
+      SELECT i.*, u.name AS reviewed_by_name
+      FROM audit_review_items i
+      LEFT JOIN users u ON u.id = i.reviewed_by
+      WHERE i.review_id = $1
+      ORDER BY i.id
+    `, [review.id]),
+    dal.getAuditFlags(review.id),
+    accountBalances(`${year}-12-31`),
+  ]);
+
+  // Generate PDF
+  const doc = new PDFDocument({ margin: 50, size: 'A4' });
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="audit-report-${year}.pdf"`);
+  doc.pipe(res);
+
+  // Title
+  doc.fontSize(20).font('Helvetica-Bold').text(`Audit Report — ${year}`, { align: 'center' });
+  doc.moveDown(0.5);
+  doc.fontSize(10).font('Helvetica').text(`Generated: ${new Date().toISOString().slice(0, 10)}`, { align: 'center' });
+  if (review.completed_by_name) {
+    doc.text(`Signed by: ${review.completed_by_name}`, { align: 'center' });
+  }
+  doc.text(`Status: ${review.status}`, { align: 'center' });
+  doc.moveDown(1.5);
+
+  // Section: Checklist Outcomes
+  doc.fontSize(14).font('Helvetica-Bold').text('Checklist Outcomes');
+  doc.moveDown(0.5);
+  doc.fontSize(10).font('Helvetica');
+  for (const item of items) {
+    const definition = AUDIT_CHECKLIST.find(c => c.key === item.item_key);
+    const label = definition ? definition.label : item.item_key;
+    const status = (item.status || 'pending').toUpperCase();
+    doc.font('Helvetica-Bold').text(`${label}: `, { continued: true });
+    doc.font('Helvetica').text(status);
+    if (item.notes) {
+      doc.fontSize(9).text(`   Notes: ${item.notes}`, { indent: 20 });
+      doc.fontSize(10);
+    }
+    if (item.reviewed_by_name) {
+      doc.fontSize(9).text(`   Reviewed by: ${item.reviewed_by_name}`, { indent: 20 });
+      doc.fontSize(10);
+    }
+    doc.moveDown(0.3);
+  }
+  doc.moveDown(1);
+
+  // Section: Flagged Transactions
+  doc.fontSize(14).font('Helvetica-Bold').text('Flagged Transactions');
+  doc.moveDown(0.5);
+  doc.fontSize(10).font('Helvetica');
+  if (flags.length === 0) {
+    doc.text('No transactions were flagged during this audit.');
+  } else {
+    for (const flag of flags) {
+      doc.font('Helvetica-Bold').text(`Transaction #${flag.transaction_id}`, { continued: true });
+      doc.font('Helvetica').text(` — ${flag.reason}`);
+      if (flag.flagged_by_name) {
+        doc.fontSize(9).text(`   Flagged by: ${flag.flagged_by_name}`, { indent: 20 });
+        doc.fontSize(10);
+      }
+      doc.moveDown(0.3);
+    }
+  }
+  doc.moveDown(1);
+
+  // Section: Account Balances
+  doc.fontSize(14).font('Helvetica-Bold').text(`Account Balances (as at ${year}-12-31)`);
+  doc.moveDown(0.5);
+  doc.fontSize(10).font('Helvetica');
+  if (balances.length === 0) {
+    doc.text('No active accounts found.');
+  } else {
+    for (const acct of balances) {
+      const bal = Number(acct.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      doc.text(`${acct.name}: ${bal}`);
+    }
+  }
+  doc.moveDown(1);
+
+  // Section: Conclusion
+  doc.fontSize(14).font('Helvetica-Bold').text('Conclusion');
+  doc.moveDown(0.5);
+  doc.fontSize(10).font('Helvetica');
+  const conclusion = review.overall_notes || review.overall_conclusion || 'No conclusion recorded.';
+  doc.text(conclusion);
+
+  doc.end();
 }));
 
 app.get('/audit', allow('admin', 'auditor', 'trustee'), asyncHandler(async (req, res) => {

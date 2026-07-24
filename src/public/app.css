@@ -1207,6 +1207,35 @@ body.auth-page {
   gap: var(--space-3);
 }
 
+.modal--form {
+  max-width: 600px;
+}
+
+.modal__close {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: var(--space-1);
+}
+
+.modal__close:hover {
+  color: var(--color-text);
+}
+
+.modal__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+}
+
 /* ------------------------------------------------------------
    4.7 Metric Card
    ------------------------------------------------------------ */

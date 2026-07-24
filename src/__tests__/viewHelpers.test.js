@@ -2,7 +2,7 @@
 
 const ejs = require('ejs');
 const path = require('path');
-const { formatDate, formatDateTime } = require('../viewHelpers');
+const { formatDate, formatDateTime, varianceHighlightClass } = require('../viewHelpers');
 
 describe('view date helpers', () => {
   test('formats Date objects and PostgreSQL strings without throwing', () => {
@@ -128,5 +128,44 @@ describe('view date helpers', () => {
 
     expect(html).toContain('/dues/rules/2/delete');
     expect(html).toContain('/dues/overrides/6/delete');
+  });
+});
+
+describe('varianceHighlightClass', () => {
+  test('returns highlight class when variance exceeds +20%', () => {
+    expect(varianceHighlightClass(25)).toBe('variance-highlight');
+    expect(varianceHighlightClass(50)).toBe('variance-highlight');
+    expect(varianceHighlightClass(100)).toBe('variance-highlight');
+  });
+
+  test('returns highlight class when variance exceeds -20%', () => {
+    expect(varianceHighlightClass(-25)).toBe('variance-highlight');
+    expect(varianceHighlightClass(-50)).toBe('variance-highlight');
+    expect(varianceHighlightClass(-100)).toBe('variance-highlight');
+  });
+
+  test('returns empty string when variance is within ±20%', () => {
+    expect(varianceHighlightClass(0)).toBe('');
+    expect(varianceHighlightClass(10)).toBe('');
+    expect(varianceHighlightClass(-10)).toBe('');
+    expect(varianceHighlightClass(15)).toBe('');
+    expect(varianceHighlightClass(-15)).toBe('');
+  });
+
+  test('returns empty string at exactly ±20% (threshold not exceeded)', () => {
+    expect(varianceHighlightClass(20)).toBe('');
+    expect(varianceHighlightClass(-20)).toBe('');
+  });
+
+  test('returns highlight class just above ±20% threshold', () => {
+    expect(varianceHighlightClass(20.01)).toBe('variance-highlight');
+    expect(varianceHighlightClass(-20.01)).toBe('variance-highlight');
+  });
+
+  test('returns empty string for non-numeric inputs', () => {
+    expect(varianceHighlightClass(null)).toBe('');
+    expect(varianceHighlightClass(undefined)).toBe('');
+    expect(varianceHighlightClass('25')).toBe('');
+    expect(varianceHighlightClass(NaN)).toBe('');
   });
 });

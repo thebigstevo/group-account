@@ -27,4 +27,19 @@ function formatDateTime(value, fallback = '') {
   return `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 16)} UTC`;
 }
 
-module.exports = { formatDate, formatDateTime };
+/**
+ * Returns a CSS class name for variance highlighting when the absolute value
+ * of the variance percentage exceeds 20%. Used in EJS views to flag significant
+ * period-over-period changes.
+ *
+ * @param {number} variancePercent - The computed variance percentage
+ * @returns {string} CSS class name or empty string
+ */
+function varianceHighlightClass(variancePercent) {
+  if (typeof variancePercent !== 'number' || Number.isNaN(variancePercent)) {
+    return '';
+  }
+  return Math.abs(variancePercent) > 20 ? 'variance-highlight' : '';
+}
+
+module.exports = { formatDate, formatDateTime, varianceHighlightClass };

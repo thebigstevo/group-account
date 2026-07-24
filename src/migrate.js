@@ -424,6 +424,96 @@ async function migrate() {
   `);
   console.log('[migrate]   ✓ trustee audit reviews');
 
+  // Member rank history (immutable records)
+  await run(`
+    CREATE TABLE IF NOT EXISTS member_rank_history (
+      id SERIAL PRIMARY KEY,
+      commandery_id INTEGER NOT NULL REFERENCES commanderies(id),
+      member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+      rank_title VARCHAR(100) NOT NULL,
+      date_conferred DATE NOT NULL,
+      conferring_authority VARCHAR(200),
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT chk_rank_title_length CHECK (char_length(rank_title) >= 1),
+      CONSTRAINT chk_date_not_future CHECK (date_conferred <= CURRENT_DATE)
+    )
+  `);
+  console.log('[migrate]   ✓ member_rank_history');
+
+  // Member position history
+  await run(`
+    CREATE TABLE IF NOT EXISTS member_position_history (
+      id SERIAL PRIMARY KEY,
+      commandery_id INTEGER NOT NULL REFERENCES commanderies(id),
+      member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+      position_title VARCHAR(100) NOT NULL,
+      start_date DATE NOT NULL,
+      end_date DATE,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMP,
+      CONSTRAINT chk_position_title_length CHECK (char_length(position_title) BETWEEN 1 AND 100),
+      CONSTRAINT chk_start_not_future CHECK (start_date <= CURRENT_DATE),
+      CONSTRAINT chk_end_after_start CHECK (end_date IS NULL OR end_date >= start_date)
+    )
+  `);
+  console.log('[migrate]   ✓ member_position_history');
+
+  // Member transfer records (one per member max)
+  await run(`
+    CREATE TABLE IF NOT EXISTS member_transfers (
+      id SERIAL PRIMARY KEY,
+      commandery_id INTEGER NOT NULL REFERENCES commanderies(id),
+      member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+      origin_commandery_name VARCHAR(150) NOT NULL,
+      transfer_date DATE NOT NULL,
+      reference_number VARCHAR(100),
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMP,
+      CONSTRAINT chk_origin_length CHECK (char_length(origin_commandery_name) >= 1),
+      CONSTRAINT chk_transfer_not_future CHECK (transfer_date <= CURRENT_DATE)
+    )
+  `);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_member_transfers_member_id ON member_transfers(member_id)`);
+  console.log('[migrate]   ✓ member_transfers');
+
+  // Audit transaction flags
+  await run(`
+    CREATE TABLE IF NOT EXISTS audit_flags (
+      id SERIAL PRIMARY KEY,
+      review_id INTEGER NOT NULL REFERENCES audit_reviews(id),
+      transaction_id INTEGER NOT NULL REFERENCES transactions(id),
+      reason VARCHAR(1000) NOT NULL,
+      flagged_by INTEGER NOT NULL REFERENCES users(id),
+      flagged_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT chk_flag_reason_length CHECK (char_length(reason) >= 1 AND char_length(reason) <= 1000)
+    )
+  `);
+  console.log('[migrate]   ✓ audit_flags');
+
+  // Audit transaction investigation notes
+  await run(`
+    CREATE TABLE IF NOT EXISTS audit_transaction_notes (
+      id SERIAL PRIMARY KEY,
+      review_id INTEGER NOT NULL REFERENCES audit_reviews(id),
+      transaction_id INTEGER NOT NULL REFERENCES transactions(id),
+      note VARCHAR(1000) NOT NULL,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT chk_note_length CHECK (char_length(note) >= 1 AND char_length(note) <= 1000)
+    )
+  `);
+  console.log('[migrate]   ✓ audit_transaction_notes');
+
+  // Enhance audit_reviews with overall_conclusion and recommendation columns
+  await run(`ALTER TABLE audit_reviews ADD COLUMN IF NOT EXISTS overall_conclusion TEXT`);
+  await run(`ALTER TABLE audit_reviews ADD COLUMN IF NOT EXISTS recommendation VARCHAR(5000)`);
+  console.log('[migrate]   ✓ audit_reviews enhanced (overall_conclusion, recommendation)');
+
   // Sessions table for connect-pg-simple
   await run(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -450,6 +540,12 @@ async function migrate() {
   await run(`CREATE INDEX IF NOT EXISTS idx_member_status_history_member_date ON member_status_history(member_id, effective_date DESC)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_emergency_contacts_member ON member_emergency_contacts(member_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expire)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_rank_history_member ON member_rank_history(member_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_position_history_member ON member_position_history(member_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_audit_flags_review ON audit_flags(review_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_audit_flags_transaction ON audit_flags(transaction_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_audit_notes_review ON audit_transaction_notes(review_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_audit_notes_transaction ON audit_transaction_notes(transaction_id)`);
 
   console.log('[migrate]   ✓ Indexes created');
 

@@ -184,6 +184,241 @@ async function audit(userId, action, entity, entityId, details, options = {}) {
   }
 }
 
+/**
+ * Get all rank history entries for a member, ordered by most recent first.
+ * @param {number} memberId - The member ID
+ * @returns {Promise<Array<object>>} Rank history rows
+ */
+async function getRankHistory(memberId) {
+  const sql = `
+    SELECT id, rank_title, date_conferred, conferring_authority, created_at
+    FROM member_rank_history
+    WHERE member_id = $1
+    ORDER BY date_conferred DESC
+  `;
+  return query(sql, [memberId]);
+}
+
+/**
+ * Create a new rank history entry for a member.
+ * @param {number} commanderyId - The commandery ID
+ * @param {number} memberId - The member ID
+ * @param {object} data - Rank entry data
+ * @param {string} data.rank_title - Title of the rank
+ * @param {string} data.date_conferred - Date the rank was conferred (YYYY-MM-DD)
+ * @param {string} [data.conferring_authority] - Authority or event that conferred the rank
+ * @param {number} createdBy - User ID of the person creating the entry
+ * @returns {Promise<object>} The created rank history row
+ */
+async function createRankEntry(commanderyId, memberId, data, createdBy) {
+  const sql = `
+    INSERT INTO member_rank_history (commandery_id, member_id, rank_title, date_conferred, conferring_authority, created_by)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING *
+  `;
+  const params = [
+    commanderyId,
+    memberId,
+    data.rank_title,
+    data.date_conferred,
+    data.conferring_authority || null,
+    createdBy,
+  ];
+  const result = await executeWithRetry(sql, params);
+  return result.rows[0];
+}
+
+// ─── Position History ──────────────────────────────────────────────────────
+
+/**
+ * Get all position history entries for a member, ordered by start_date DESC.
+ * @param {number} memberId - The member ID
+ * @returns {Promise<Array<object>>} Position history rows
+ */
+async function getPositionHistory(memberId) {
+  const sql = `
+    SELECT id, position_title, start_date, end_date, created_at
+    FROM member_position_history
+    WHERE member_id = $1
+    ORDER BY start_date DESC
+  `;
+  return query(sql, [memberId]);
+}
+
+/**
+ * Create a new position history entry for a member.
+ * @param {number} commanderyId - The commandery ID
+ * @param {number} memberId - The member ID
+ * @param {object} data - Position entry data
+ * @param {string} data.position_title - Title of the position
+ * @param {string} data.start_date - Start date (YYYY-MM-DD)
+ * @param {string} [data.end_date] - End date (YYYY-MM-DD), null if currently held
+ * @param {number} createdBy - User ID of the person creating the entry
+ * @returns {Promise<object>} The created position history row
+ */
+async function createPositionEntry(commanderyId, memberId, data, createdBy) {
+  const sql = `
+    INSERT INTO member_position_history
+      (commandery_id, member_id, position_title, start_date, end_date, created_by)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING *
+  `;
+  const params = [
+    commanderyId,
+    memberId,
+    data.position_title,
+    data.start_date,
+    data.end_date || null,
+    createdBy,
+  ];
+  const result = await executeWithRetry(sql, params);
+  return result.rows[0];
+}
+
+/**
+ * Set the end date on a position history entry (mark position as concluded).
+ * @param {number} positionId - The position history entry ID
+ * @param {string|Date} endDate - The end date to set
+ * @param {number} updatedBy - User ID of the person updating the entry
+ * @returns {Promise<object|null>} The updated row or null if not found
+ */
+async function setPositionEndDate(positionId, endDate, updatedBy) {
+  const sql = `
+    UPDATE member_position_history
+    SET end_date = $1, updated_by = $2, updated_at = NOW()
+    WHERE id = $3
+    RETURNING *
+  `;
+  const params = [endDate, updatedBy, positionId];
+  const result = await executeWithRetry(sql, params);
+  return result.rows[0] || null;
+}
+
+// ─── Audit Flags ───────────────────────────────────────────────────────────
+
+/**
+ * Create an audit flag on a transaction within a review.
+ * @param {number} reviewId - The audit review ID
+ * @param {number} transactionId - The transaction being flagged
+ * @param {string} reason - Reason for the flag (1-1000 chars)
+ * @param {number} userId - The user creating the flag
+ * @returns {Promise<object>} The created audit_flags row
+ */
+async function createAuditFlag(reviewId, transactionId, reason, userId) {
+  const sql = `
+    INSERT INTO audit_flags (review_id, transaction_id, reason, flagged_by)
+    VALUES ($1, $2, $3, $4)
+    RETURNING *
+  `;
+  const result = await executeWithRetry(sql, [reviewId, transactionId, reason, userId]);
+  return result.rows[0];
+}
+
+/**
+ * Get all audit flags for a given review.
+ * @param {number} reviewId - The audit review ID
+ * @returns {Promise<Array<object>>} Flags with flagged_by_name joined from users
+ */
+async function getAuditFlags(reviewId) {
+  const sql = `
+    SELECT af.*, u.display_name as flagged_by_name
+    FROM audit_flags af
+    LEFT JOIN users u ON af.flagged_by = u.id
+    WHERE af.review_id = $1
+    ORDER BY af.flagged_at DESC
+  `;
+  return query(sql, [reviewId]);
+}
+
+// ─── Audit Transaction Notes ───────────────────────────────────────────────
+
+/**
+ * Create an investigation note on a transaction within a review.
+ * @param {number} reviewId - The audit review ID
+ * @param {number} transactionId - The transaction being annotated
+ * @param {string} note - Note text (1-1000 chars)
+ * @param {number} userId - The user creating the note
+ * @returns {Promise<object>} The created audit_transaction_notes row
+ */
+async function createTransactionNote(reviewId, transactionId, note, userId) {
+  const sql = `
+    INSERT INTO audit_transaction_notes (review_id, transaction_id, note, created_by)
+    VALUES ($1, $2, $3, $4)
+    RETURNING *
+  `;
+  const result = await executeWithRetry(sql, [reviewId, transactionId, note, userId]);
+  return result.rows[0];
+}
+
+/**
+ * Get all investigation notes for a specific transaction within a review.
+ * @param {number} reviewId - The audit review ID
+ * @param {number} transactionId - The transaction ID
+ * @returns {Promise<Array<object>>} Notes with created_by_name joined from users
+ */
+async function getTransactionNotes(reviewId, transactionId) {
+  const sql = `
+    SELECT atn.*, u.display_name as created_by_name
+    FROM audit_transaction_notes atn
+    LEFT JOIN users u ON atn.created_by = u.id
+    WHERE atn.review_id = $1 AND atn.transaction_id = $2
+    ORDER BY atn.created_at ASC
+  `;
+  return query(sql, [reviewId, transactionId]);
+}
+
+// ─── Member Transfers ──────────────────────────────────────────────────────
+
+/**
+ * Get the transfer record for a member.
+ * @param {number} memberId - The member ID
+ * @returns {Promise<object|null>} Transfer record or null if none exists
+ */
+async function getTransferRecord(memberId) {
+  const sql = `
+    SELECT id, origin_commandery_name, transfer_date, reference_number, created_at
+    FROM member_transfers
+    WHERE member_id = $1
+  `;
+  return queryOne(sql, [memberId]);
+}
+
+/**
+ * Create or update a transfer record for a member.
+ * Uses upsert (INSERT ON CONFLICT UPDATE) since each member can have at most one transfer record.
+ * @param {number} commanderyId - The commandery ID
+ * @param {number} memberId - The member ID
+ * @param {object} data - Transfer data
+ * @param {string} data.origin_commandery_name - Origin commandery name
+ * @param {string} data.transfer_date - Transfer date (ISO string or date)
+ * @param {string|null} [data.reference_number] - Optional reference number
+ * @param {number} userId - The user performing the action
+ * @returns {Promise<object>} The created or updated transfer record
+ */
+async function upsertTransferRecord(commanderyId, memberId, data, userId) {
+  const sql = `
+    INSERT INTO member_transfers (commandery_id, member_id, origin_commandery_name, transfer_date, reference_number, created_by)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    ON CONFLICT (member_id) DO UPDATE SET
+      origin_commandery_name = EXCLUDED.origin_commandery_name,
+      transfer_date = EXCLUDED.transfer_date,
+      reference_number = EXCLUDED.reference_number,
+      updated_by = $6,
+      updated_at = NOW()
+    RETURNING *
+  `;
+  const params = [
+    commanderyId,
+    memberId,
+    data.origin_commandery_name,
+    data.transfer_date,
+    data.reference_number || null,
+    userId,
+  ];
+  const result = await executeWithRetry(sql, params);
+  return result.rows[0];
+}
+
 module.exports = {
   query,
   queryOne,
@@ -191,5 +426,16 @@ module.exports = {
   transaction,
   shutdown,
   audit,
+  getRankHistory,
+  createRankEntry,
+  getPositionHistory,
+  createPositionEntry,
+  setPositionEndDate,
+  getTransferRecord,
+  upsertTransferRecord,
+  createAuditFlag,
+  getAuditFlags,
+  createTransactionNote,
+  getTransactionNotes,
   pool, // Exposed for session store and direct access if needed
 };

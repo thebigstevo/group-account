@@ -19,9 +19,10 @@
     "csv-stringify": "^6.4.6",
     "ejs": "^3.1.10",
     "express": "^4.21.2",
-    "express-session": "^1.18.1",
     "express-rate-limit": "^7.0.0",
+    "express-session": "^1.18.1",
     "helmet": "^7.0.0",
+    "pdfkit": "^0.19.1",
     "pg": "^8.13.1"
   },
   "devDependencies": {
@@ -31,6 +32,9 @@
     "supertest": "^6.3.0"
   },
   "jest": {
-    "testPathIgnorePatterns": ["/node_modules/", "/.history/"]
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/.history/"
+    ]
   }
 }

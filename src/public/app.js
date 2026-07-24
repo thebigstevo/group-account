@@ -945,6 +945,195 @@
   })();
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // 6. ADD MEMBER MODAL COMPONENT
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * AddMemberModal — form-based modal for adding members.
+   * Provides focus trapping, Escape/backdrop close, background scroll prevention,
+   * and auto-open when server returns validation errors.
+   *
+   * @namespace Treasurio.AddMemberModal
+   */
+  Treasurio.AddMemberModal = (function () {
+    let modalEl = null;
+    let triggerElement = null;
+    let boundKeydownHandler = null;
+
+    /** Selector for all focusable elements within the modal */
+    const FOCUSABLE_SELECTOR =
+      'button:not([disabled]), [href], input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    /**
+     * Open the Add Member modal dialog.
+     * Sets active class, prevents background scroll, installs focus trap and keyboard handlers.
+     */
+    function open() {
+      modalEl = document.getElementById('add-member-modal');
+      if (!modalEl) return;
+
+      triggerElement = document.activeElement;
+
+      // Show the modal
+      modalEl.classList.add('active');
+      document.body.classList.add('modal-open');
+
+      // Focus the first visible input field
+      var firstInput = modalEl.querySelector('input:not([type="hidden"])');
+      if (firstInput) firstInput.focus();
+
+      // Install keydown handler for Escape and focus trap
+      boundKeydownHandler = handleKeydown;
+      document.addEventListener('keydown', boundKeydownHandler);
+
+      // Install click-outside handler on the backdrop
+      modalEl.addEventListener('click', handleBackdropClick);
+    }
+
+    /**
+     * Close the Add Member modal dialog.
+     * Removes active class, restores background scroll, removes event handlers,
+     * and returns focus to the triggering element.
+     */
+    function close() {
+      modalEl = document.getElementById('add-member-modal');
+      if (!modalEl) return;
+
+      modalEl.classList.remove('active');
+      document.body.classList.remove('modal-open');
+
+      // Remove event handlers
+      if (boundKeydownHandler) {
+        document.removeEventListener('keydown', boundKeydownHandler);
+        boundKeydownHandler = null;
+      }
+      modalEl.removeEventListener('click', handleBackdropClick);
+
+      // Return focus to the triggering element
+      if (triggerElement && typeof triggerElement.focus === 'function') {
+        triggerElement.focus();
+      }
+      triggerElement = null;
+    }
+
+    /**
+     * Handle keydown events: Escape to close, Tab/Shift+Tab for focus trap.
+     * @param {KeyboardEvent} e
+     */
+    function handleKeydown(e) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        trapFocus(e);
+      }
+    }
+
+    /**
+     * Trap focus within the modal content when Tab/Shift+Tab is pressed.
+     * Cycles through focusable elements without allowing focus to escape.
+     * @param {KeyboardEvent} e
+     */
+    function trapFocus(e) {
+      if (!modalEl) return;
+
+      var modalContent = modalEl.querySelector('.modal--form') || modalEl;
+      var focusableEls = modalContent.querySelectorAll(FOCUSABLE_SELECTOR);
+      if (focusableEls.length === 0) return;
+
+      var firstFocusable = focusableEls[0];
+      var lastFocusable = focusableEls[focusableEls.length - 1];
+
+      if (e.shiftKey) {
+        // Shift+Tab: if at first element, wrap to last
+        if (document.activeElement === firstFocusable) {
+          e.preventDefault();
+          lastFocusable.focus();
+        }
+      } else {
+        // Tab: if at last element, wrap to first
+        if (document.activeElement === lastFocusable) {
+          e.preventDefault();
+          firstFocusable.focus();
+        }
+      }
+    }
+
+    /**
+     * Close modal when clicking on the backdrop (outside the modal content).
+     * @param {MouseEvent} e
+     */
+    function handleBackdropClick(e) {
+      // Only close if click target is the backdrop itself, not the modal content
+      if (e.target === modalEl) {
+        close();
+      }
+    }
+
+    /**
+     * Display validation errors inline within the modal.
+     * Used when server returns errors after form submission.
+     * @param {string[]} errors - Array of error messages
+     */
+    function showErrors(errors) {
+      if (!modalEl) modalEl = document.getElementById('add-member-modal');
+      if (!modalEl) return;
+
+      var errorsContainer = modalEl.querySelector('#add-member-modal-errors');
+      if (!errorsContainer) return;
+
+      var errorList = errorsContainer.querySelector('ul');
+      if (!errorList) return;
+
+      // Clear existing errors
+      errorList.innerHTML = '';
+
+      if (errors && errors.length > 0) {
+        errors.forEach(function (err) {
+          var li = document.createElement('li');
+          li.textContent = err;
+          errorList.appendChild(li);
+        });
+        errorsContainer.style.display = '';
+      } else {
+        errorsContainer.style.display = 'none';
+      }
+    }
+
+    /**
+     * Initialize the Add Member modal.
+     * Auto-opens the modal if validation errors are present on page load.
+     */
+    function init() {
+      modalEl = document.getElementById('add-member-modal');
+      if (!modalEl) return;
+
+      // Check if server rendered validation errors (error-summary visible on page)
+      var errorSummary = document.querySelector('.error-summary[role="alert"]');
+      if (errorSummary) {
+        // Collect error messages and display them in the modal
+        var errorItems = errorSummary.querySelectorAll('li');
+        var errors = [];
+        errorItems.forEach(function (li) {
+          errors.push(li.textContent);
+        });
+
+        // Auto-open modal with errors displayed inline
+        open();
+        showErrors(errors);
+
+        // Hide the page-level error summary since errors are shown in modal
+        errorSummary.style.display = 'none';
+      }
+    }
+
+    return { open: open, close: close, showErrors: showErrors, init: init };
+  })();
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // INITIALIZATION
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1051,6 +1240,9 @@
       }
       el.remove();
     });
+
+    // Initialize Add Member Modal (auto-opens if validation errors present)
+    Treasurio.AddMemberModal.init();
   }
 
   // Run initialization when DOM is ready
@@ -1059,6 +1251,14 @@
   } else {
     initApp();
   }
+
+  // Expose global helper functions for inline onclick handlers
+  window.openAddMemberModal = function () {
+    Treasurio.AddMemberModal.open();
+  };
+  window.closeAddMemberModal = function () {
+    Treasurio.AddMemberModal.close();
+  };
 
   // Expose globally
   window.Treasurio = Treasurio;

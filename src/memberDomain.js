@@ -74,6 +74,104 @@ function canViewEmergencyContacts(role) {
   return EMERGENCY_CONTACT_VIEW_ROLES.has(role);
 }
 
+function validateRankEntry(input) {
+  const errors = [];
+  const title = clean(input.rank_title);
+  if (!title) {
+    errors.push('Rank title is required.');
+  } else if (title.length > 100) {
+    errors.push('Rank title must not exceed 100 characters.');
+  }
+  const dateStr = clean(input.date_conferred);
+  if (!dateStr) {
+    errors.push('Date conferred is required.');
+  } else {
+    const conferred = new Date(dateStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    conferred.setHours(0, 0, 0, 0);
+    if (isNaN(conferred.getTime())) {
+      errors.push('Date conferred must be a valid date.');
+    } else if (conferred > today) {
+      errors.push('Date conferred must not be in the future.');
+    }
+  }
+  const authority = clean(input.conferring_authority);
+  if (authority && authority.length > 200) {
+    errors.push('Conferring authority must not exceed 200 characters.');
+  }
+  return errors;
+}
+
+function validatePositionEntry(input) {
+  const errors = [];
+  const title = clean(input.position_title);
+  if (!title) {
+    errors.push('Position title is required.');
+  } else if (title.length > 100) {
+    errors.push('Position title must not exceed 100 characters.');
+  }
+  const startDate = clean(input.start_date);
+  if (!startDate) {
+    errors.push('Start date is required.');
+  } else if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+    errors.push('Start date must be a valid date.');
+  } else {
+    const start = new Date(startDate + 'T00:00:00');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (start > today) errors.push('Start date must not be in the future.');
+
+    const endDate = clean(input.end_date);
+    if (endDate) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+        errors.push('End date must be a valid date.');
+      } else {
+        const end = new Date(endDate + 'T00:00:00');
+        if (end < start) errors.push('End date must not be before start date.');
+      }
+    }
+  }
+  return errors;
+}
+
+function validateTransferRecord(input, memberJoinDate) {
+  const errors = [];
+  const origin = clean(input.origin_commandery_name);
+  if (!origin) {
+    errors.push('Origin commandery name is required.');
+  } else if (origin.length > 150) {
+    errors.push('Origin commandery name must not exceed 150 characters.');
+  }
+  const dateStr = clean(input.transfer_date);
+  if (!dateStr) {
+    errors.push('Transfer date is required.');
+  } else {
+    const transferDate = new Date(dateStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    transferDate.setHours(0, 0, 0, 0);
+    if (isNaN(transferDate.getTime())) {
+      errors.push('Transfer date must be a valid date.');
+    } else {
+      if (transferDate > today) {
+        errors.push('Transfer date must not be in the future.');
+      }
+      if (memberJoinDate) {
+        const joinDate = new Date(memberJoinDate);
+        joinDate.setHours(0, 0, 0, 0);
+        if (!isNaN(joinDate.getTime()) && transferDate > joinDate) {
+          errors.push('Transfer date must be on or before the member join date.');
+        }
+      }
+    }
+  }
+  const ref = clean(input.reference_number);
+  if (ref && ref.length > 100) {
+    errors.push('Reference number must not exceed 100 characters.');
+  }
+  return errors;
+}
+
 function validateStatusChange(currentStatus, nextStatus, reason, effectiveDate) {
   const errors = [];
   if (!MEMBER_STATUSES.includes(nextStatus)) errors.push('Select a valid membership status.');
@@ -93,5 +191,8 @@ module.exports = {
   memberValues,
   normalizePhone,
   validateMemberInput,
+  validatePositionEntry,
+  validateRankEntry,
+  validateTransferRecord,
   validateStatusChange,
 };

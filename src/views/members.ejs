@@ -3,32 +3,69 @@
 
 <section class="page-title">
   <div><span class="eyebrow">Commandery register</span><h1>Members</h1><p>The shared membership record used by administration, dues, receipts, welfare, and reporting.</p></div>
-  <% if (canEdit) { %><div class="hero-actions"><a class="btn btn--secondary" href="/members/import">Import register</a></div><% } %>
+  <div class="hero-actions">
+    <% if (canEdit) { %><button class="btn btn--primary" type="button" onclick="openAddMemberModal()">Add Member</button><% } %>
+    <% if (canEdit) { %><a class="btn btn--secondary" href="/members/import">Import register</a><% } %>
+  </div>
 </section>
 <% if (locals.errors && locals.errors.length) { %><div class="error-summary" role="alert"><h2>Please correct these fields</h2><ul><% locals.errors.forEach(function(err) { %><li><%= err %></li><% }) %></ul></div><% } %>
 
-<section class="grid <%= canEdit ? 'two' : '' %>">
+<section class="grid">
   <div class="panel"><div class="section-head"><div><h2>Member directory</h2><p><%= members.length %> records</p></div></div>
     <div class="table-wrap"><table class="data-table" id="members-table"><thead><tr><th>Membership no.</th><th>Name</th><th>Phone</th><th>Status</th><th></th></tr></thead><tbody>
       <% members.forEach(function(member) { %><tr><td><span class="badge"><%= member.membership_number || 'Pending' %></span></td><td><strong><%= member.name %></strong><% if (member.preferred_name) { %><br><small><%= member.preferred_name %></small><% } %></td><td><%= member.phone || '—' %></td><td><span class="badge <%= member.status === 'active' ? 'badge--success' : 'badge--soft' %>"><%= member.status %></span></td><td><a class="btn btn--secondary btn--sm" href="/members/<%= member.id %>">View</a></td></tr><% }) %>
     </tbody></table></div>
   </div>
-  <% if (canEdit) { %><div class="panel"><h2>Add member</h2><p>A permanent membership number will be assigned automatically.</p>
-    <form method="post" action="/members" class="stack" data-validate><%- include('partials/csrf') %>
-      <fieldset class="fieldset"><legend>Identity <span class="required-legend">* Required</span></legend>
-        <div class="grid two"><div class="form-group"><label for="member-title">Title</label><input id="member-title" name="title" value="<%= (locals.values && locals.values.title) || '' %>"></div><div class="form-group"><label for="member-preferred">Preferred name</label><input id="member-preferred" name="preferred_name" value="<%= (locals.values && locals.values.preferred_name) || '' %>"></div></div>
-        <div class="form-group"><label for="member-first">First name *</label><input id="member-first" name="first_name" required value="<%= (locals.values && locals.values.first_name) || '' %>"></div>
-        <div class="form-group"><label for="member-middle">Middle name</label><input id="member-middle" name="middle_name" value="<%= (locals.values && locals.values.middle_name) || '' %>"></div>
-        <div class="form-group"><label for="member-last">Last name *</label><input id="member-last" name="last_name" required value="<%= (locals.values && locals.values.last_name) || '' %>"></div>
-        <div class="form-group"><label for="member-dob">Date of birth</label><input id="member-dob" name="dob" type="date" value="<%= (locals.values && locals.values.dob) || '' %>"></div>
-      </fieldset>
-      <fieldset class="fieldset"><legend>Contact and admission</legend>
-        <div class="form-group"><label for="member-phone">Primary phone</label><input id="member-phone" name="phone" inputmode="tel" value="<%= (locals.values && locals.values.phone) || '' %>"></div>
-        <div class="form-group"><label for="member-email">Email</label><input id="member-email" name="email" type="email" value="<%= (locals.values && locals.values.email) || '' %>"></div>
-        <div class="form-group"><label for="member-parish">Parish</label><input id="member-parish" name="parish" value="<%= (locals.values && locals.values.parish) || '' %>"></div>
-        <div class="form-group"><label for="member-admitted">Date first admitted</label><input id="member-admitted" name="date_first_admitted" type="date" value="<%= (locals.values && locals.values.date_first_admitted) || '' %>"></div>
-      </fieldset><button class="btn btn--primary" type="submit">Create member record</button>
-    </form>
-  </div><% } %>
 </section>
+
+<% if (canEdit) { %>
+<!-- Add Member Modal -->
+<div id="add-member-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="add-member-modal-title">
+  <div class="modal modal--form" role="document">
+    <div class="modal__header">
+      <h2 id="add-member-modal-title" class="modal__title">Add Member</h2>
+      <button class="modal__close" type="button" onclick="closeAddMemberModal()" aria-label="Close dialog">&times;</button>
+    </div>
+    <div class="modal__body">
+      <p>A permanent membership number will be assigned automatically.</p>
+
+      <div id="add-member-modal-errors" class="error-summary" role="alert" style="display: none;">
+        <h3>Please correct these fields</h3>
+        <ul></ul>
+      </div>
+
+      <form id="add-member-form" method="post" action="/members" class="stack" data-validate>
+        <%- include('partials/csrf') %>
+        <fieldset class="fieldset"><legend>Identity <span class="required-legend">* Required</span></legend>
+          <div class="grid two">
+            <div class="form-group"><label for="modal-member-title">Title</label><input id="modal-member-title" name="title" value="<%= (locals.values && locals.values.title) || '' %>"></div>
+            <div class="form-group"><label for="modal-member-preferred">Preferred name</label><input id="modal-member-preferred" name="preferred_name" value="<%= (locals.values && locals.values.preferred_name) || '' %>"></div>
+          </div>
+          <div class="form-group"><label for="modal-member-first">First name *</label><input id="modal-member-first" name="first_name" required value="<%= (locals.values && locals.values.first_name) || '' %>"></div>
+          <div class="form-group"><label for="modal-member-middle">Middle name</label><input id="modal-member-middle" name="middle_name" value="<%= (locals.values && locals.values.middle_name) || '' %>"></div>
+          <div class="form-group"><label for="modal-member-last">Last name *</label><input id="modal-member-last" name="last_name" required value="<%= (locals.values && locals.values.last_name) || '' %>"></div>
+          <div class="form-group"><label for="modal-member-dob">Date of birth</label><input id="modal-member-dob" name="dob" type="date" value="<%= (locals.values && locals.values.dob) || '' %>"></div>
+        </fieldset>
+        <fieldset class="fieldset"><legend>Contact and admission</legend>
+          <div class="form-group"><label for="modal-member-phone">Primary phone</label><input id="modal-member-phone" name="phone" inputmode="tel" value="<%= (locals.values && locals.values.phone) || '' %>"></div>
+          <div class="form-group"><label for="modal-member-email">Email</label><input id="modal-member-email" name="email" type="email" value="<%= (locals.values && locals.values.email) || '' %>"></div>
+          <div class="form-group"><label for="modal-member-parish">Parish</label><input id="modal-member-parish" name="parish" value="<%= (locals.values && locals.values.parish) || '' %>"></div>
+          <div class="form-group"><label for="modal-member-admitted">Date first admitted</label><input id="modal-member-admitted" name="date_first_admitted" type="date" value="<%= (locals.values && locals.values.date_first_admitted) || '' %>"></div>
+        </fieldset>
+        <div class="modal__actions">
+          <button class="btn btn--secondary" type="button" onclick="closeAddMemberModal()">Cancel</button>
+          <button class="btn btn--primary" type="submit">Create member record</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  // The openAddMemberModal/closeAddMemberModal functions are provided by public/app.js
+  // (Treasurio.AddMemberModal) and exposed as window globals for the inline onclick handlers.
+  // The app.js init() auto-opens the modal when validation errors are present on the page.
+</script>
+<% } %>
+
 <%- include('partials/footer') %>
