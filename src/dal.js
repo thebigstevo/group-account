@@ -386,6 +386,148 @@ async function setPositionEndDate(positionId, endDate, updatedBy) {
   return result.rows[0] || null;
 }
 
+// ─── Update/Delete Rank History ─────────────────────────────────────────────
+
+/**
+ * Update an existing rank history entry.
+ * @param {number} rankId - The rank history entry ID
+ * @param {object} data - Updated fields
+ * @param {string} data.date_conferred - Updated date
+ * @param {string|null} data.conferring_authority - Updated authority
+ * @param {number} updatedBy - User performing the update
+ * @returns {Promise<object|null>} The updated row or null
+ */
+async function updateRankEntry(rankId, data, updatedBy) {
+  const sql = `
+    UPDATE member_rank_history
+    SET date_conferred = $1, conferring_authority = $2, updated_by = $3, updated_at = NOW()
+    WHERE id = $4
+    RETURNING *
+  `;
+  const params = [data.date_conferred, data.conferring_authority || null, updatedBy, rankId];
+  const result = await executeWithRetry(sql, params);
+  return result.rows[0] || null;
+}
+
+/**
+ * Delete a rank history entry.
+ * @param {number} rankId - The rank history entry ID
+ * @returns {Promise<boolean>} True if a row was deleted
+ */
+async function deleteRankEntry(rankId) {
+  const result = await executeWithRetry('DELETE FROM member_rank_history WHERE id = $1', [rankId]);
+  return result.rowCount > 0;
+}
+
+// ─── Delete Degree ──────────────────────────────────────────────────────────
+
+/**
+ * Delete a degree record for a member.
+ * @param {number} memberId - The member ID
+ * @param {number} degree - The degree number (1-5)
+ * @returns {Promise<boolean>} True if a row was deleted
+ */
+async function deleteDegree(memberId, degree) {
+  const result = await executeWithRetry(
+    'DELETE FROM member_degrees WHERE member_id = $1 AND degree = $2',
+    [memberId, degree]
+  );
+  return result.rowCount > 0;
+}
+
+// ─── Update/Delete Position History ─────────────────────────────────────────
+
+/**
+ * Update an existing position history entry.
+ * @param {number} positionId - The position history entry ID
+ * @param {object} data - Updated fields
+ * @param {number} updatedBy - User performing the update
+ * @returns {Promise<object|null>} The updated row or null
+ */
+async function updatePositionEntry(positionId, data, updatedBy) {
+  const sql = `
+    UPDATE member_position_history
+    SET position_title = $1, position_level = $2, start_date = $3, end_date = $4,
+        updated_by = $5, updated_at = NOW()
+    WHERE id = $6
+    RETURNING *
+  `;
+  const params = [
+    data.position_title,
+    data.position_level || 'local_commandery',
+    data.start_date,
+    data.end_date || null,
+    updatedBy,
+    positionId,
+  ];
+  const result = await executeWithRetry(sql, params);
+  return result.rows[0] || null;
+}
+
+/**
+ * Delete a position history entry.
+ * @param {number} positionId - The position history entry ID
+ * @returns {Promise<boolean>} True if a row was deleted
+ */
+async function deletePositionEntry(positionId) {
+  const result = await executeWithRetry('DELETE FROM member_position_history WHERE id = $1', [positionId]);
+  return result.rowCount > 0;
+}
+
+// ─── Delete Transfer Record ─────────────────────────────────────────────────
+
+/**
+ * Delete the transfer record for a member.
+ * @param {number} memberId - The member ID
+ * @returns {Promise<boolean>} True if a row was deleted
+ */
+async function deleteTransferRecord(memberId) {
+  const result = await executeWithRetry('DELETE FROM member_transfers WHERE member_id = $1', [memberId]);
+  return result.rowCount > 0;
+}
+
+// ─── Update/Delete Emergency Contacts ───────────────────────────────────────
+
+/**
+ * Update an existing emergency contact.
+ * @param {number} contactId - The emergency contact ID
+ * @param {object} data - Updated fields
+ * @param {number} updatedBy - User performing the update
+ * @returns {Promise<object|null>} The updated row or null
+ */
+async function updateEmergencyContact(contactId, data, updatedBy) {
+  const sql = `
+    UPDATE member_emergency_contacts
+    SET name = $1, relationship = $2, primary_phone = $3, secondary_phone = $4,
+        address = $5, notes = $6, is_primary = $7, updated_by = $8, updated_at = NOW()
+    WHERE id = $9
+    RETURNING *
+  `;
+  const params = [
+    data.name,
+    data.relationship,
+    data.primary_phone,
+    data.secondary_phone || null,
+    data.address || null,
+    data.notes || null,
+    data.is_primary || false,
+    updatedBy,
+    contactId,
+  ];
+  const result = await executeWithRetry(sql, params);
+  return result.rows[0] || null;
+}
+
+/**
+ * Delete an emergency contact.
+ * @param {number} contactId - The emergency contact ID
+ * @returns {Promise<boolean>} True if a row was deleted
+ */
+async function deleteEmergencyContact(contactId) {
+  const result = await executeWithRetry('DELETE FROM member_emergency_contacts WHERE id = $1', [contactId]);
+  return result.rowCount > 0;
+}
+
 // ─── Audit Flags ───────────────────────────────────────────────────────────
 
 /**
@@ -526,13 +668,21 @@ module.exports = {
   updatePositionDefinition,
   getMemberDegrees,
   conferDegree,
+  deleteDegree,
   getRankHistory,
   createRankEntry,
+  updateRankEntry,
+  deleteRankEntry,
   getPositionHistory,
   createPositionEntry,
+  updatePositionEntry,
+  deletePositionEntry,
   setPositionEndDate,
   getTransferRecord,
   upsertTransferRecord,
+  deleteTransferRecord,
+  updateEmergencyContact,
+  deleteEmergencyContact,
   createAuditFlag,
   getAuditFlags,
   createTransactionNote,

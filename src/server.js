@@ -777,6 +777,205 @@ app.post('/members/:id/transfer', requireLogin, asyncHandler(async (req, res) =>
   res.redirect(`/members/${memberId}`);
 }));
 
+// ─── Rank History Edit/Delete ───────────────────────────────────────────────
+
+app.post('/members/:id/ranks/:rankId/edit', requireLogin, asyncHandler(async (req, res) => {
+  if (!canEditMembership(req.session.user.role)) {
+    return res.status(403).render('error', { message: 'You do not have permission to perform this action.' });
+  }
+  const memberId = Number(req.params.id);
+  const rankId = Number(req.params.rankId);
+  const existing = await dal.queryOne('SELECT * FROM member_rank_history WHERE id = $1 AND member_id = $2', [rankId, memberId]);
+  if (!existing) {
+    req.session.flash = { type: 'error', message: 'Rank entry not found.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+  const errors = validateRankEntry(req.body);
+  if (errors.length) {
+    req.session.flash = { type: 'error', message: errors.join(' ') };
+    return res.redirect(`/members/${memberId}`);
+  }
+  const data = {
+    date_conferred: req.body.date_conferred,
+    conferring_authority: req.body.conferring_authority ? req.body.conferring_authority.trim() : null,
+  };
+  await dal.updateRankEntry(rankId, data, req.session.user.id);
+  await dal.audit(req.session.user.id, 'update', 'member_rank_history', rankId,
+    { member_id: memberId }, { ip_address: getClientIp(req), user_agent: req.get('user-agent'),
+      before_value: { date_conferred: existing.date_conferred, conferring_authority: existing.conferring_authority },
+      after_value: data });
+  req.session.flash = { type: 'success', message: 'Rank entry updated.' };
+  res.redirect(`/members/${memberId}`);
+}));
+
+app.post('/members/:id/ranks/:rankId/delete', requireLogin, asyncHandler(async (req, res) => {
+  if (!canEditMembership(req.session.user.role)) {
+    return res.status(403).render('error', { message: 'You do not have permission to perform this action.' });
+  }
+  const memberId = Number(req.params.id);
+  const rankId = Number(req.params.rankId);
+  const existing = await dal.queryOne('SELECT * FROM member_rank_history WHERE id = $1 AND member_id = $2', [rankId, memberId]);
+  if (!existing) {
+    req.session.flash = { type: 'error', message: 'Rank entry not found.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+  await dal.deleteRankEntry(rankId);
+  await dal.audit(req.session.user.id, 'delete', 'member_rank_history', rankId,
+    { member_id: memberId, rank_title: existing.rank_title }, { ip_address: getClientIp(req), user_agent: req.get('user-agent') });
+  req.session.flash = { type: 'success', message: 'Rank entry deleted.' };
+  res.redirect(`/members/${memberId}`);
+}));
+
+// ─── Degree Delete ──────────────────────────────────────────────────────────
+
+app.post('/members/:id/degrees/:degree/delete', requireLogin, asyncHandler(async (req, res) => {
+  if (!canEditMembership(req.session.user.role)) {
+    return res.status(403).render('error', { message: 'You do not have permission to perform this action.' });
+  }
+  const memberId = Number(req.params.id);
+  const degree = Number(req.params.degree);
+  if (!degree || degree < 1 || degree > 5) {
+    req.session.flash = { type: 'error', message: 'Invalid degree.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+  const deleted = await dal.deleteDegree(memberId, degree);
+  if (!deleted) {
+    req.session.flash = { type: 'error', message: 'Degree record not found.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+  await dal.audit(req.session.user.id, 'delete', 'member_degree', null,
+    { member_id: memberId, degree }, { ip_address: getClientIp(req), user_agent: req.get('user-agent') });
+  req.session.flash = { type: 'success', message: 'Degree record removed.' };
+  res.redirect(`/members/${memberId}`);
+}));
+
+// ─── Position History Edit/Delete ───────────────────────────────────────────
+
+app.post('/members/:id/positions/:posId/edit', requireLogin, asyncHandler(async (req, res) => {
+  if (!canEditMembership(req.session.user.role)) {
+    return res.status(403).render('error', { message: 'You do not have permission to perform this action.' });
+  }
+  const memberId = Number(req.params.id);
+  const posId = Number(req.params.posId);
+  const existing = await dal.queryOne('SELECT * FROM member_position_history WHERE id = $1 AND member_id = $2', [posId, memberId]);
+  if (!existing) {
+    req.session.flash = { type: 'error', message: 'Position entry not found.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+  const errors = validatePositionEntry(req.body);
+  if (errors.length) {
+    req.session.flash = { type: 'error', message: errors.join(' ') };
+    return res.redirect(`/members/${memberId}`);
+  }
+  const data = {
+    position_title: req.body.position_title.trim(),
+    position_level: req.body.position_level || 'local_commandery',
+    start_date: req.body.start_date,
+    end_date: req.body.end_date ? req.body.end_date.trim() : null,
+  };
+  await dal.updatePositionEntry(posId, data, req.session.user.id);
+  await dal.audit(req.session.user.id, 'update', 'member_position_history', posId,
+    { member_id: memberId }, { ip_address: getClientIp(req), user_agent: req.get('user-agent'),
+      before_value: { position_title: existing.position_title, start_date: existing.start_date, end_date: existing.end_date },
+      after_value: data });
+  req.session.flash = { type: 'success', message: 'Position entry updated.' };
+  res.redirect(`/members/${memberId}`);
+}));
+
+app.post('/members/:id/positions/:posId/delete', requireLogin, asyncHandler(async (req, res) => {
+  if (!canEditMembership(req.session.user.role)) {
+    return res.status(403).render('error', { message: 'You do not have permission to perform this action.' });
+  }
+  const memberId = Number(req.params.id);
+  const posId = Number(req.params.posId);
+  const existing = await dal.queryOne('SELECT * FROM member_position_history WHERE id = $1 AND member_id = $2', [posId, memberId]);
+  if (!existing) {
+    req.session.flash = { type: 'error', message: 'Position entry not found.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+  await dal.deletePositionEntry(posId);
+  await dal.audit(req.session.user.id, 'delete', 'member_position_history', posId,
+    { member_id: memberId, position_title: existing.position_title }, { ip_address: getClientIp(req), user_agent: req.get('user-agent') });
+  req.session.flash = { type: 'success', message: 'Position entry deleted.' };
+  res.redirect(`/members/${memberId}`);
+}));
+
+// ─── Transfer Record Delete ─────────────────────────────────────────────────
+
+app.post('/members/:id/transfer/delete', requireLogin, asyncHandler(async (req, res) => {
+  if (!canEditMembership(req.session.user.role)) {
+    return res.status(403).render('error', { message: 'You do not have permission to perform this action.' });
+  }
+  const memberId = Number(req.params.id);
+  const existing = await dal.getTransferRecord(memberId);
+  if (!existing) {
+    req.session.flash = { type: 'error', message: 'No transfer record found.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+  await dal.deleteTransferRecord(memberId);
+  await dal.audit(req.session.user.id, 'delete', 'member_transfer', existing.id,
+    { member_id: memberId, origin: existing.origin_commandery_name }, { ip_address: getClientIp(req), user_agent: req.get('user-agent') });
+  req.session.flash = { type: 'success', message: 'Transfer record deleted.' };
+  res.redirect(`/members/${memberId}`);
+}));
+
+// ─── Emergency Contact Edit/Delete ──────────────────────────────────────────
+
+app.post('/members/:id/emergency-contacts/:contactId/edit', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  const memberId = Number(req.params.id);
+  const contactId = Number(req.params.contactId);
+  const existing = await dal.queryOne('SELECT * FROM member_emergency_contacts WHERE id = $1 AND member_id = $2', [contactId, memberId]);
+  if (!existing) {
+    req.session.flash = { type: 'error', message: 'Emergency contact not found.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+  const name = String(req.body.name || '').trim();
+  const relationship = String(req.body.relationship || '').trim();
+  let primaryPhone;
+  let secondaryPhone;
+  try { primaryPhone = normalizePhone(req.body.primary_phone); } catch (error) {
+    req.session.flash = { type: 'error', message: error.message };
+    return res.redirect(`/members/${memberId}`);
+  }
+  try { secondaryPhone = normalizePhone(req.body.secondary_phone); } catch (error) {
+    req.session.flash = { type: 'error', message: `Secondary ${error.message.toLowerCase()}` };
+    return res.redirect(`/members/${memberId}`);
+  }
+  if (!name || !relationship || !primaryPhone) {
+    req.session.flash = { type: 'error', message: 'Contact name, relationship, and primary phone are required.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+  const data = {
+    name,
+    relationship,
+    primary_phone: primaryPhone,
+    secondary_phone: secondaryPhone,
+    address: req.body.address || null,
+    notes: req.body.notes || null,
+    is_primary: req.body.is_primary === 'on',
+  };
+  await dal.updateEmergencyContact(contactId, data, req.session.user.id);
+  await dal.audit(req.session.user.id, 'update', 'member_emergency_contact', contactId,
+    { member_id: memberId }, { ip_address: getClientIp(req), user_agent: req.get('user-agent') });
+  req.session.flash = { type: 'success', message: 'Emergency contact updated.' };
+  res.redirect(`/members/${memberId}`);
+}));
+
+app.post('/members/:id/emergency-contacts/:contactId/delete', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  const memberId = Number(req.params.id);
+  const contactId = Number(req.params.contactId);
+  const existing = await dal.queryOne('SELECT * FROM member_emergency_contacts WHERE id = $1 AND member_id = $2', [contactId, memberId]);
+  if (!existing) {
+    req.session.flash = { type: 'error', message: 'Emergency contact not found.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+  await dal.deleteEmergencyContact(contactId);
+  await dal.audit(req.session.user.id, 'delete', 'member_emergency_contact', contactId,
+    { member_id: memberId, name: existing.name }, { ip_address: getClientIp(req), user_agent: req.get('user-agent') });
+  req.session.flash = { type: 'success', message: 'Emergency contact deleted.' };
+  res.redirect(`/members/${memberId}`);
+}));
+
 app.get('/change-password', requireLogin, (req, res) => {
   const success = (res.locals.flash && res.locals.flash.type === 'success') ? res.locals.flash.message : null;
   res.render('change_password', { error: null, success });
