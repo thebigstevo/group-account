@@ -45,6 +45,42 @@
   </div><% } %>
 </section>
 
+<!-- Degrees Conferred Section -->
+<section class="grid two">
+  <div class="panel"><h2>Degrees Conferred</h2>
+    <%
+      var degreeLabels = { 1: '1st Degree (Initiation)', 2: '2nd Degree', 3: '3rd Degree', 4: '4th Degree', 5: '5th Degree' };
+      var degreesMap = {};
+      if (memberDegrees) memberDegrees.forEach(function(d) { degreesMap[d.degree] = d; });
+    %>
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Degree</th><th>Date conferred</th><th>Conferring authority</th><th>Status</th></tr></thead><tbody>
+      <% [1,2,3,4,5].forEach(function(deg) { var entry = degreesMap[deg]; %>
+      <tr>
+        <td><strong><%= degreeLabels[deg] %></strong></td>
+        <td><%= entry ? formatDate(entry.date_conferred) : '—' %></td>
+        <td><%= entry ? (entry.conferring_authority || '—') : '—' %></td>
+        <td><span class="badge <%= entry ? 'badge--success' : 'badge--soft' %>"><%= entry ? 'Conferred' : 'Not yet' %></span></td>
+      </tr>
+      <% }) %>
+    </tbody></table></div>
+  </div>
+  <% if (canEdit) { %><div class="panel"><h2>Record Degree</h2>
+    <form method="post" action="/members/<%= member.id %>/degrees" class="stack" data-validate><%- include('partials/csrf') %>
+      <div class="form-group"><label for="degree-select">Degree *</label><select id="degree-select" name="degree" required>
+        <option value="">Select degree…</option>
+        <% [1,2,3,4,5].forEach(function(deg) { if (!degreesMap[deg]) { %>
+        <option value="<%= deg %>"><%= degreeLabels[deg] %></option>
+        <% } }) %>
+      </select></div>
+      <div class="form-group"><label for="degree-date">Date conferred *</label><input id="degree-date" name="date_conferred" type="date" required></div>
+      <div class="form-group"><label for="degree-authority">Conferring authority</label><input id="degree-authority" name="conferring_authority" maxlength="200"></div>
+      <div class="form-group"><label for="degree-notes">Notes</label><input id="degree-notes" name="notes" maxlength="500" placeholder="e.g. Ceremony location"></div>
+      <button class="btn btn--secondary" type="submit">Record degree</button>
+    </form>
+    <% if (Object.keys(degreesMap).length === 5) { %><p class="text-muted">All degrees have been conferred.</p><% } %>
+  </div><% } %>
+</section>
+
 <!-- Position History Section -->
 <section class="grid two">
   <div class="panel"><h2>Position History</h2>

@@ -554,7 +554,7 @@ app.get('/members/:id', requireLogin, asyncHandler(async (req, res) => {
     WHERE m.id = $1
   `, [Number(req.params.id)]);
   if (!member) return res.status(404).render('error', { message: 'Member not found.' });
-  const [statusHistory, rankHistory, positionHistory, transferRecord, rankDefinitions, positionDefinitions] = await Promise.all([
+  const [statusHistory, rankHistory, positionHistory, transferRecord, rankDefinitions, positionDefinitions, memberDegrees] = await Promise.all([
     dal.query(`
       SELECT h.*, u.name AS changed_by_name
       FROM member_status_history h LEFT JOIN users u ON u.id = h.changed_by
@@ -565,6 +565,7 @@ app.get('/members/:id', requireLogin, asyncHandler(async (req, res) => {
     dal.getTransferRecord(member.id),
     dal.getRankDefinitions(req.session.user.commandery_id),
     dal.getPositionDefinitions(req.session.user.commandery_id),
+    dal.getMemberDegrees(member.id),
   ]);
   const mayViewEmergency = canViewEmergencyContacts(req.session.user.role);
   const emergencyContacts = mayViewEmergency
@@ -572,7 +573,7 @@ app.get('/members/:id', requireLogin, asyncHandler(async (req, res) => {
     : [];
   res.render('member_profile', {
     member, statusHistory, rankHistory, positionHistory, transferRecord,
-    rankDefinitions, positionDefinitions,
+    rankDefinitions, positionDefinitions, memberDegrees,
     emergencyContacts, statuses: MEMBER_STATUSES,
     canEdit: canEditMembership(req.session.user.role), mayViewEmergency
   });
@@ -654,6 +655,36 @@ app.post('/members/:id/ranks', requireLogin, asyncHandler(async (req, res) => {
   };
   await dal.createRankEntry(req.session.user.commandery_id, memberId, data, req.session.user.id);
   req.session.flash = { type: 'success', message: 'Rank entry added successfully.' };
+  res.redirect(`/members/${memberId}`);
+}));
+
+app.post('/members/:id/degrees', requireLogin, asyncHandler(async (req, res) => {
+  if (!canEditMembership(req.session.user.role)) {
+    return res.status(403).render('error', { message: 'You do not have permission to perform this action.' });
+  }
+  const memberId = Number(req.params.id);
+  const degree = Number(req.body.degree);
+  const dateConferred = (req.body.date_conferred || '').trim();
+
+  if (!degree || degree < 1 || degree > 5) {
+    req.session.flash = { type: 'error', message: 'Select a valid degree (1st through 5th).' };
+    return res.redirect(`/members/${memberId}`);
+  }
+  if (!dateConferred) {
+    req.session.flash = { type: 'error', message: 'Date conferred is required.' };
+    return res.redirect(`/members/${memberId}`);
+  }
+
+  await dal.conferDegree(
+    req.session.user.commandery_id,
+    memberId,
+    degree,
+    dateConferred,
+    req.body.conferring_authority ? req.body.conferring_authority.trim() : null,
+    req.body.notes ? req.body.notes.trim() : null,
+    req.session.user.id
+  );
+  req.session.flash = { type: 'success', message: `${degree}${degree === 1 ? 'st' : degree === 2 ? 'nd' : degree === 3 ? 'rd' : 'th'} Degree recorded successfully.` };
   res.redirect(`/members/${memberId}`);
 }));
 

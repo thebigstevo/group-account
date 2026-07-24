@@ -475,6 +475,26 @@ async function migrate() {
   `);
   console.log('[migrate]   ✓ member_rank_history');
 
+  // Member degree history (1st through 5th degree - immutable records)
+  await run(`
+    CREATE TABLE IF NOT EXISTS member_degrees (
+      id SERIAL PRIMARY KEY,
+      commandery_id INTEGER NOT NULL REFERENCES commanderies(id),
+      member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+      degree INTEGER NOT NULL,
+      date_conferred DATE NOT NULL,
+      conferring_authority VARCHAR(200),
+      notes VARCHAR(500),
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW(),
+      CONSTRAINT chk_degree_range CHECK (degree BETWEEN 1 AND 5),
+      CONSTRAINT chk_degree_date_not_future CHECK (date_conferred <= CURRENT_DATE)
+    )
+  `);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_member_degrees_unique ON member_degrees(member_id, degree)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_member_degrees_member ON member_degrees(member_id)`);
+  console.log('[migrate]   ✓ member_degrees');
+
   // Member position history
   await run(`
     CREATE TABLE IF NOT EXISTS member_position_history (

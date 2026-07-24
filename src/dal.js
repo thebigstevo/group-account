@@ -248,6 +248,31 @@ async function updatePositionDefinition(id, data) {
   return result.rows[0];
 }
 
+// ─── Member Degrees ───────────────────────────────────────────────────────
+
+/**
+ * Get all degree records for a member, ordered by degree number.
+ */
+async function getMemberDegrees(memberId) {
+  return query('SELECT * FROM member_degrees WHERE member_id = $1 ORDER BY degree', [memberId]);
+}
+
+/**
+ * Record a degree conferred on a member (upsert — one record per degree per member).
+ */
+async function conferDegree(commanderyId, memberId, degree, dateConferred, conferringAuthority, notes, createdBy) {
+  const result = await executeWithRetry(`
+    INSERT INTO member_degrees (commandery_id, member_id, degree, date_conferred, conferring_authority, notes, created_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    ON CONFLICT (member_id, degree) DO UPDATE SET
+      date_conferred = EXCLUDED.date_conferred,
+      conferring_authority = EXCLUDED.conferring_authority,
+      notes = EXCLUDED.notes
+    RETURNING *
+  `, [commanderyId, memberId, degree, dateConferred, conferringAuthority || null, notes || null, createdBy]);
+  return result.rows[0];
+}
+
 // ─── Rank History ──────────────────────────────────────────────────────────
 
 /**
@@ -499,6 +524,8 @@ module.exports = {
   getPositionDefinitions,
   createPositionDefinition,
   updatePositionDefinition,
+  getMemberDegrees,
+  conferDegree,
   getRankHistory,
   createRankEntry,
   getPositionHistory,
