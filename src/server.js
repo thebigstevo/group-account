@@ -1553,17 +1553,46 @@ app.post('/fiscal-years/close', allow('admin'), asyncHandler(async (req, res) =>
 app.get('/dues', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'viewer'), asyncHandler(async (req, res) => {
   const rules = await dal.query('SELECT * FROM dues_rules ORDER BY year DESC, min_age');
   const members = await dal.query('SELECT id, name FROM members ORDER BY name');
-  const overrides = await dal.query(`
-    SELECT md.*, m.name
-    FROM member_dues md
-    LEFT JOIN members m ON m.id = md.member_id
-    ORDER BY md.year DESC, m.name
-  `);
-  console.log('[dues] Overrides found:', overrides.length, overrides.map(o => ({ id: o.id, member_id: o.member_id, year: o.year, name: o.name })));
+  let overrides = [];
+  try {
+    overrides = await dal.query(`
+      SELECT md.*, m.name
+      FROM member_dues md
+      LEFT JOIN members m ON m.id = md.member_id
+      ORDER BY md.year DESC, m.name
+    `);
+  } catch (e) {
+    if (e.code === '42P01') {
+      // Table doesn't exist yet — create it
+      await dal.run(`
+        CREATE TABLE IF NOT EXISTS member_dues (
+          id SERIAL PRIMARY KEY,
+          member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+          year INTEGER NOT NULL,
+          assessment_due NUMERIC(12,2) NOT NULL DEFAULT 0,
+          welfare_portion NUMERIC(12,2) NOT NULL DEFAULT 0,
+          reason TEXT,
+          UNIQUE(member_id, year)
+        )
+      `);
+    } else {
+      console.error('[dues] Error loading overrides:', e.message);
+    }
+  }
+  console.log('[dues] Overrides found:', overrides.length);
 
   // Raw count for diagnostic (bypasses JOIN)
-  const rawCountRow = await dal.queryOne('SELECT COUNT(*)::int AS count FROM member_dues');
-  const overrideCountRaw = rawCountRow ? rawCountRow.count : 'table may not exist';
+  let overrideCountRaw = 'table missing';
+  try {
+    const rawCountRow = await dal.queryOne('SELECT COUNT(*)::int AS count FROM member_dues');
+    overrideCountRaw = rawCountRow ? rawCountRow.count : 0;
+  } catch (e) {
+    if (e.code === '42P01') {
+      overrideCountRaw = 'TABLE DOES NOT EXIST — run: npm run migrate';
+    } else {
+      overrideCountRaw = 'Query error: ' + e.message;
+    }
+  }
 
   // Compute effective dues for all active members for the selected year
   const year = selectedYear(req);
@@ -1699,7 +1728,34 @@ app.post('/dues/overrides', allow('admin', 'finance_secretary'), asyncHandler(as
     assessmentDue,
     welfarePortion,
     req.body.reason || null
-  ]);
+  ]).catch(async (err) => {
+    // If the table doesn't exist, create it and retry
+    if (err.code === '42P01') { // undefined_table
+      console.error('[dues] member_dues table missing — creating it now');
+      await dal.run(`
+        CREATE TABLE IF NOT EXISTS member_dues (
+          id SERIAL PRIMARY KEY,
+          member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+          year INTEGER NOT NULL,
+          assessment_due NUMERIC(12,2) NOT NULL DEFAULT 0,
+          welfare_portion NUMERIC(12,2) NOT NULL DEFAULT 0,
+          reason TEXT,
+          UNIQUE(member_id, year)
+        )
+      `);
+      // Retry the insert
+      return dal.run(`
+        INSERT INTO member_dues (member_id, year, assessment_due, welfare_portion, reason)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT(member_id, year) DO UPDATE SET
+          assessment_due = EXCLUDED.assessment_due,
+          welfare_portion = EXCLUDED.welfare_portion,
+          reason = EXCLUDED.reason
+        RETURNING *
+      `, [Number(req.body.member_id), Number(req.body.year), assessmentDue, welfarePortion, req.body.reason || null]);
+    }
+    throw err;
+  });
   console.log('[dues] Override saved:', JSON.stringify(insertResult.rows[0]));
   await dal.audit(req.session.user.id, 'upsert', 'member_due', Number(req.body.member_id), String(req.body.year));
   req.session.flash = { type: 'success', message: 'Member dues override saved.' };
