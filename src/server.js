@@ -1996,19 +1996,31 @@ app.post('/reconciliation', allow('admin', 'treasurer'), asyncHandler(async (req
   `, [accountId, req.body.period_start, req.body.period_end, statementBalance, systemBalance, statementBalance - systemBalance, req.body.notes || null, req.session.user.id]);
 
   // Mark all posted transactions for this account within the period as reconciled
-  const markResult = await dal.run(`
-    UPDATE transactions
-    SET reconciled = true, updated_at = NOW()
-    WHERE account_id = $1
-      AND status = 'posted'
-      AND reconciled = false
-      AND tx_date >= $2
-      AND tx_date <= $3
-  `, [accountId, req.body.period_start, req.body.period_end]);
-  console.log(`[reconciliation] Marked ${markResult.rowCount} transactions as reconciled for account ${accountId} (${req.body.period_start} to ${req.body.period_end})`);
+  // ONLY if the difference is zero (statement matches system)
+  const difference = statementBalance - systemBalance;
+  let markCount = 0;
+  if (difference === 0) {
+    const markResult = await dal.run(`
+      UPDATE transactions
+      SET reconciled = true, updated_at = NOW()
+      WHERE account_id = $1
+        AND status = 'posted'
+        AND reconciled = false
+        AND tx_date >= $2
+        AND tx_date <= $3
+    `, [accountId, req.body.period_start, req.body.period_end]);
+    markCount = markResult.rowCount;
+    console.log(`[reconciliation] Marked ${markCount} transactions as reconciled for account ${accountId} (${req.body.period_start} to ${req.body.period_end})`);
+  } else {
+    console.log(`[reconciliation] Difference is ${difference} — transactions NOT marked as reconciled. Resolve the difference first.`);
+  }
 
-  await dal.audit(req.session.user.id, 'create', 'reconciliation', result.rows[0].id, { period_end: req.body.period_end, transactions_reconciled: markResult.rowCount });
-  req.session.flash = { type: 'success', message: `Reconciliation saved. ${markResult.rowCount} transaction(s) marked as reconciled.` };
+  await dal.audit(req.session.user.id, 'create', 'reconciliation', result.rows[0].id, { period_end: req.body.period_end, transactions_reconciled: markCount, difference });
+  if (difference === 0) {
+    req.session.flash = { type: 'success', message: `Reconciliation balanced. ${markCount} transaction(s) marked as reconciled.` };
+  } else {
+    req.session.flash = { type: 'warning', message: `Reconciliation saved with a difference of ${difference.toFixed(2)}. Transactions remain unreconciled until the difference is resolved.` };
+  }
   res.redirect('/reconciliation');
 }));
 
