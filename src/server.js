@@ -1556,9 +1556,10 @@ app.get('/dues', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'vi
   const overrides = await dal.query(`
     SELECT md.*, m.name
     FROM member_dues md
-    JOIN members m ON m.id = md.member_id
+    LEFT JOIN members m ON m.id = md.member_id
     ORDER BY md.year DESC, m.name
   `);
+  console.log('[dues] Overrides found:', overrides.length, overrides.map(o => ({ id: o.id, member_id: o.member_id, year: o.year, name: o.name })));
 
   // Compute effective dues for all active members for the selected year
   const year = selectedYear(req);
@@ -1680,13 +1681,14 @@ app.post('/dues/overrides', allow('admin', 'finance_secretary'), asyncHandler(as
     req.session.flash = { type: 'error', message: 'Select a valid member.' };
     return res.redirect('/dues');
   }
-  await dal.run(`
+  const insertResult = await dal.run(`
     INSERT INTO member_dues (member_id, year, assessment_due, welfare_portion, reason)
     VALUES ($1, $2, $3, $4, $5)
     ON CONFLICT(member_id, year) DO UPDATE SET
       assessment_due = EXCLUDED.assessment_due,
       welfare_portion = EXCLUDED.welfare_portion,
       reason = EXCLUDED.reason
+    RETURNING *
   `, [
     Number(req.body.member_id),
     Number(req.body.year),
@@ -1694,6 +1696,7 @@ app.post('/dues/overrides', allow('admin', 'finance_secretary'), asyncHandler(as
     welfarePortion,
     req.body.reason || null
   ]);
+  console.log('[dues] Override saved:', JSON.stringify(insertResult.rows[0]));
   await dal.audit(req.session.user.id, 'upsert', 'member_due', Number(req.body.member_id), String(req.body.year));
   req.session.flash = { type: 'success', message: 'Member dues override saved.' };
   res.redirect('/dues');
