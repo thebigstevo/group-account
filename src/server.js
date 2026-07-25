@@ -1998,6 +1998,43 @@ app.post('/reconciliation', allow('admin', 'treasurer'), asyncHandler(async (req
   res.redirect('/reconciliation');
 }));
 
+app.post('/reconciliation/:id/edit', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  const recId = Number(req.params.id);
+  const existing = await dal.queryOne('SELECT * FROM reconciliations WHERE id = $1', [recId]);
+  if (!existing) return res.status(404).render('error', { message: 'Reconciliation not found.' });
+  const statementBalance = Number(req.body.statement_balance || 0);
+  const balances = await accountBalances();
+  const account = balances.find((item) => item.id === existing.account_id);
+  const systemBalance = account ? account.balance : Number(existing.system_balance);
+  await dal.run(`
+    UPDATE reconciliations
+    SET period_start = $1, period_end = $2, statement_balance = $3, system_balance = $4,
+        difference = $5, notes = $6
+    WHERE id = $7
+  `, [
+    req.body.period_start || existing.period_start,
+    req.body.period_end || existing.period_end,
+    statementBalance,
+    systemBalance,
+    statementBalance - systemBalance,
+    req.body.notes || null,
+    recId
+  ]);
+  await dal.audit(req.session.user.id, 'update', 'reconciliation', recId, { period_end: req.body.period_end, statement_balance: statementBalance });
+  req.session.flash = { type: 'success', message: 'Reconciliation updated.' };
+  res.redirect('/reconciliation');
+}));
+
+app.post('/reconciliation/:id/delete', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  const recId = Number(req.params.id);
+  const existing = await dal.queryOne('SELECT * FROM reconciliations WHERE id = $1', [recId]);
+  if (!existing) return res.status(404).render('error', { message: 'Reconciliation not found.' });
+  await dal.run('DELETE FROM reconciliations WHERE id = $1', [recId]);
+  await dal.audit(req.session.user.id, 'delete', 'reconciliation', recId, { account_id: existing.account_id, period_end: existing.period_end });
+  req.session.flash = { type: 'success', message: 'Reconciliation deleted.' };
+  res.redirect('/reconciliation');
+}));
+
 app.get('/reports', requireLogin, asyncHandler(async (req, res) => {
   const year = Number(req.query.year || selectedYear(req));
   const period = monthPeriod(year, req.query.month);
