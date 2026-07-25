@@ -109,6 +109,13 @@
 <section class="grid two">
   <div class="panel">
     <h2>Member-specific dues</h2>
+    <% if (!overrides || overrides.length === 0) { %>
+    <div class="error-summary" role="alert" style="background:#fef3c7; border-color:#f59e0b; padding:1rem; border-radius:6px; margin-bottom:1rem;">
+      <p><strong>Diagnostic:</strong> No overrides found in database (<code>member_dues</code> table returned 0 rows).</p>
+      <p>If you just saved an override and see this message, the table may not exist or the insert silently failed. Check that the migration has been run (<code>npm run migrate</code>).</p>
+      <p>Raw count from DB: <strong><%= locals.overrideCountRaw || 'N/A' %></strong></p>
+    </div>
+    <% } %>
     <div class="table-wrap">
       <table class="data-table">
         <thead><tr><th>Year</th><th>Member</th><th class="num">Assessment</th><th class="num">Welfare</th><th>Reason</th><th></th></tr></thead>
@@ -116,7 +123,7 @@
           <% overrides.forEach(function(row) { %>
             <tr>
               <td><%= row.year %></td>
-              <td><%= row.name %></td>
+              <td><%= row.name || '(member #' + row.member_id + ')' %></td>
               <td class="num"><%= formatMoney(row.assessment_due) %></td>
               <td class="num"><%= formatMoney(row.welfare_portion) %></td>
               <td><%= row.reason || '' %></td>

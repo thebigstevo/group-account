@@ -1561,6 +1561,10 @@ app.get('/dues', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'vi
   `);
   console.log('[dues] Overrides found:', overrides.length, overrides.map(o => ({ id: o.id, member_id: o.member_id, year: o.year, name: o.name })));
 
+  // Raw count for diagnostic (bypasses JOIN)
+  const rawCountRow = await dal.queryOne('SELECT COUNT(*)::int AS count FROM member_dues');
+  const overrideCountRaw = rawCountRow ? rawCountRow.count : 'table may not exist';
+
   // Compute effective dues for all active members for the selected year
   const year = selectedYear(req);
   const activeMembers = await dal.query("SELECT id, name, dob FROM members WHERE status = 'active' ORDER BY name");
@@ -1581,7 +1585,7 @@ app.get('/dues', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'vi
 
   res.render('dues', {
     rules, members, overrides, year,
-    effectiveDues,
+    effectiveDues, overrideCountRaw,
     canManage: ['admin', 'finance_secretary'].includes(req.session.user.role)
   });
 }));
