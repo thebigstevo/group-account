@@ -17,7 +17,7 @@
     <h1>Dues rules</h1>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Year</th><th>Label</th><th>Age band</th><th class="num">Assessment</th><th class="num">Welfare</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Year</th><th>Label</th><th>Age band</th><th class="num">Total Assessment (incl. welfare)</th><th class="num">Welfare portion</th><th>Status</th><th></th></tr></thead>
         <tbody>
           <% rules.forEach(function(rule) { %>
             <tr>
@@ -70,7 +70,7 @@
         </div>
 
         <div class="form-group">
-          <label for="rule-assessment">Annual assessment *</label>
+          <label for="rule-assessment">Total assessment (incl. welfare) *</label>
           <input id="rule-assessment" name="annual_assessment" type="number" step="0.01" required value="<%= (locals.values && locals.values.annual_assessment) || '' %>">
         </div>
 
@@ -96,7 +96,7 @@
         <fieldset class="fieldset"><legend><%= rule.label %></legend>
           <div class="form-group"><label for="rule-label-<%= rule.id %>">Label</label><input id="rule-label-<%= rule.id %>" name="label" value="<%= rule.label %>" required></div>
           <div class="grid two"><div class="form-group"><label for="rule-min-<%= rule.id %>">Min age</label><input id="rule-min-<%= rule.id %>" name="min_age" type="number" value="<%= rule.min_age == null ? '' : rule.min_age %>"></div><div class="form-group"><label for="rule-max-<%= rule.id %>">Max age</label><input id="rule-max-<%= rule.id %>" name="max_age" type="number" value="<%= rule.max_age == null ? '' : rule.max_age %>"></div></div>
-          <div class="grid two"><div class="form-group"><label for="rule-assessment-<%= rule.id %>">Assessment</label><input id="rule-assessment-<%= rule.id %>" name="annual_assessment" type="number" step="0.01" value="<%= rule.annual_assessment %>" required></div><div class="form-group"><label for="rule-welfare-<%= rule.id %>">Welfare</label><input id="rule-welfare-<%= rule.id %>" name="welfare_portion" type="number" step="0.01" value="<%= rule.welfare_portion %>" required></div></div>
+          <div class="grid two"><div class="form-group"><label for="rule-assessment-<%= rule.id %>">Total assessment (incl. welfare)</label><input id="rule-assessment-<%= rule.id %>" name="annual_assessment" type="number" step="0.01" value="<%= rule.annual_assessment %>" required></div><div class="form-group"><label for="rule-welfare-<%= rule.id %>">Welfare portion</label><input id="rule-welfare-<%= rule.id %>" name="welfare_portion" type="number" step="0.01" value="<%= rule.welfare_portion %>" required></div></div>
           <label class="check"><input name="active" type="checkbox" <%= rule.active ? 'checked' : '' %>> Active</label>
         </fieldset>
         <button class="btn btn--primary btn--sm" type="submit">Save rule</button>
@@ -118,7 +118,7 @@
     <% } %>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Year</th><th>Member</th><th class="num">Assessment</th><th class="num">Welfare</th><th>Reason</th><th></th></tr></thead>
+        <thead><tr><th>Year</th><th>Member</th><th class="num">Total Assessment (incl. welfare)</th><th class="num">Welfare portion</th><th>Reason</th><th></th></tr></thead>
         <tbody>
           <% overrides.forEach(function(row) { %>
             <tr>
@@ -155,7 +155,7 @@
         </div>
 
         <div class="form-group">
-          <label for="override-assessment">Assessment due *</label>
+          <label for="override-assessment">Total assessment (incl. welfare) *</label>
           <input id="override-assessment" name="assessment_due" type="number" step="0.01" required value="<%= (locals.values && locals.values.assessment_due) || '' %>">
         </div>
 
@@ -187,7 +187,7 @@
       <thead>
         <tr>
           <th>Member</th>
-          <th class="num">Assessment due</th>
+          <th class="num">Total assessment (incl. welfare)</th>
           <th class="num">Welfare portion</th>
           <th>Source</th>
         </tr>
