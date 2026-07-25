@@ -23,6 +23,7 @@ const {
   currentYear,
   latestCompletedAudit,
   latestReconciliations,
+  memberDue,
   runningBalanceRows,
   reportSummary,
   periodComparison,
@@ -1558,8 +1559,28 @@ app.get('/dues', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'vi
     JOIN members m ON m.id = md.member_id
     ORDER BY md.year DESC, m.name
   `);
+
+  // Compute effective dues for all active members for the selected year
+  const year = selectedYear(req);
+  const activeMembers = await dal.query("SELECT id, name, dob FROM members WHERE status = 'active' ORDER BY name");
+  const overrideSet = new Set(
+    overrides.filter(o => Number(o.year) === year).map(o => o.member_id)
+  );
+  const effectiveDues = [];
+  for (const member of activeMembers) {
+    const due = await memberDue(member, year);
+    effectiveDues.push({
+      id: member.id,
+      name: member.name,
+      assessment_due: due.assessment_due,
+      welfare_portion: due.welfare_portion,
+      source: overrideSet.has(member.id) ? 'Override' : 'Rule'
+    });
+  }
+
   res.render('dues', {
-    rules, members, overrides, year: selectedYear(req),
+    rules, members, overrides, year,
+    effectiveDues,
     canManage: ['admin', 'finance_secretary'].includes(req.session.user.role)
   });
 }));

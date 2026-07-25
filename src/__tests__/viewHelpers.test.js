@@ -119,6 +119,7 @@ describe('view date helpers', () => {
       rules: [{ id: 2, year: 2026, label: 'Custom band', min_age: 20, max_age: 40, annual_assessment: 500, welfare_portion: 100, active: true }],
       members: [{ id: 8, name: 'Member One' }],
       overrides: [{ id: 6, member_id: 8, year: 2026, name: 'Member One', assessment_due: 450, welfare_portion: 90, reason: 'Approved' }],
+      effectiveDues: [{ id: 8, name: 'Member One', assessment_due: 450, welfare_portion: 90, source: 'Override' }],
       year: 2026, canManage: true,
       activeFiscalYear: { year: 2026, status: 'open', is_active: true },
       csrfToken: 'test-token', user: { id: 1, name: 'Admin', role: 'admin' },

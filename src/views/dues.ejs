@@ -171,4 +171,31 @@
 <section class="panel" style="text-align: right;">
   <a class="btn btn--secondary btn--sm" href="/export/arrears?year=<%= year %>">Export Arrears CSV</a>
 </section>
+
+<section class="panel">
+  <h2>Effective dues for <%= year %></h2>
+  <p class="text-muted text-sm">What each active member owes based on overrides or age-band rules.</p>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Member</th>
+          <th class="num">Assessment due</th>
+          <th class="num">Welfare portion</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% effectiveDues.forEach(function(row) { %>
+          <tr>
+            <td><%= row.name %></td>
+            <td class="num"><%= formatMoney(row.assessment_due) %></td>
+            <td class="num"><%= formatMoney(row.welfare_portion) %></td>
+            <td><span class="badge <%= row.source === 'Override' ? 'badge--warning' : 'badge--soft' %>"><%= row.source %></span></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</section>
 <%- include('partials/footer') %>
