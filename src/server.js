@@ -1984,17 +1984,31 @@ app.post('/reconciliation', allow('admin', 'treasurer'), asyncHandler(async (req
     req.session.flash = { type: 'error', message: `Reconciliations must be within active fiscal year ${selectedYear(req)}.` };
     return res.redirect('/reconciliation');
   }
+  const accountId = Number(req.body.account_id);
   const balances = await accountBalances();
-  const account = balances.find((item) => item.id === Number(req.body.account_id));
+  const account = balances.find((item) => item.id === accountId);
   const systemBalance = account ? account.balance : 0;
   const statementBalance = Number(req.body.statement_balance || 0);
   const result = await dal.run(`
     INSERT INTO reconciliations (account_id, period_start, period_end, statement_balance, system_balance, difference, notes, created_by)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING id
-  `, [Number(req.body.account_id), req.body.period_start, req.body.period_end, statementBalance, systemBalance, statementBalance - systemBalance, req.body.notes || null, req.session.user.id]);
-  await dal.audit(req.session.user.id, 'create', 'reconciliation', result.rows[0].id, req.body.period_end);
-  req.session.flash = { type: 'success', message: 'Reconciliation saved successfully.' };
+  `, [accountId, req.body.period_start, req.body.period_end, statementBalance, systemBalance, statementBalance - systemBalance, req.body.notes || null, req.session.user.id]);
+
+  // Mark all posted transactions for this account within the period as reconciled
+  const markResult = await dal.run(`
+    UPDATE transactions
+    SET reconciled = true, updated_at = NOW()
+    WHERE account_id = $1
+      AND status = 'posted'
+      AND reconciled = false
+      AND tx_date >= $2
+      AND tx_date <= $3
+  `, [accountId, req.body.period_start, req.body.period_end]);
+  console.log(`[reconciliation] Marked ${markResult.rowCount} transactions as reconciled for account ${accountId} (${req.body.period_start} to ${req.body.period_end})`);
+
+  await dal.audit(req.session.user.id, 'create', 'reconciliation', result.rows[0].id, { period_end: req.body.period_end, transactions_reconciled: markResult.rowCount });
+  req.session.flash = { type: 'success', message: `Reconciliation saved. ${markResult.rowCount} transaction(s) marked as reconciled.` };
   res.redirect('/reconciliation');
 }));
 
@@ -2029,9 +2043,21 @@ app.post('/reconciliation/:id/delete', allow('admin', 'treasurer'), asyncHandler
   const recId = Number(req.params.id);
   const existing = await dal.queryOne('SELECT * FROM reconciliations WHERE id = $1', [recId]);
   if (!existing) return res.status(404).render('error', { message: 'Reconciliation not found.' });
+
+  // Un-reconcile transactions that were marked by this reconciliation period
+  await dal.run(`
+    UPDATE transactions
+    SET reconciled = false, updated_at = NOW()
+    WHERE account_id = $1
+      AND status = 'posted'
+      AND reconciled = true
+      AND tx_date >= $2
+      AND tx_date <= $3
+  `, [existing.account_id, existing.period_start, existing.period_end]);
+
   await dal.run('DELETE FROM reconciliations WHERE id = $1', [recId]);
   await dal.audit(req.session.user.id, 'delete', 'reconciliation', recId, { account_id: existing.account_id, period_end: existing.period_end });
-  req.session.flash = { type: 'success', message: 'Reconciliation deleted.' };
+  req.session.flash = { type: 'success', message: 'Reconciliation deleted and transactions marked as unreconciled.' };
   res.redirect('/reconciliation');
 }));
 
