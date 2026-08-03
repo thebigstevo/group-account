@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="Treasurio — Group & Club Financial Management">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#1a2332">
   <title><%= typeof title !== 'undefined' ? title : 'Dashboard' %> – Treasurio</title>
   <link rel="stylesheet" href="/app.css?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : 'dev' %>">
 </head>
@@ -26,6 +29,9 @@
   <footer class="app-footer" role="contentinfo">
     <small>Treasurio <span class="credit">by TILC</span></small>
   </footer>
+
+  <!-- Mobile Bottom Navigation -->
+  <%- include('partials/bottom-nav') %>
 
   <!-- Toast notification container -->
   <%- include('partials/toast-container') %>

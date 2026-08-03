@@ -1,0 +1,32 @@
+<%
+  const bnPath = locals.currentPath || '/';
+  const bnRole = (locals.user && locals.user.role) || 'viewer';
+  const canManageFinance = ['admin', 'finance_secretary', 'treasurer'].includes(bnRole);
+
+  function bnActive(path) {
+    if (path === '/') return bnPath === '/';
+    return bnPath === path || bnPath.startsWith(path + '/');
+  }
+%>
+<nav class="mobile-bottom-nav" aria-label="Mobile navigation">
+  <a href="/" class="mobile-bottom-nav__item<%= bnActive('/') ? ' active' : '' %>">
+    <span class="mobile-bottom-nav__icon" aria-hidden="true">⌂</span>
+    <span>Home</span>
+  </a>
+  <a href="/finance" class="mobile-bottom-nav__item<%= bnActive('/finance') ? ' active' : '' %>">
+    <span class="mobile-bottom-nav__icon" aria-hidden="true">₦</span>
+    <span>Finance</span>
+  </a>
+  <a href="/members" class="mobile-bottom-nav__item<%= bnActive('/members') ? ' active' : '' %>">
+    <span class="mobile-bottom-nav__icon" aria-hidden="true">⊕</span>
+    <span>Members</span>
+  </a>
+  <a href="/finance/reports" class="mobile-bottom-nav__item<%= bnActive('/finance/reports') || bnActive('/download-reports') ? ' active' : '' %>">
+    <span class="mobile-bottom-nav__icon" aria-hidden="true">⊞</span>
+    <span>Reports</span>
+  </a>
+  <a href="#" class="mobile-bottom-nav__item" data-sidebar-toggle aria-label="More options">
+    <span class="mobile-bottom-nav__icon" aria-hidden="true">☰</span>
+    <span>More</span>
+  </a>
+</nav>
