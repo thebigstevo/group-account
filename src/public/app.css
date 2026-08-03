@@ -442,19 +442,14 @@ hr {
   z-index: 1200;
   width: var(--sidebar-width, 264px);
   height: 100vh;
+  height: 100dvh; /* dynamic viewport height — respects iOS browser chrome */
   display: flex;
   flex-direction: column;
   background: #111827;
   color: var(--neutral-200);
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden; /* sidebar itself doesn't scroll — nav section does */
   transition: transform var(--transition-panel), width var(--transition-panel);
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,.1) transparent;
 }
-
-.sidebar::-webkit-scrollbar { width: 4px; }
-.sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 4px; }
 
 /* Brand */
 .sidebar__brand {
@@ -568,8 +563,16 @@ hr {
 /* Navigation */
 .sidebar__nav {
   flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-3) 0;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.1) transparent;
 }
+
+.sidebar__nav::-webkit-scrollbar { width: 4px; }
+.sidebar__nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 4px; }
 
 .sidebar__group {
   margin-bottom: var(--space-1);
@@ -631,9 +634,11 @@ hr {
 
 /* Footer */
 .sidebar__footer {
+  flex-shrink: 0;
   padding: var(--space-3) var(--space-4);
   padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid rgba(255,255,255,.06);
+  background: #111827;
 }
 
 .sidebar__fiscal-badge {
@@ -2085,16 +2090,10 @@ body.drawer-open { overflow: hidden; touch-action: none; }
   .sidebar__icon { width: 20px; height: 20px; flex: 0 0 20px; }
   .sidebar__group-title { padding: var(--space-4) var(--space-4) var(--space-2); font-size: .7rem; }
   .sidebar__footer {
-    position: sticky;
-    bottom: 0;
-    background: #111827;
     padding: var(--space-4);
     padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 16px));
-    border-top: 1px solid rgba(255,255,255,.08);
-    box-shadow: 0 -4px 12px rgba(0,0,0,.3);
   }
   .sidebar__footer-link { padding: 12px 12px; font-size: .85rem; }
-  .sidebar__nav { flex: 1; overflow-y: auto; padding-bottom: var(--space-4); }
 }
 
 @media (max-width: 767px) {
