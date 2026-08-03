@@ -1170,6 +1170,7 @@
     // Hamburger menu toggle
     document.querySelectorAll('[data-sidebar-toggle]').forEach(function (btn) {
       btn.addEventListener('click', function (event) {
+        event.preventDefault();
         Treasurio.Sidebar.toggle(event);
       });
     });

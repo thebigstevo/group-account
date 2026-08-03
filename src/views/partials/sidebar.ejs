@@ -24,69 +24,146 @@
 %>
 
 <aside class="sidebar" id="app-navigation" aria-label="Application navigation" aria-hidden="false">
+  <!-- Brand header -->
   <div class="sidebar__brand">
-    <div>
-      <span class="sidebar__product">Treasurio</span>
-      <span class="sidebar__organisation"><%= locals.groupName || 'Group management' %></span>
+    <div class="sidebar__brand-inner">
+      <span class="sidebar__logo" aria-hidden="true">T</span>
+      <div>
+        <span class="sidebar__product">Treasurio</span>
+        <span class="sidebar__organisation"><%= locals.groupName || 'Group management' %></span>
+      </div>
     </div>
-    <button type="button" class="sidebar__close" data-sidebar-close aria-label="Close navigation">×</button>
+    <button type="button" class="sidebar__close" data-sidebar-close aria-label="Close navigation">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M15 5L5 15M5 5l10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
   </div>
 
+  <!-- User identity (visible on mobile drawer) -->
   <div class="sidebar__identity">
-    <strong title="<%= navUser.name || '' %>"><%= navUser.name || 'Signed-in user' %></strong>
-    <span><%= navRoleLabel(navRole) %></span>
+    <div class="sidebar__avatar" aria-hidden="true"><%= (navUser.name || 'U').charAt(0).toUpperCase() %></div>
+    <div class="sidebar__identity-text">
+      <strong title="<%= navUser.name || '' %>"><%= navUser.name || 'Signed-in user' %></strong>
+      <span><%= navRoleLabel(navRole) %></span>
+    </div>
   </div>
 
+  <!-- Navigation -->
   <nav class="sidebar__nav" aria-label="Main navigation">
     <div class="sidebar__group">
       <div class="sidebar__group-title">Overview</div>
-      <a href="/" class="sidebar__link<%= navActive('/') ? ' active' : '' %>" <%- navActive('/') ? 'aria-current="page"' : '' %>>Dashboard</a>
-      <a href="/members" class="sidebar__link<%= navActive('/members') ? ' active' : '' %>" <%- navActive('/members') ? 'aria-current="page"' : '' %>>Members</a>
+      <a href="/" class="sidebar__link<%= navActive('/') ? ' active' : '' %>" <%- navActive('/') ? 'aria-current="page"' : '' %>>
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
+        <span>Dashboard</span>
+      </a>
+      <a href="/members" class="sidebar__link<%= navActive('/members') ? ' active' : '' %>" <%- navActive('/members') ? 'aria-current="page"' : '' %>>
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+        <span>Members</span>
+      </a>
     </div>
 
     <div class="sidebar__group">
       <div class="sidebar__group-title">Finance</div>
-      <a href="/finance" class="sidebar__link<%= navPath === '/finance' ? ' active' : '' %>" <%- navPath === '/finance' ? 'aria-current="page"' : '' %>>Overview</a>
-      <a href="/finance/income" class="sidebar__link<%= navPath === '/finance/income' ? ' active' : '' %>" <%- navPath === '/finance/income' ? 'aria-current="page"' : '' %>>Income</a>
-      <% if (canRecordIncome) { %><a href="/finance/income/new" class="sidebar__link sidebar__link--nested<%= navPath === '/finance/income/new' ? ' active' : '' %>">Record income</a><% } %>
-      <a href="/finance/expenses" class="sidebar__link<%= navPath === '/finance/expenses' ? ' active' : '' %>" <%- navPath === '/finance/expenses' ? 'aria-current="page"' : '' %>>Expenses</a>
-      <% if (canRecordExpense) { %><a href="/finance/expenses/new" class="sidebar__link sidebar__link--nested<%= navPath === '/finance/expenses/new' ? ' active' : '' %>">Record expense</a><% } %>
-      <% if (canReconcile) { %><a href="/finance/reconciliation" class="sidebar__link<%= navActive('/finance/reconciliation') ? ' active' : '' %>">Reconciliation</a><% } %>
-      <a href="/finance/accounts" class="sidebar__link<%= navActive('/finance/accounts') ? ' active' : '' %>">Accounts</a>
-      <a href="/budgets" class="sidebar__link<%= navActive('/budgets') ? ' active' : '' %>">Annual budget</a>
-      <a href="/finance/reports" class="sidebar__link<%= navActive('/finance/reports') ? ' active' : '' %>">Reports</a>
+      <a href="/finance" class="sidebar__link<%= navPath === '/finance' ? ' active' : '' %>" <%- navPath === '/finance' ? 'aria-current="page"' : '' %>>
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4zM18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z"/></svg>
+        <span>Overview</span>
+      </a>
+      <a href="/finance/income" class="sidebar__link<%= navPath === '/finance/income' || navPath === '/finance/income/new' ? ' active' : '' %>" <%- navPath === '/finance/income' ? 'aria-current="page"' : '' %>>
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 10.586V7z" clip-rule="evenodd"/></svg>
+        <span>Income</span>
+      </a>
+      <a href="/finance/expenses" class="sidebar__link<%= navPath === '/finance/expenses' || navPath === '/finance/expenses/new' ? ' active' : '' %>" <%- navPath === '/finance/expenses' ? 'aria-current="page"' : '' %>>
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v3.586L7.707 7.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 8.586V5z" clip-rule="evenodd" transform="rotate(180 10 10)"/></svg>
+        <span>Expenses</span>
+      </a>
+      <% if (canReconcile) { %>
+      <a href="/finance/reconciliation" class="sidebar__link<%= navActive('/finance/reconciliation') ? ' active' : '' %>">
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+        <span>Reconciliation</span>
+      </a>
+      <% } %>
+      <a href="/finance/accounts" class="sidebar__link<%= navActive('/finance/accounts') ? ' active' : '' %>">
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z"/><path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z"/><path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z"/></svg>
+        <span>Accounts</span>
+      </a>
+      <a href="/budgets" class="sidebar__link<%= navActive('/budgets') ? ' active' : '' %>">
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+        <span>Annual budget</span>
+      </a>
     </div>
 
     <div class="sidebar__group">
-      <div class="sidebar__group-title">Reporting</div>
-      <a href="/download-reports" class="sidebar__link<%= navActive('/download-reports') ? ' active' : '' %>">Downloads</a>
-      <% if (['admin', 'auditor', 'trustee', 'treasurer'].includes(navRole)) { %><a href="/trustee-audit" class="sidebar__link<%= navActive('/trustee-audit') ? ' active' : '' %>">Trustee audit</a><% } %>
-      <% if (['admin', 'auditor', 'trustee'].includes(navRole)) { %><a href="/audit" class="sidebar__link<%= navActive('/audit') ? ' active' : '' %>">System audit trail</a><% } %>
+      <div class="sidebar__group-title">Reports</div>
+      <a href="/finance/reports" class="sidebar__link<%= navActive('/finance/reports') ? ' active' : '' %>">
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg>
+        <span>Financial reports</span>
+      </a>
+      <a href="/download-reports" class="sidebar__link<%= navActive('/download-reports') ? ' active' : '' %>">
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+        <span>Downloads</span>
+      </a>
+      <% if (['admin', 'auditor', 'trustee', 'treasurer'].includes(navRole)) { %>
+      <a href="/trustee-audit" class="sidebar__link<%= navActive('/trustee-audit') ? ' active' : '' %>">
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 1.944A11.954 11.954 0 012.166 5C2.056 5.649 2 6.319 2 7c0 5.225 3.34 9.67 8 11.317C14.66 16.67 18 12.225 18 7c0-.682-.057-1.35-.166-2.001A11.954 11.954 0 0110 1.944zM11 14a1 1 0 11-2 0 1 1 0 012 0zm0-7a1 1 0 10-2 0v3a1 1 0 102 0V7z" clip-rule="evenodd"/></svg>
+        <span>Trustee audit</span>
+      </a>
+      <% } %>
+      <% if (['admin', 'auditor', 'trustee'].includes(navRole)) { %>
+      <a href="/audit" class="sidebar__link<%= navActive('/audit') ? ' active' : '' %>">
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/></svg>
+        <span>Audit trail</span>
+      </a>
+      <% } %>
     </div>
 
     <% if (canConfigure || navRole === 'admin') { %>
     <div class="sidebar__group">
       <div class="sidebar__group-title">Administration</div>
       <% if (canConfigure) { %>
-        <a href="/config" class="sidebar__link<%= navActive('/config') ? ' active' : '' %>">Settings</a>
-        <a href="/config/ranks" class="sidebar__link<%= navActive('/config/ranks') ? ' active' : '' %>">Ranks</a>
-        <a href="/config/positions" class="sidebar__link<%= navActive('/config/positions') ? ' active' : '' %>">Positions</a>
-        <a href="/dues" class="sidebar__link<%= navActive('/dues') ? ' active' : '' %>">Dues</a>
-        <a href="/fiscal-years" class="sidebar__link<%= navActive('/fiscal-years') ? ' active' : '' %>">Fiscal years</a>
+      <a href="/config" class="sidebar__link<%= navActive('/config') && !navActive('/config/ranks') && !navActive('/config/positions') ? ' active' : '' %>">
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+        <span>Settings</span>
+      </a>
+      <a href="/dues" class="sidebar__link<%= navActive('/dues') ? ' active' : '' %>">
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
+        <span>Dues & rules</span>
+      </a>
+      <a href="/fiscal-years" class="sidebar__link<%= navActive('/fiscal-years') ? ' active' : '' %>">
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
+        <span>Fiscal years</span>
+      </a>
       <% } %>
-      <% if (navRole === 'admin') { %><a href="/users" class="sidebar__link<%= navActive('/users') ? ' active' : '' %>">Users</a><% } %>
+      <% if (navRole === 'admin') { %>
+      <a href="/users" class="sidebar__link<%= navActive('/users') ? ' active' : '' %>">
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 2 2 0 012 2 1 1 0 102 0 4 4 0 00-4-4z" clip-rule="evenodd"/></svg>
+        <span>Users</span>
+      </a>
+      <% } %>
     </div>
     <% } %>
   </nav>
 
-  <div class="sidebar__user">
-    <% if (locals.activeFiscalYear) { %><span class="badge badge--success">FY <%= locals.activeFiscalYear.year %></span><% } %>
-    <a href="/change-password" class="sidebar__account-link">Account</a>
-    <form method="post" action="/logout" class="sidebar__signout-form">
-      <%- include('csrf') %>
-      <button type="submit" class="sidebar__signout">Sign out</button>
-    </form>
+  <!-- Footer area -->
+  <div class="sidebar__footer">
+    <% if (locals.activeFiscalYear) { %>
+    <div class="sidebar__fiscal-badge">
+      <span class="sidebar__fiscal-dot"></span>
+      FY <%= locals.activeFiscalYear.year %>
+    </div>
+    <% } %>
+    <div class="sidebar__footer-actions">
+      <a href="/change-password" class="sidebar__footer-link">
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+        <span>Account</span>
+      </a>
+      <form method="post" action="/logout" class="sidebar__signout-form">
+        <%- include('csrf') %>
+        <button type="submit" class="sidebar__footer-link sidebar__signout">
+          <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg>
+          <span>Sign out</span>
+        </button>
+      </form>
+    </div>
   </div>
 </aside>
 
-<button type="button" class="sidebar__backdrop" id="sidebar-backdrop" data-sidebar-backdrop aria-label="Close navigation" tabindex="-1"></button>
+<div class="sidebar__backdrop" id="sidebar-backdrop" data-sidebar-backdrop aria-hidden="true"></div>
