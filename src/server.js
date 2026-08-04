@@ -59,6 +59,7 @@ const {
   financialPositionReport,
   memberStatementReport
 } = require('./downloadableReports');
+const pdf = require('./pdfReports');
 
 const app = express();
 const publicDirectory = path.join(__dirname, 'public');
@@ -2858,10 +2859,33 @@ app.get('/download/income-expenditure', requireLogin, asyncHandler(async (req, r
       label = `Full Year ${year}`;
     }
 
-    const csv = await incomeAndExpenditureReport(startDate, endDate, label);
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="Income-Expenditure-${label.replace(/\s+/g, '-')}.csv"`);
-    res.send(csv);
+    if (req.query.format === 'pdf') {
+      // PDF generation
+      const income = await dal.query(`SELECT category, COALESCE(SUM(amount - welfare_component), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
+      const expenses = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type IN ('expense', 'welfare_payout') AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
+      const totalIncome = income.reduce((s, r) => s + Number(r.total), 0);
+      const totalExpenses = expenses.reduce((s, r) => s + Number(r.total), 0);
+      const surplus = totalIncome - totalExpenses;
+
+      const doc = pdf.createDoc({ title: 'Income & Expenditure Statement', period: `Period: ${label}`, groupName: config.groupName });
+      pdf.sectionHeading(doc, 'Income');
+      income.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 10 }));
+      pdf.tableRow(doc, 'Total Income', pdf.fmtMoney(totalIncome), { bold: true, total: true });
+
+      pdf.sectionHeading(doc, 'Expenditure');
+      expenses.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 10 }));
+      pdf.tableRow(doc, 'Total Expenditure', pdf.fmtMoney(totalExpenses), { bold: true, total: true });
+
+      doc.moveDown(0.5);
+      pdf.tableRow(doc, surplus >= 0 ? 'Net Surplus' : 'Net Deficit', pdf.fmtMoney(Math.abs(surplus)), { bold: true, total: true });
+      pdf.signatureBlock(doc);
+      pdf.sendPdf(res, doc, `Income-Expenditure-${label.replace(/\s+/g, '-')}.pdf`);
+    } else {
+      const csv = await incomeAndExpenditureReport(startDate, endDate, label);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="Income-Expenditure-${label.replace(/\s+/g, '-')}.csv"`);
+      res.send(csv);
+    }
     await dal.audit(req.session.user.id, 'download', 'income_expenditure', null, label);
   } catch (error) {
     console.error('Download error:', error);
