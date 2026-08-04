@@ -157,3 +157,29 @@
   </form>
 </section>
 <%- include('partials/footer') %>
+<script>
+// Ensure format parameter is submitted correctly for PDF downloads
+document.querySelectorAll('button[name="format"][value="pdf"]').forEach(function(btn) {
+  btn.addEventListener('click', function(e) {
+    e.preventDefault();
+    var form = btn.closest('form');
+    var existing = form.querySelector('input[name="format"]');
+    if (existing) existing.remove();
+    var input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'format';
+    input.value = 'pdf';
+    form.appendChild(input);
+    form.submit();
+  });
+});
+document.querySelectorAll('button[name="format"][value="csv"]').forEach(function(btn) {
+  btn.addEventListener('click', function(e) {
+    e.preventDefault();
+    var form = btn.closest('form');
+    var existing = form.querySelector('input[name="format"]');
+    if (existing) existing.remove();
+    form.submit();
+  });
+});
+</script>
