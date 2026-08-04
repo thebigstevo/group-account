@@ -496,22 +496,26 @@ app.post('/members/:id', allow('admin', 'secretary'), asyncHandler(async (req, r
   const validationErrors = validateMemberInput(req.body);
   if (validationErrors.length) return res.status(400).render('member_edit', { member, errors: validationErrors, values: req.body });
   const values = memberValues(req.body);
+  const openingArrears = req.body.opening_arrears != null && req.body.opening_arrears !== ''
+    ? parseFloat(req.body.opening_arrears)
+    : Number(member.opening_arrears || 0);
   const result = await dal.run(`
     UPDATE members
     SET name=$1, title=$2, first_name=$3, middle_name=$4, last_name=$5,
         preferred_name=$6, phone=$7, secondary_phone=$8, email=$9, dob=$10,
         residential_address=$11, parish=$12, occupation=$13,
-        date_first_admitted=$14, notes=$15
-    WHERE id=$16
+        date_first_admitted=$14, notes=$15, opening_arrears=$16
+    WHERE id=$17
   `, [
     values.name, values.title, values.first_name, values.middle_name, values.last_name,
     values.preferred_name, values.phone, values.secondary_phone, values.email, values.dob,
     values.residential_address, values.parish, values.occupation, values.date_first_admitted, values.notes,
+    isNaN(openingArrears) ? 0 : openingArrears,
     Number(req.params.id)
   ]);
   if (result.rowCount === 0) return res.status(404).render('error', { message: 'Member not found.' });
   await dal.audit(req.session.user.id, 'update', 'member', member.id, values.name, {
-    ip_address: getClientIp(req), user_agent: req.get('user-agent'), before_value: member, after_value: values
+    ip_address: getClientIp(req), user_agent: req.get('user-agent'), before_value: member, after_value: { ...values, opening_arrears: openingArrears }
   });
   req.session.flash = { type: 'success', message: 'Member updated successfully.' };
   res.redirect(`/members/${member.id}`);

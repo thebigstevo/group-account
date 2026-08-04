@@ -24,6 +24,13 @@
       <div class="form-group"><label for="edit-admitted">Date first admitted</label><input id="edit-admitted" name="date_first_admitted" type="date" value="<%= value('date_first_admitted', formatDate(member.date_first_admitted)) %>"></div>
       <div class="form-group"><label for="edit-notes">Administrative notes</label><textarea id="edit-notes" name="notes"><%= value('notes', member.notes) %></textarea></div>
     </fieldset>
+    <fieldset class="fieldset"><legend>Finance</legend>
+      <div class="form-group">
+        <label for="edit-opening-balance">Opening balance</label>
+        <input id="edit-opening-balance" name="opening_arrears" type="number" step="0.01" inputmode="decimal" value="<%= value('opening_arrears', member.opening_arrears || 0) %>">
+        <span class="form-group__hint">Positive = member owes (arrears). Negative = member has credit. This is the starting balance for the active fiscal year.</span>
+      </div>
+    </fieldset>
     <div class="actions"><button class="btn btn--primary" type="submit">Save changes</button><a class="btn btn--secondary" href="/members/<%= member.id %>">Cancel</a></div>
   </form>
 </section>
