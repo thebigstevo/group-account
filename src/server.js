@@ -1017,11 +1017,11 @@ app.post('/config/payment-splits', allow('admin', 'finance_secretary'), asyncHan
     return res.redirect('/config');
   }
   const splitCategory = await dal.queryOne(
-    "SELECT * FROM transaction_categories WHERE name = $1 AND kind = 'income' AND purpose = 'assessment' AND active = true",
+    "SELECT * FROM transaction_categories WHERE name = $1 AND kind IN ('income','both') AND active = true",
     [req.body.category]
   );
   if (!splitCategory) {
-    req.session.flash = { type: 'error', message: 'Select an active assessment category before configuring its welfare split.' };
+    req.session.flash = { type: 'error', message: 'Select an active income category before configuring its welfare split.' };
     return res.redirect('/config');
   }
   const existingSplit = await dal.queryOne(

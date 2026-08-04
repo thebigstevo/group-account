@@ -246,20 +246,25 @@ async function calculateWelfareComponent({ memberId, category, amount, txDate, e
   );
   if (!categoryConfig) return 0;
   if (categoryConfig.purpose === 'welfare_income') return money(amount);
-  if (categoryConfig.purpose !== 'assessment') return 0;
+  if (categoryConfig.purpose === 'welfare_payout') return 0;
 
   const year = Number(String(txDate || '').slice(0, 4)) || currentYear();
-  let member = null;
-  if (memberId) {
-    member = await dal.queryOne('SELECT * FROM members WHERE id = $1', [memberId]);
-  }
-  if (member) {
-    const due = await memberDue(member, year);
-    if (money(due.assessment_due) > 0 && money(due.welfare_portion) > 0) {
-      return Math.round((money(amount) * money(due.welfare_portion) / money(due.assessment_due)) * 100) / 100;
+
+  // For assessment categories, try member-specific dues first
+  if (categoryConfig.purpose === 'assessment') {
+    let member = null;
+    if (memberId) {
+      member = await dal.queryOne('SELECT * FROM members WHERE id = $1', [memberId]);
+    }
+    if (member) {
+      const due = await memberDue(member, year);
+      if (money(due.assessment_due) > 0 && money(due.welfare_portion) > 0) {
+        return Math.round((money(amount) * money(due.welfare_portion) / money(due.assessment_due)) * 100) / 100;
+      }
     }
   }
 
+  // For any income category (assessment, standard, etc.), check payment splits
   const split = await paymentSplit(year, category);
   if (!split || money(split.assessment_amount) <= 0 || money(split.welfare_amount) <= 0) return 0;
   return Math.round((money(amount) * money(split.welfare_amount) / money(split.assessment_amount)) * 100) / 100;

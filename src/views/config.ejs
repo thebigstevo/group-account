@@ -57,7 +57,7 @@
         <div class="form-group">
           <label for="split-category">Category</label>
           <select id="split-category" name="category" required>
-            <% categories.filter(function(category) { return category.active && category.purpose === 'assessment'; }).forEach(function(category) { %><option><%= category.name %></option><% }) %>
+            <% categories.filter(function(category) { return category.active && category.kind !== 'expense' && category.purpose !== 'welfare_payout'; }).forEach(function(category) { %><option><%= category.name %></option><% }) %>
           </select>
         </div>
 
