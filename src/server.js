@@ -27,7 +27,8 @@ const {
   runningBalanceRows,
   reportSummary,
   periodComparison,
-  auditCountSummary
+  auditCountSummary,
+  welfareLiability
 } = require('./services');
 const {
   exportTransactionsCsv,
@@ -2911,10 +2912,43 @@ app.get('/download/receipts-payments', requireLogin, asyncHandler(async (req, re
       label = `Full Year ${year}`;
     }
 
-    const csv = await receiptsAndPaymentsReport(startDate, endDate, label);
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="Receipts-Payments-${label.replace(/\s+/g, '-')}.csv"`);
-    res.send(csv);
+    if (req.query.format === 'pdf') {
+      const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY name');
+      const doc = pdf.createDoc({ title: 'Receipts & Payments Statement', period: `Period: ${label}`, groupName: config.groupName });
+
+      for (const account of accounts) {
+        const receipts = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND status = 'posted' AND account_id = $1 AND tx_date >= $2 AND tx_date <= $3 GROUP BY category ORDER BY total DESC`, [account.id, startDate, endDate]);
+        const payments = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type IN ('expense','welfare_payout') AND status = 'posted' AND account_id = $1 AND tx_date >= $2 AND tx_date <= $3 GROUP BY category ORDER BY total DESC`, [account.id, startDate, endDate]);
+        const openingBalance = Number(account.opening_balance);
+        const totalReceipts = receipts.reduce((s, r) => s + Number(r.total), 0);
+        const totalPayments = payments.reduce((s, r) => s + Number(r.total), 0);
+        const closing = openingBalance + totalReceipts - totalPayments;
+
+        pdf.sectionHeading(doc, `${account.name} (${account.type})`);
+        pdf.tableRow(doc, 'Opening Balance', pdf.fmtMoney(openingBalance), { bold: true });
+        doc.moveDown(0.3);
+        if (receipts.length) {
+          pdf.tableRow(doc, 'Receipts:', '', { bold: true });
+          receipts.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 15 }));
+          pdf.tableRow(doc, 'Total Receipts', pdf.fmtMoney(totalReceipts), { total: true });
+        }
+        if (payments.length) {
+          pdf.tableRow(doc, 'Payments:', '', { bold: true });
+          payments.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 15 }));
+          pdf.tableRow(doc, 'Total Payments', pdf.fmtMoney(totalPayments), { total: true });
+        }
+        doc.moveDown(0.3);
+        pdf.tableRow(doc, 'Closing Balance', pdf.fmtMoney(closing), { bold: true, total: true });
+        doc.moveDown(0.5);
+      }
+      pdf.signatureBlock(doc);
+      pdf.sendPdf(res, doc, `Receipts-Payments-${label.replace(/\s+/g, '-')}.pdf`);
+    } else {
+      const csv = await receiptsAndPaymentsReport(startDate, endDate, label);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="Receipts-Payments-${label.replace(/\s+/g, '-')}.csv"`);
+      res.send(csv);
+    }
     await dal.audit(req.session.user.id, 'download', 'receipts_payments', null, label);
   } catch (error) {
     console.error('Download error:', error);
@@ -2940,10 +2974,36 @@ app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) =>
       label = `Full Year ${year}`;
     }
 
-    const csv = await welfareFundReport(startDate, endDate, label);
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="Welfare-Fund-${label.replace(/\s+/g, '-')}.csv"`);
-    res.send(csv);
+    if (req.query.format === 'pdf') {
+      const collected = await dal.query(`SELECT category, COALESCE(SUM(welfare_component), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND status = 'posted' AND welfare_component > 0 AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
+      const payouts = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type = 'welfare_payout' AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
+      const totalCollected = collected.reduce((s, r) => s + Number(r.total), 0);
+      const totalPaidOut = payouts.reduce((s, r) => s + Number(r.total), 0);
+      const liability = totalCollected - totalPaidOut;
+
+      const doc = pdf.createDoc({ title: 'Welfare Fund Statement', period: `Period: ${label}`, groupName: config.groupName });
+      pdf.sectionHeading(doc, 'Welfare Collections');
+      collected.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 10 }));
+      pdf.tableRow(doc, 'Total Welfare Collected', pdf.fmtMoney(totalCollected), { bold: true, total: true });
+
+      pdf.sectionHeading(doc, 'Welfare Payouts');
+      if (payouts.length) {
+        payouts.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 10 }));
+      } else {
+        pdf.tableRow(doc, 'No payouts in period', 'GHS 0.00', { indent: 10 });
+      }
+      pdf.tableRow(doc, 'Total Payouts', pdf.fmtMoney(totalPaidOut), { bold: true, total: true });
+
+      doc.moveDown(0.8);
+      pdf.tableRow(doc, 'Net Welfare Liability (still payable)', pdf.fmtMoney(liability), { bold: true, total: true });
+      pdf.signatureBlock(doc);
+      pdf.sendPdf(res, doc, `Welfare-Fund-${label.replace(/\s+/g, '-')}.pdf`);
+    } else {
+      const csv = await welfareFundReport(startDate, endDate, label);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="Welfare-Fund-${label.replace(/\s+/g, '-')}.csv"`);
+      res.send(csv);
+    }
     await dal.audit(req.session.user.id, 'download', 'welfare_fund', null, label);
   } catch (error) {
     console.error('Download error:', error);
@@ -2967,10 +3027,32 @@ app.get('/download/financial-position', requireLogin, asyncHandler(async (req, r
       label = `31 December ${year}`;
     }
 
-    const csv = await financialPositionReport(asOfDate, label);
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="Financial-Position-${asOfDate}.csv"`);
-    res.send(csv);
+    if (req.query.format === 'pdf') {
+      const balances = await accountBalances(asOfDate);
+      const welfare = await welfareLiability(asOfDate);
+      const totalAssets = balances.reduce((s, a) => s + a.balance, 0);
+      const netAssets = totalAssets - welfare;
+
+      const doc = pdf.createDoc({ title: 'Statement of Financial Position', period: `As at ${label}`, groupName: config.groupName });
+
+      pdf.sectionHeading(doc, 'Assets');
+      balances.forEach(a => pdf.tableRow(doc, `${a.name} (${a.type})`, pdf.fmtMoney(a.balance), { indent: 10 }));
+      pdf.tableRow(doc, 'Total Assets', pdf.fmtMoney(totalAssets), { bold: true, total: true });
+
+      pdf.sectionHeading(doc, 'Liabilities');
+      pdf.tableRow(doc, 'Welfare Fund Payable', pdf.fmtMoney(welfare), { indent: 10 });
+      pdf.tableRow(doc, 'Total Liabilities', pdf.fmtMoney(welfare), { bold: true, total: true });
+
+      doc.moveDown(0.8);
+      pdf.tableRow(doc, 'Net Assets', pdf.fmtMoney(netAssets), { bold: true, total: true });
+      pdf.signatureBlock(doc);
+      pdf.sendPdf(res, doc, `Financial-Position-${asOfDate}.pdf`);
+    } else {
+      const csv = await financialPositionReport(asOfDate, label);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="Financial-Position-${asOfDate}.csv"`);
+      res.send(csv);
+    }
     await dal.audit(req.session.user.id, 'download', 'financial_position', null, label);
   } catch (error) {
     console.error('Download error:', error);
@@ -2984,14 +3066,50 @@ app.get('/download/member-statement', requireLogin, asyncHandler(async (req, res
     const year = Number(req.query.year || selectedYear(req));
     if (!memberId) return res.status(400).render('error', { message: 'Please select a member.' });
 
-    const csv = await memberStatementReport(memberId, year);
-    if (!csv) return res.status(404).render('error', { message: 'Member not found.' });
+    const member = await dal.queryOne('SELECT * FROM members WHERE id = $1', [memberId]);
+    if (!member) return res.status(404).render('error', { message: 'Member not found.' });
+    const safeName = (member.name || 'Unknown').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '-');
 
-    const member = await dal.queryOne('SELECT name FROM members WHERE id = $1', [memberId]);
-    const safeName = (member ? member.name : 'Unknown').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '-');
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="Member-Statement-${safeName}-${year}.csv"`);
-    res.send(csv);
+    if (req.query.format === 'pdf') {
+      const due = await memberDue(member, year);
+      const transactions = await dal.query(`SELECT t.*, a.name AS account_name FROM transactions t LEFT JOIN accounts a ON a.id = t.account_id WHERE t.member_id = $1 AND t.tx_date >= $2 AND t.tx_date <= $3 AND t.status = 'posted' ORDER BY t.tx_date, t.id`, [memberId, `${year}-01-01`, `${year}-12-31`]);
+      const totalPaid = transactions.filter(t => t.tx_type === 'receipt').reduce((s, t) => s + Number(t.amount), 0);
+      const balance = Number(member.opening_arrears || 0) + Number(due.assessment_due) - totalPaid;
+
+      const doc = pdf.createDoc({ title: 'Member Statement', subtitle: `${member.name} — Year ${year}`, groupName: config.groupName });
+
+      pdf.sectionHeading(doc, 'Summary');
+      pdf.tableRow(doc, 'Member', member.name);
+      pdf.tableRow(doc, 'Membership Number', member.membership_number || '—');
+      pdf.tableRow(doc, 'Opening Balance', pdf.fmtMoney(member.opening_arrears || 0));
+      pdf.tableRow(doc, 'Annual Assessment', pdf.fmtMoney(due.assessment_due));
+      pdf.tableRow(doc, 'Total Paid', pdf.fmtMoney(totalPaid));
+      pdf.tableRow(doc, 'Outstanding Balance', pdf.fmtMoney(balance), { bold: true, total: true });
+
+      if (transactions.length) {
+        pdf.sectionHeading(doc, 'Transactions');
+        const cols = [
+          { label: 'Date', width: 70, align: 'left' },
+          { label: 'Category', width: 120, align: 'left' },
+          { label: 'Account', width: 100, align: 'left' },
+          { label: 'Reference', width: 80, align: 'left' },
+          { label: 'Amount', width: 80, align: 'right' }
+        ];
+        pdf.tableHeader(doc, cols);
+        transactions.forEach(t => {
+          pdf.dataRow(doc, cols, [t.tx_date, t.category, t.account_name || '', t.reference || '', pdf.fmtMoney(t.amount)]);
+        });
+      }
+
+      pdf.signatureBlock(doc);
+      pdf.sendPdf(res, doc, `Member-Statement-${safeName}-${year}.pdf`);
+    } else {
+      const csv = await memberStatementReport(memberId, year);
+      if (!csv) return res.status(404).render('error', { message: 'Member not found.' });
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="Member-Statement-${safeName}-${year}.csv"`);
+      res.send(csv);
+    }
     await dal.audit(req.session.user.id, 'download', 'member_statement', memberId, `${year}`);
   } catch (error) {
     console.error('Download error:', error);
