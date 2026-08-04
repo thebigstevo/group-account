@@ -27,6 +27,30 @@
               <td><span class="badge <%= row.active ? 'badge--success' : 'badge--soft' %>"><%= row.active ? 'Active' : 'Inactive' %></span></td>
               <td>
                 <% if (row.id !== user.id) { %>
+                  <details class="inline-edit">
+                    <summary class="btn btn--secondary btn--sm">Change role</summary>
+                    <form method="post" action="/users/<%= row.id %>/role" class="inline-form stack">
+                      <%- include('partials/csrf') %>
+                      <div class="form-group">
+                        <label>New role</label>
+                        <select name="role" required>
+                          <option value="secretary" <%= row.role === 'secretary' ? 'selected' : '' %>>Secretary</option>
+                          <option value="finance_secretary" <%= row.role === 'finance_secretary' ? 'selected' : '' %>>Finance Secretary</option>
+                          <option value="treasurer" <%= row.role === 'treasurer' ? 'selected' : '' %>>Treasurer</option>
+                          <option value="president" <%= row.role === 'president' ? 'selected' : '' %>>President</option>
+                          <option value="first_vice_president" <%= row.role === 'first_vice_president' ? 'selected' : '' %>>First Vice President</option>
+                          <option value="second_vice_president" <%= row.role === 'second_vice_president' ? 'selected' : '' %>>Second Vice President</option>
+                          <option value="commander" <%= row.role === 'commander' ? 'selected' : '' %>>Commander</option>
+                          <option value="trustee" <%= row.role === 'trustee' ? 'selected' : '' %>>Trustee</option>
+                          <option value="executive" <%= row.role === 'executive' ? 'selected' : '' %>>Executive</option>
+                          <option value="viewer" <%= row.role === 'viewer' ? 'selected' : '' %>>Viewer</option>
+                          <option value="auditor" <%= row.role === 'auditor' ? 'selected' : '' %>>Auditor</option>
+                          <option value="admin" <%= row.role === 'admin' ? 'selected' : '' %>>Admin</option>
+                        </select>
+                      </div>
+                      <button class="btn btn--primary btn--sm" type="submit">Save</button>
+                    </form>
+                  </details>
                   <form method="post" action="/users/<%= row.id %>/toggle" style="display: inline;">
                     <%- include('partials/csrf') %>
                     <button class="btn btn--secondary btn--sm" type="submit"><%= row.active ? 'Deactivate' : 'Activate' %></button>

@@ -2384,6 +2384,26 @@ app.post('/users', allow('admin'), asyncHandler(async (req, res) => {
   res.redirect('/users');
 }));
 
+app.post('/users/:id/role', allow('admin'), asyncHandler(async (req, res) => {
+  const target = await dal.queryOne('SELECT * FROM users WHERE id = $1', [Number(req.params.id)]);
+  if (!target) return res.status(404).render('error', { message: 'User not found.' });
+  if (target.id === req.session.user.id) {
+    req.session.flash = { type: 'error', message: 'You cannot change your own role.' };
+    return res.redirect('/users');
+  }
+  const validRoles = ['admin', 'president', 'first_vice_president', 'second_vice_president', 'secretary', 'finance_secretary', 'treasurer', 'commander', 'trustee', 'executive', 'viewer', 'auditor'];
+  const newRole = req.body.role;
+  if (!validRoles.includes(newRole)) {
+    req.session.flash = { type: 'error', message: 'Invalid role selected.' };
+    return res.redirect('/users');
+  }
+  const oldRole = target.role;
+  await dal.run('UPDATE users SET role = $1 WHERE id = $2', [newRole, target.id]);
+  await dal.audit(req.session.user.id, 'update', 'user', target.id, `Role changed: ${oldRole} → ${newRole}`);
+  req.session.flash = { type: 'success', message: `${target.name}'s role changed from ${oldRole.replace(/_/g, ' ')} to ${newRole.replace(/_/g, ' ')}.` };
+  res.redirect('/users');
+}));
+
 app.post('/users/:id/toggle', allow('admin'), asyncHandler(async (req, res) => {
   const target = await dal.queryOne('SELECT * FROM users WHERE id = $1', [Number(req.params.id)]);
   if (!target) return res.status(404).render('error', { message: 'User not found.' });
@@ -3072,31 +3092,40 @@ app.get('/download/member-statement', requireLogin, asyncHandler(async (req, res
 
     if (req.query.format === 'pdf') {
       const due = await memberDue(member, year);
-      const transactions = await dal.query(`SELECT t.*, a.name AS account_name FROM transactions t LEFT JOIN accounts a ON a.id = t.account_id WHERE t.member_id = $1 AND t.tx_date >= $2 AND t.tx_date <= $3 AND t.status = 'posted' ORDER BY t.tx_date, t.id`, [memberId, `${year}-01-01`, `${year}-12-31`]);
-      const totalPaid = transactions.filter(t => t.tx_type === 'receipt').reduce((s, t) => s + Number(t.amount), 0);
-      const balance = Number(member.opening_arrears || 0) + Number(due.assessment_due) - totalPaid;
+      const allTransactions = await dal.query(`SELECT t.*, a.name AS account_name, tc.purpose AS category_purpose FROM transactions t LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN transaction_categories tc ON tc.name = t.category WHERE t.member_id = $1 AND t.tx_date >= $2 AND t.tx_date <= $3 AND t.status = 'posted' ORDER BY t.tx_date, t.id`, [memberId, `${year}-01-01`, `${year}-12-31`]);
+      // Only assessment-category receipts count toward the balance
+      const assessmentPaid = allTransactions.filter(t => t.tx_type === 'receipt' && t.category_purpose === 'assessment').reduce((s, t) => s + Number(t.amount), 0);
+      const totalAllReceipts = allTransactions.filter(t => t.tx_type === 'receipt').reduce((s, t) => s + Number(t.amount), 0);
+      const balance = Number(member.opening_arrears || 0) + Number(due.assessment_due) - assessmentPaid;
 
       const doc = pdf.createDoc({ title: 'Member Statement', subtitle: `${member.name} — Year ${year}`, groupName: config.groupName });
 
-      pdf.sectionHeading(doc, 'Summary');
+      pdf.sectionHeading(doc, 'Assessment Summary');
       pdf.tableRow(doc, 'Member', member.name);
       pdf.tableRow(doc, 'Membership Number', member.membership_number || '—');
-      pdf.tableRow(doc, 'Opening Balance', pdf.fmtMoney(member.opening_arrears || 0));
-      pdf.tableRow(doc, 'Annual Assessment', pdf.fmtMoney(due.assessment_due));
-      pdf.tableRow(doc, 'Total Paid', pdf.fmtMoney(totalPaid));
-      pdf.tableRow(doc, 'Outstanding Balance', pdf.fmtMoney(balance), { bold: true, total: true });
+      pdf.tableRow(doc, 'Opening Balance (arrears)', pdf.fmtMoney(member.opening_arrears || 0));
+      pdf.tableRow(doc, 'Annual Assessment Due', pdf.fmtMoney(due.assessment_due));
+      pdf.tableRow(doc, 'Total Billed', pdf.fmtMoney(Number(member.opening_arrears || 0) + Number(due.assessment_due)), { bold: true });
+      pdf.tableRow(doc, 'Assessment Payments', pdf.fmtMoney(assessmentPaid));
+      pdf.tableRow(doc, balance > 0 ? 'Outstanding Balance (owes)' : 'Overpayment / Credit', pdf.fmtMoney(Math.abs(balance)), { bold: true, total: true });
 
-      if (transactions.length) {
-        pdf.sectionHeading(doc, 'Transactions');
+      if (totalAllReceipts !== assessmentPaid) {
+        doc.moveDown(0.5);
+        pdf.tableRow(doc, 'Other receipts (welfare, donations, etc.)', pdf.fmtMoney(totalAllReceipts - assessmentPaid));
+        pdf.tableRow(doc, 'Grand total all payments', pdf.fmtMoney(totalAllReceipts));
+      }
+
+      if (allTransactions.length) {
+        pdf.sectionHeading(doc, 'All Transactions');
         const cols = [
-          { label: 'Date', width: 70, align: 'left' },
-          { label: 'Category', width: 120, align: 'left' },
-          { label: 'Account', width: 100, align: 'left' },
-          { label: 'Reference', width: 80, align: 'left' },
-          { label: 'Amount', width: 80, align: 'right' }
+          { label: 'Date', width: 65, align: 'left' },
+          { label: 'Category', width: 110, align: 'left' },
+          { label: 'Account', width: 90, align: 'left' },
+          { label: 'Reference', width: 75, align: 'left' },
+          { label: 'Amount', width: 75, align: 'right' }
         ];
         pdf.tableHeader(doc, cols);
-        transactions.forEach(t => {
+        allTransactions.forEach(t => {
           pdf.dataRow(doc, cols, [t.tx_date, t.category, t.account_name || '', t.reference || '', pdf.fmtMoney(t.amount)]);
         });
       }
