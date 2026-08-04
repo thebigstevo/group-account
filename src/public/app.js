@@ -1198,10 +1198,28 @@
       Treasurio.FormValidation.init(formEl);
     });
 
-    // Set default date values (preserve original functionality)
-    document.querySelectorAll('input[type="date"]').forEach(function (input) {
-      if (!input.value) input.value = new Date().toISOString().slice(0, 10);
-    });
+    // Set default date values — use fiscal year if today is outside it
+    (function setDefaultDates() {
+      var fiscalYear = document.body.dataset.fiscalYear ? parseInt(document.body.dataset.fiscalYear, 10) : null;
+      var today = new Date();
+      var todayStr = today.toISOString().slice(0, 10);
+      var defaultDate = todayStr;
+
+      if (fiscalYear) {
+        var todayYear = today.getFullYear();
+        if (todayYear !== fiscalYear) {
+          // Today is outside the fiscal year — use the last day of the fiscal year
+          // or the first day if the fiscal year is in the future
+          defaultDate = todayYear > fiscalYear
+            ? fiscalYear + '-12-31'
+            : fiscalYear + '-01-01';
+        }
+      }
+
+      document.querySelectorAll('input[type="date"]').forEach(function (input) {
+        if (!input.value) input.value = defaultDate;
+      });
+    })();
 
     // Print buttons (preserve original functionality)
     document.querySelectorAll('[data-print]').forEach(function (button) {

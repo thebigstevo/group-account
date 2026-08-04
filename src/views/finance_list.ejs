@@ -1,14 +1,52 @@
 <%- include('partials/header') %>
 <% const isIncome = kind === 'income'; locals.title = isIncome ? 'Income' : 'Expenses'; %>
+<%
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const filterMonth = locals.selectedMonth || '';
+  const filterCategory = locals.selectedCategory || '';
+  const filterCategories = locals.categories || [];
+  const fyear = locals.fiscalYear || new Date().getFullYear();
+%>
 <div class="page-container">
   <section class="page-title">
-    <div><span class="eyebrow">Finance</span><h1><%= isIncome ? 'Income' : 'Expenses' %></h1><p><%= isIncome ? 'Money received into commandery accounts.' : 'Money paid out from commandery accounts.' %></p></div>
+    <div><span class="eyebrow">Finance · FY <%= fyear %></span><h1><%= isIncome ? 'Income' : 'Expenses' %></h1><p><%= isIncome ? 'Money received into commandery accounts.' : 'Money paid out from commandery accounts.' %></p></div>
     <% if ((isIncome && ['admin','finance_secretary','treasurer'].includes(user.role)) || (!isIncome && ['admin','treasurer'].includes(user.role))) { %><a class="btn btn--primary" href="<%= isIncome ? '/finance/income/new' : '/finance/expenses/new' %>"><%= isIncome ? 'Record Income' : 'Record Expense' %></a><% } %>
   </section>
   <%- include('partials/finance-nav') %>
+
+  <!-- Filters -->
+  <section class="report-toolbar" style="margin-bottom:var(--space-4)">
+    <form method="get" action="<%= isIncome ? '/finance/income' : '/finance/expenses' %>" class="report-toolbar__fields" style="grid-template-columns:repeat(3,minmax(120px,1fr))">
+      <div class="form-group">
+        <label for="filter-month">Month</label>
+        <select id="filter-month" name="month">
+          <option value="">All months</option>
+          <% months.forEach(function(m, idx) { %>
+          <option value="<%= idx + 1 %>"<%= filterMonth == String(idx + 1) ? ' selected' : '' %>><%= m %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="filter-category">Category</label>
+        <select id="filter-category" name="category">
+          <option value="">All categories</option>
+          <% filterCategories.forEach(function(cat) { %>
+          <option value="<%= cat %>"<%= filterCategory === cat ? ' selected' : '' %>><%= cat %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="form-group" style="align-self:end">
+        <button class="btn btn--secondary" type="submit">Filter</button>
+      </div>
+    </form>
+    <% if (filterMonth || filterCategory) { %>
+    <div class="report-toolbar__actions"><a class="btn btn--secondary btn--sm" href="<%= isIncome ? '/finance/income' : '/finance/expenses' %>">Clear filters</a></div>
+    <% } %>
+  </section>
+
   <section class="panel">
-    <div class="table-toolbar"><div><h2><%= isIncome ? 'Income register' : 'Expense register' %></h2><p><%= transactions.length %> recent <%= isIncome ? 'income' : 'expense' %> entries.</p></div><a class="btn btn--secondary btn--sm" href="/export/transactions">Export CSV</a></div>
-    <% if (!transactions.length) { %><div class="empty-state"><h2>No <%= isIncome ? 'income' : 'expenses' %> recorded</h2><p>Entries for this workflow will appear here.</p></div><% } else { %>
+    <div class="table-toolbar"><div><h2><%= isIncome ? 'Income register' : 'Expense register' %></h2><p><%= transactions.length %> <%= filterMonth ? months[filterMonth - 1] + ' ' : '' %><%= filterCategory ? filterCategory + ' ' : '' %><%= isIncome ? 'income' : 'expense' %> entries<%= filterMonth || filterCategory ? ' (filtered)' : '' %>.</p></div><a class="btn btn--secondary btn--sm" href="/export/transactions">Export CSV</a></div>
+    <% if (!transactions.length) { %><div class="empty-state"><h2>No <%= isIncome ? 'income' : 'expenses' %> found</h2><p><%= filterMonth || filterCategory ? 'No entries match the selected filters. Try a different month or category.' : 'Entries for this workflow will appear here.' %></p></div><% } else { %>
     <div class="table-wrap desktop-table"><table class="data-table" data-datatable><thead><tr><th data-sortable="date">Date</th><th>Reference</th><th><%= isIncome ? 'Payer or source' : 'Payee or detail' %></th><th>Category</th><th><%= isIncome ? 'Received into' : 'Paid from' %></th><th class="num" data-sortable="amount">Amount</th><th>Status</th><% if (!isIncome) { %><th>Evidence</th><% } %><th>Recorded by</th><th>Actions</th></tr></thead><tbody>
       <% transactions.forEach(function(row) { %><tr><td data-sort-value="<%= formatDate(row.tx_date) %>"><%= formatDate(row.tx_date) %></td><td><%= row.reference || '—' %></td><td><%= row.member_name || row.description || '—' %></td><td><%= row.category %></td><td><%= row.account_name || '—' %></td><td class="num" data-sort-value="<%= row.amount %>"><%= formatMoney(row.amount) %></td><td><span class="badge status-badge <%= row.status === 'posted' ? 'badge--success' : 'badge--danger' %>"><%= row.status === 'posted' ? 'Posted' : 'Reversed' %></span></td><% if (!isIncome) { %><td><span class="badge status-badge badge--soft">Not tracked</span></td><% } %><td><%= row.recorded_by || 'System' %></td><td><% if (row.status === 'posted' && ['admin','finance_secretary','treasurer'].includes(user.role)) { %><form method="post" action="/transactions/<%= row.id %>/reverse"><%- include('partials/csrf') %><button class="btn btn--secondary btn--sm" type="submit" data-modal-confirm data-modal-title="Reverse transaction" data-modal-body="Reverse this transaction? The audit history will be retained.">Reverse</button></form><% } else { %>—<% } %></td></tr><% }) %>
     </tbody></table></div>

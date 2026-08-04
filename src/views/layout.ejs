@@ -10,7 +10,7 @@
   <title><%= typeof title !== 'undefined' ? title : 'Dashboard' %> – Treasurio</title>
   <link rel="stylesheet" href="/app.css?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : 'dev' %>">
 </head>
-<body>
+<body<% if (locals.activeFiscalYear) { %> data-fiscal-year="<%= locals.activeFiscalYear.year %>"<% } %>>
   <!-- Skip navigation link (first focusable element) -->
   <a href="#main-content" class="skip-nav">Skip to content</a>
 

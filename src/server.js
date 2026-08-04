@@ -1786,18 +1786,45 @@ async function financeFormData(kind) {
   return { members, accounts, categories, kind };
 }
 
-async function financeTransactions(kind, limit = 100) {
+async function financeTransactions(kind, limit = 100, year = null, month = '', category = '') {
   const types = kind === 'income' ? ['receipt'] : ['expense', 'welfare_payout'];
-  return dal.query(`
+  let query = `
     SELECT t.*, m.name AS member_name, a.name AS account_name, u.name AS recorded_by
     FROM transactions t
     LEFT JOIN members m ON m.id = t.member_id
     LEFT JOIN accounts a ON a.id = t.account_id
     LEFT JOIN users u ON u.id = t.created_by
     WHERE t.tx_type = ANY($1::varchar[])
-    ORDER BY t.tx_date DESC, t.id DESC
-    LIMIT $2
-  `, [types, limit]);
+  `;
+  const params = [types];
+  let paramIdx = 2;
+
+  if (year) {
+    query += ` AND t.tx_date >= $${paramIdx} AND t.tx_date <= $${paramIdx + 1}`;
+    params.push(`${year}-01-01`, `${year}-12-31`);
+    paramIdx += 2;
+  }
+
+  if (month && month >= 1 && month <= 12) {
+    const m = String(month).padStart(2, '0');
+    const startDate = `${year}-${m}-01`;
+    const lastDay = new Date(year, Number(month), 0).getDate();
+    const endDate = `${year}-${m}-${String(lastDay).padStart(2, '0')}`;
+    query += ` AND t.tx_date >= $${paramIdx} AND t.tx_date <= $${paramIdx + 1}`;
+    params.push(startDate, endDate);
+    paramIdx += 2;
+  }
+
+  if (category) {
+    query += ` AND t.category = $${paramIdx}`;
+    params.push(category);
+    paramIdx += 1;
+  }
+
+  query += ` ORDER BY t.tx_date DESC, t.id DESC LIMIT $${paramIdx}`;
+  params.push(limit);
+
+  return dal.query(query, params);
 }
 
 app.get('/finance', requireLogin, asyncHandler(async (req, res) => {
@@ -1829,11 +1856,21 @@ app.get('/finance/expenses/new', allow('admin', 'treasurer'), asyncHandler(async
 }));
 
 app.get('/finance/income', requireLogin, asyncHandler(async (req, res) => {
-  res.render('finance_list', { kind: 'income', transactions: await financeTransactions('income') });
+  const year = selectedYear(req);
+  const month = req.query.month || '';
+  const category = req.query.category || '';
+  const transactions = await financeTransactions('income', 500, year, month, category);
+  const categories = await dal.query("SELECT DISTINCT category FROM transactions WHERE tx_type = 'receipt' AND tx_date >= $1 AND tx_date <= $2 ORDER BY category", [`${year}-01-01`, `${year}-12-31`]);
+  res.render('finance_list', { kind: 'income', transactions, selectedMonth: month, selectedCategory: category, categories: categories.map(r => r.category), fiscalYear: year });
 }));
 
 app.get('/finance/expenses', requireLogin, asyncHandler(async (req, res) => {
-  res.render('finance_list', { kind: 'expense', transactions: await financeTransactions('expense') });
+  const year = selectedYear(req);
+  const month = req.query.month || '';
+  const category = req.query.category || '';
+  const transactions = await financeTransactions('expense', 500, year, month, category);
+  const categories = await dal.query("SELECT DISTINCT category FROM transactions WHERE tx_type IN ('expense','welfare_payout') AND tx_date >= $1 AND tx_date <= $2 ORDER BY category", [`${year}-01-01`, `${year}-12-31`]);
+  res.render('finance_list', { kind: 'expense', transactions, selectedMonth: month, selectedCategory: category, categories: categories.map(r => r.category), fiscalYear: year });
 }));
 
 app.get('/finance/accounts', requireLogin, asyncHandler(async (req, res) => {
