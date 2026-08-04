@@ -2031,6 +2031,33 @@ body.drawer-open { overflow: hidden; touch-action: none; }
 .status-badge::before { content:'•'; margin-right:var(--space-1); }
 .badge--soft { background:var(--neutral-100); color:var(--neutral-600); }
 
+/* Total row in data tables */
+.data-table__total-row {
+  background-color: var(--neutral-100) !important;
+  border-top: 2px solid var(--color-border-strong);
+}
+.data-table__total-row td {
+  padding-top: var(--space-4);
+  padding-bottom: var(--space-4);
+  font-size: var(--font-size-body);
+}
+
+/* Mobile list total */
+.mobile-list__total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  background: var(--neutral-100);
+  border-top: 2px solid var(--color-border-strong);
+  font-size: var(--font-size-body);
+}
+.mobile-list__total strong {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.1rem;
+  color: var(--primary-700);
+}
+
 /* Existing modules inherit the same controlled list-page width. */
 .main-content > .page-title,
 .main-content > .panel,
