@@ -2163,12 +2163,15 @@ app.get('/reports', requireLogin, asyncHandler(async (req, res) => {
   const summary = await reportSummary(period.startDate, period.endDate);
   const arrears = await arrearsReport(year);
   const incomeByCategory = await dal.query(`
-    SELECT category, COALESCE(SUM(amount - welfare_component), 0) AS total
-    FROM transactions
-    WHERE tx_type = 'receipt' AND status = 'posted'
-      AND tx_date >= $1
-      AND tx_date <= $2
-    GROUP BY category
+    SELECT t.category, COALESCE(SUM(t.amount - t.welfare_component), 0) AS total
+    FROM transactions t
+    JOIN transaction_categories tc ON tc.name = t.category
+    WHERE t.tx_type = 'receipt' AND t.status = 'posted'
+      AND tc.purpose != 'welfare_income'
+      AND t.tx_date >= $1
+      AND t.tx_date <= $2
+    GROUP BY t.category
+    HAVING SUM(t.amount - t.welfare_component) > 0
     ORDER BY total DESC
   `, [period.startDate, period.endDate]);
   const expensesByCategory = await dal.query(`
