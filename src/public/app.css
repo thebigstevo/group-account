@@ -1627,101 +1627,402 @@ body.auth-page {
 }
 
 /* ============================================================
-   5. Print Styles
+   5. Print Styles — Proper Accounting Format
    ============================================================ */
 @media print {
-  /* Show print header */
+  /* ─── Page setup ─── */
+  @page {
+    size: A4 portrait;
+    margin: 20mm 15mm 25mm 15mm;
+  }
+
+  /* ─── Show print header ─── */
   .print-header {
     display: block;
-    padding: var(--space-4) 0;
-    margin-bottom: var(--space-4);
-    border-bottom: 2px solid #000;
+    text-align: center;
+    padding: 0 0 12pt 0;
+    margin-bottom: 12pt;
+    border-bottom: 2pt solid #000;
   }
 
   .print-header__group {
-    font-size: var(--font-size-h2);
-    font-weight: var(--font-weight-bold);
+    font-size: 14pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
   }
 
   .print-header__title {
-    font-size: var(--font-size-h3);
+    font-size: 12pt;
+    font-weight: 600;
+    margin-top: 4pt;
   }
 
   .print-header__date {
-    font-size: var(--font-size-caption);
-    color: #555;
+    font-size: 9pt;
+    color: #333;
+    margin-top: 2pt;
   }
 
-  /* Hide non-essential UI */
+  /* ─── Hide non-essential UI ─── */
   .sidebar,
   .sidebar__backdrop,
   .topbar-mobile,
+  .topbar-desktop,
   .toast-container,
   .skip-nav,
   .btn-group,
   .data-table-controls,
   .data-table-pagination,
-  .modal-backdrop {
+  .modal-backdrop,
+  .modal,
+  .mobile-bottom-nav,
+  .app-footer,
+  .no-print,
+  .report-toolbar,
+  .quick-actions,
+  [data-print],
+  [data-sidebar-toggle],
+  form[action*="reverse"],
+  .actions-cell form,
+  .table-toolbar a,
+  .page-actions {
     display: none !important;
   }
 
-  /* Reset main content layout for print */
-  .main-content {
-    margin-left: 0;
-    padding: 0;
-  }
-
-  /* White background, black text */
+  /* ─── Reset layout ─── */
+  html { font-size: 10pt; }
   body {
-    background-color: #fff;
-    color: #000;
-  }
-
-  * {
+    background: #fff !important;
     color: #000 !important;
-    background-color: transparent !important;
-    box-shadow: none !important;
+    font-family: "Times New Roman", Times, Georgia, serif;
+    line-height: 1.4;
+    padding: 0;
+    margin: 0;
   }
 
-  /* Expand tables */
+  .main-content {
+    margin-left: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+
+  .page-container {
+    max-width: none !important;
+    margin: 0 !important;
+  }
+
+  /* ─── Page title → report heading ─── */
+  .page-title {
+    text-align: center;
+    margin-bottom: 12pt;
+    padding-bottom: 8pt;
+    border-bottom: 1pt solid #000;
+  }
+
+  .page-title .eyebrow {
+    display: block;
+    font-size: 12pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-bottom: 4pt;
+    color: #000 !important;
+  }
+
+  .page-title h1 {
+    font-size: 14pt;
+    font-weight: 700;
+    margin: 0 0 2pt;
+    color: #000 !important;
+  }
+
+  .page-title p {
+    font-size: 9pt;
+    color: #333 !important;
+    margin: 0;
+  }
+
+  .page-title__meta { display: none; }
+
+  /* ─── Summary strip → tabulated figures ─── */
+  .summary-strip {
+    display: table !important;
+    width: 100%;
+    margin: 12pt 0;
+    border: 1pt solid #000;
+    border-radius: 0 !important;
+    overflow: visible !important;
+    background: transparent !important;
+  }
+
+  .summary-strip__item {
+    display: table-cell !important;
+    min-width: auto !important;
+    padding: 6pt 8pt !important;
+    border-right: 1pt solid #ccc;
+    text-align: center;
+    background: transparent !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    flex: none !important;
+  }
+
+  .summary-strip__item:last-child { border-right: none; }
+
+  .summary-strip__label {
+    display: block;
+    font-size: 7pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #333 !important;
+  }
+
+  .summary-strip__value {
+    display: block;
+    font-size: 11pt;
+    font-weight: 700;
+    color: #000 !important;
+  }
+
+  /* ─── Panels & cards → clean sections ─── */
+  .panel,
+  .dashboard-section,
+  .form-card {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin-bottom: 14pt !important;
+    page-break-inside: avoid;
+  }
+
+  .grid.two,
+  .report-grid {
+    display: block !important;
+  }
+
+  .report-grid > .panel {
+    margin-bottom: 14pt !important;
+  }
+
+  /* ─── Section headers ─── */
+  .section-head {
+    margin-bottom: 6pt !important;
+    padding-bottom: 4pt;
+    border-bottom: 0.5pt solid #999;
+  }
+
+  .section-head h2,
+  .panel h2 {
+    font-size: 11pt !important;
+    font-weight: 700 !important;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: #000 !important;
+    margin: 0 0 2pt !important;
+  }
+
+  .section-head p,
+  .table-toolbar p {
+    font-size: 8pt !important;
+    font-style: italic;
+    color: #555 !important;
+    margin: 0 !important;
+  }
+
+  /* ─── Tables → accounting ledger style ─── */
+  .table-wrap,
   .data-table-wrapper {
-    overflow: visible;
-    border: none;
+    overflow: visible !important;
+    border: none !important;
+    border-radius: 0 !important;
   }
 
   .data-table {
-    width: 100%;
-    font-size: 10pt;
+    width: 100% !important;
+    font-size: 8.5pt !important;
+    font-family: "Times New Roman", Times, serif !important;
+    border-collapse: collapse !important;
   }
 
-  .data-table th,
+  .data-table th {
+    background: transparent !important;
+    position: static !important;
+    font-size: 7.5pt !important;
+    font-weight: 700 !important;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+    color: #000 !important;
+    border-bottom: 1.5pt solid #000 !important;
+    border-top: 1.5pt solid #000 !important;
+    padding: 4pt 6pt !important;
+    white-space: nowrap !important;
+  }
+
   .data-table td {
-    border: 1px solid #ccc;
-    padding: 4px 8px;
-    white-space: normal;
+    padding: 3pt 6pt !important;
+    border-bottom: 0.5pt solid #ccc !important;
+    white-space: normal !important;
+    color: #000 !important;
+    vertical-align: top !important;
   }
 
   .data-table th:first-child,
   .data-table td:first-child {
-    position: static;
+    position: static !important;
   }
 
-  /* Avoid page break inside table rows */
-  .data-table tr {
+  .data-table tbody tr:nth-child(even) {
+    background: transparent !important;
+  }
+
+  .data-table tbody tr:hover {
+    background: transparent !important;
+  }
+
+  /* Numeric columns — right-aligned, monospace */
+  .data-table .num,
+  .data-table td[class*="num"] {
+    text-align: right !important;
+    font-family: "Courier New", monospace !important;
+    font-variant-numeric: tabular-nums !important;
+  }
+
+  /* Total/subtotal row */
+  .data-table__total-row {
+    background: transparent !important;
+    border-top: 1pt double #000 !important;
+  }
+
+  .data-table__total-row td {
+    padding-top: 5pt !important;
+    font-weight: 700 !important;
+    border-bottom: 1.5pt solid #000 !important;
+  }
+
+  .data-table tfoot {
+    border-top: 1pt solid #000;
+  }
+
+  /* ─── Account list → ledger lines ─── */
+  .account-list {
+    border: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+
+  .account-row,
+  .report-account-row {
+    border-bottom: 0.5pt solid #ccc !important;
+    padding: 4pt 0 !important;
+  }
+
+  .report-account-row:last-child,
+  .account-row:last-child {
+    border-bottom: 1pt solid #000 !important;
+  }
+
+  /* ─── Report notes → two-column ledger ─── */
+  .report-notes > div {
+    border-bottom: 0.5pt dotted #999 !important;
+    padding: 3pt 0 !important;
+  }
+
+  .report-notes dt {
+    font-size: 8.5pt !important;
+    color: #000 !important;
+  }
+
+  .report-notes dd {
+    font-size: 9pt !important;
+    font-family: "Courier New", monospace !important;
+  }
+
+  /* ─── Badges → plain text ─── */
+  .badge {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    font-size: 8pt !important;
+    color: #000 !important;
+  }
+
+  .badge::before { content: none !important; }
+  .status-badge::before { content: none !important; }
+
+  /* ─── Hide interactive elements ─── */
+  button[type="submit"],
+  .btn,
+  a.btn {
+    display: none !important;
+  }
+
+  /* Keep Export CSV visible as text */
+  .table-toolbar {
+    display: flex !important;
+    justify-content: space-between !important;
+    margin-bottom: 6pt !important;
+  }
+
+  .table-toolbar h2 { display: block !important; }
+
+  /* ─── Page breaks ─── */
+  .panel,
+  section {
     page-break-inside: avoid;
   }
 
-  /* Links show URL */
-  a[href]::after {
-    content: " (" attr(href) ")";
-    font-size: 0.8em;
-    color: #555 !important;
+  h2, h3 {
+    page-break-after: avoid;
   }
 
-  a.sidebar__link::after,
-  a.btn::after {
-    content: none;
+  table {
+    page-break-inside: auto;
   }
+
+  tr {
+    page-break-inside: avoid;
+  }
+
+  /* ─── Running balance section needs room ─── */
+  .data-table tr:last-child td {
+    border-bottom: 1.5pt solid #000 !important;
+  }
+
+  /* ─── Links → no URLs appended (too noisy for accounting reports) ─── */
+  a[href]::after { content: none !important; }
+
+  /* ─── Signature block (add via print-footer class) ─── */
+  .print-signatures {
+    display: block !important;
+    margin-top: 30pt;
+    page-break-inside: avoid;
+  }
+
+  .print-signatures__line {
+    display: inline-block;
+    width: 45%;
+    margin-top: 30pt;
+    padding-top: 6pt;
+    border-top: 0.5pt solid #000;
+    font-size: 8pt;
+    text-align: center;
+    vertical-align: top;
+  }
+
+  .print-signatures__line:first-child { margin-right: 8%; }
+
+  /* ─── Finance nav hidden ─── */
+  .finance-nav { display: none !important; }
+
+  /* ─── Mobile list hidden (use tables for print) ─── */
+  .mobile-list { display: none !important; }
+  .desktop-table { display: block !important; }
+
+  /* ─── Ensure table toolbar shows title ─── */
+  .table-toolbar > div { display: block !important; }
 }
 
 /* ============================================================

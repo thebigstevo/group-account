@@ -96,5 +96,12 @@
       <% arrears.filter(function(row) { return row.balance > 0; }).forEach(function(row) { %><tr><td><%= row.name %></td><td><%= row.phone || '' %></td><td class="num"><%= formatMoney(row.opening_arrears) %></td><td class="num"><%= formatMoney(row.assessment_due) %></td><td class="num"><%= formatMoney(row.paid) %></td><td class="num"><%= formatMoney(row.balance) %></td></tr><% }) %>
     </tbody></table></div>
   </section>
+
+  <!-- Signature block (visible only when printing) -->
+  <section class="print-signatures" style="display:none">
+    <p style="font-size:9pt;margin-bottom:4pt;font-style:italic">Prepared and presented as a true record of the financial position for the period stated above.</p>
+    <div class="print-signatures__line">Treasurer / Finance Secretary</div>
+    <div class="print-signatures__line">President / Chairman</div>
+  </section>
 </div>
 <%- include('partials/footer') %>
