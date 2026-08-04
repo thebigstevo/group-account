@@ -64,8 +64,8 @@
             </div>
             <div class="form-group">
               <label for="edit-welfare">Welfare portion</label>
-              <input id="edit-welfare" name="welfare_component" type="number" step="0.01" value="<%= (locals.values && locals.values.welfare_component) || transaction.welfare_component || 0 %>">
-              <span class="form-group__hint">Amount allocated to welfare from this receipt.</span>
+              <input id="edit-welfare" name="welfare_component" type="number" step="0.01" value="<%= (locals.values && locals.values.welfare_component) || transaction.welfare_component || 0 %>" placeholder="Leave blank to auto-calculate">
+              <span class="form-group__hint">Leave blank to recalculate from rules. Enter a value to override.</span>
             </div>
             <% } %>
             <div class="form-group field-grid__full">

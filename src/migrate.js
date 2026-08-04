@@ -611,6 +611,11 @@ async function migrate() {
   await run(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS is_welfare_fund BOOLEAN NOT NULL DEFAULT false`);
   console.log('[migrate]   ✓ accounts.is_welfare_fund column');
 
+  // ─── Split transaction linking ───
+  await run(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS split_group_id INTEGER`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_transactions_split_group ON transactions(split_group_id) WHERE split_group_id IS NOT NULL`);
+  console.log('[migrate]   ✓ transactions.split_group_id column');
+
   // Business-specific accounts, categories, and dues are configured in the application.
 
   console.log('[migrate] Migration complete.');

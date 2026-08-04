@@ -1945,6 +1945,10 @@ app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer
         RETURNING id
       `, [req.body.tx_date, req.body.member_id || null, welfareAccount.id, welfareCatName, (req.body.description ? req.body.description + ' (welfare)' : 'Welfare portion'), welfare, welfare, req.body.reference || null, req.session.user.id]);
 
+      // Link them with a split_group_id (use the operating transaction's ID)
+      const groupId = opResult.rows[0].id;
+      await client.query('UPDATE transactions SET split_group_id = $1 WHERE id IN ($2, $3)', [groupId, opResult.rows[0].id, wfResult.rows[0].id]);
+
       await dal.audit(req.session.user.id, 'create', 'receipt', opResult.rows[0].id, `${req.body.category} ${operatingAmount} (operating split)`);
       await dal.audit(req.session.user.id, 'create', 'receipt', wfResult.rows[0].id, `${welfareCatName} ${welfare} (welfare split)`);
     });
@@ -2043,7 +2047,24 @@ app.post('/transactions/:id/edit', allow('admin', 'finance_secretary', 'treasure
   if (!req.body.category) errors.push('Category is required.');
   if (!req.body.account_id) errors.push('Account is required.');
 
-  const welfare = isIncome ? Number(req.body.welfare_component || 0) : 0;
+  // Auto-calculate welfare if the field is empty (not manually overridden)
+  let welfare = 0;
+  if (isIncome) {
+    const welfareFieldValue = req.body.welfare_component;
+    const welfareManuallySet = welfareFieldValue !== undefined && welfareFieldValue !== null && String(welfareFieldValue).trim() !== '';
+    if (welfareManuallySet) {
+      welfare = Number(welfareFieldValue);
+    } else {
+      // Recalculate from rules
+      welfare = await calculateWelfareComponent({
+        memberId: req.body.member_id || null,
+        category: req.body.category,
+        amount,
+        txDate: req.body.tx_date,
+        enteredWelfare: null
+      });
+    }
+  }
   if (isIncome && (welfare < 0 || welfare > amount)) errors.push('Welfare portion must be between 0 and the total amount.');
 
   if (errors.length) {
@@ -2086,6 +2107,40 @@ app.post('/transactions/:id/edit', allow('admin', 'finance_secretary', 'treasure
   await dal.audit(req.session.user.id, 'update', 'transaction', txId, `Edited: ${req.body.category} ${amount}`, {
     ip_address: getClientIp(req), user_agent: req.get('user-agent'), before_value: beforeValue, after_value: afterValue
   });
+
+  // If this transaction is part of a split pair, update the sibling automatically
+  if (isIncome && transaction.split_group_id) {
+    const sibling = await dal.queryOne(
+      'SELECT * FROM transactions WHERE split_group_id = $1 AND id != $2 AND status = $3',
+      [transaction.split_group_id, txId, 'posted']
+    );
+    if (sibling) {
+      // Determine which one is operating and which is welfare
+      const welfareAccount = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
+      const thisIsWelfare = welfareAccount && Number(transaction.account_id) === welfareAccount.id;
+      const siblingIsWelfare = welfareAccount && Number(sibling.account_id) === welfareAccount.id;
+
+      if (siblingIsWelfare) {
+        // We edited the operating part — recalculate welfare sibling
+        const newWelfare = await calculateWelfareComponent({
+          memberId: req.body.member_id || null,
+          category: req.body.category,
+          amount: amount + Number(sibling.amount), // total original receipt = operating + welfare
+          txDate: req.body.tx_date,
+          enteredWelfare: null
+        });
+        const totalReceipt = amount + newWelfare; // not used for update, just context
+        await dal.run('UPDATE transactions SET tx_date = $1, member_id = $2, amount = $3, welfare_component = $3, description = $4, reference = $5, updated_at = NOW() WHERE id = $6',
+          [req.body.tx_date, req.body.member_id || null, newWelfare, req.body.description ? req.body.description + ' (welfare)' : sibling.description, req.body.reference || null, sibling.id]);
+        await dal.audit(req.session.user.id, 'update', 'transaction', sibling.id, `Auto-updated welfare sibling: ${newWelfare}`);
+      } else if (thisIsWelfare) {
+        // We edited the welfare part — update the operating sibling's date/member/reference
+        await dal.run('UPDATE transactions SET tx_date = $1, member_id = $2, reference = $3, updated_at = NOW() WHERE id = $4',
+          [req.body.tx_date, req.body.member_id || null, req.body.reference || null, sibling.id]);
+        await dal.audit(req.session.user.id, 'update', 'transaction', sibling.id, `Auto-updated operating sibling metadata`);
+      }
+    }
+  }
 
   req.session.flash = { type: 'success', message: 'Transaction updated successfully.' };
   res.redirect(isIncome ? '/finance/income' : '/finance/expenses');
