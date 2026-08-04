@@ -2006,6 +2006,90 @@ app.post('/transactions/transfer', allow('admin', 'treasurer'), asyncHandler(asy
   res.redirect('/transactions');
 }));
 
+// ─── Transaction Edit ────────────────────────────────────────────────────────
+
+app.get('/transactions/:id/edit', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  const txId = Number(req.params.id);
+  const transaction = await dal.queryOne('SELECT * FROM transactions WHERE id = $1', [txId]);
+  if (!transaction) return res.status(404).render('error', { message: 'Transaction not found.' });
+  if (transaction.status !== 'posted') return res.status(400).render('error', { message: 'Only posted transactions can be edited.' });
+  if (transaction.reconciled) return res.status(400).render('error', { message: 'Reconciled transactions cannot be edited. Use reversal instead.' });
+
+  const isIncome = transaction.tx_type === 'receipt';
+  const kind = isIncome ? 'income' : 'expense';
+  const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
+  const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
+  const categories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind IN ($1, 'both') ORDER BY sort_order, name", [kind]);
+  res.render('transaction_edit', { transaction, members, accounts, categories });
+}));
+
+app.post('/transactions/:id/edit', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  const txId = Number(req.params.id);
+  const transaction = await dal.queryOne('SELECT * FROM transactions WHERE id = $1', [txId]);
+  if (!transaction) return res.status(404).render('error', { message: 'Transaction not found.' });
+  if (transaction.status !== 'posted') return res.status(400).render('error', { message: 'Only posted transactions can be edited.' });
+  if (transaction.reconciled) return res.status(400).render('error', { message: 'Reconciled transactions cannot be edited. Use reversal instead.' });
+
+  const isIncome = transaction.tx_type === 'receipt';
+  const kind = isIncome ? 'income' : 'expense';
+  const errors = [];
+
+  const amount = Number(req.body.amount || 0);
+  if (!Number.isFinite(amount) || amount <= 0) errors.push('Amount must be greater than zero.');
+  if (!req.body.tx_date) errors.push('Date is required.');
+  if (!req.body.category) errors.push('Category is required.');
+  if (!req.body.account_id) errors.push('Account is required.');
+
+  const welfare = isIncome ? Number(req.body.welfare_component || 0) : 0;
+  if (isIncome && (welfare < 0 || welfare > amount)) errors.push('Welfare portion must be between 0 and the total amount.');
+
+  if (errors.length) {
+    const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
+    const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
+    const categories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind IN ($1, 'both') ORDER BY sort_order, name", [kind]);
+    return res.status(400).render('transaction_edit', { transaction, members, accounts, categories, errors, values: req.body });
+  }
+
+  // Store before values for audit
+  const beforeValue = {
+    tx_date: transaction.tx_date, amount: transaction.amount, category: transaction.category,
+    account_id: transaction.account_id, member_id: transaction.member_id,
+    welfare_component: transaction.welfare_component, description: transaction.description, reference: transaction.reference
+  };
+
+  await dal.run(`
+    UPDATE transactions
+    SET tx_date = $1, amount = $2, category = $3, account_id = $4, member_id = $5,
+        welfare_component = $6, description = $7, reference = $8, updated_at = NOW()
+    WHERE id = $9
+  `, [
+    req.body.tx_date,
+    amount,
+    req.body.category,
+    Number(req.body.account_id),
+    req.body.member_id ? Number(req.body.member_id) : null,
+    welfare,
+    req.body.description || null,
+    req.body.reference || null,
+    txId
+  ]);
+
+  const afterValue = {
+    tx_date: req.body.tx_date, amount, category: req.body.category,
+    account_id: Number(req.body.account_id), member_id: req.body.member_id ? Number(req.body.member_id) : null,
+    welfare_component: welfare, description: req.body.description || null, reference: req.body.reference || null
+  };
+
+  await dal.audit(req.session.user.id, 'update', 'transaction', txId, `Edited: ${req.body.category} ${amount}`, {
+    ip_address: getClientIp(req), user_agent: req.get('user-agent'), before_value: beforeValue, after_value: afterValue
+  });
+
+  req.session.flash = { type: 'success', message: 'Transaction updated successfully.' };
+  res.redirect(isIncome ? '/finance/income' : '/finance/expenses');
+}));
+
+// ─── Transaction Reverse ────────────────────────────────────────────────────
+
 app.post('/transactions/:id/reverse', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
   const txId = Number(req.params.id);
   const original = await dal.queryOne('SELECT * FROM transactions WHERE id = $1', [txId]);

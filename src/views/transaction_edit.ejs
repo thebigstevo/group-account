@@ -1,0 +1,99 @@
+<%- include('partials/header') %>
+<% locals.title = 'Edit Transaction'; %>
+<% const isIncome = transaction.tx_type === 'receipt'; %>
+<div class="page-container page-container--form">
+  <section class="page-title">
+    <div>
+      <span class="eyebrow">Transaction #<%= transaction.id %></span>
+      <h1>Edit <%= isIncome ? 'income' : 'expense' %></h1>
+      <p>Correct this entry. Changes are audit-logged.</p>
+    </div>
+  </section>
+
+  <% if (locals.errors && locals.errors.length) { %>
+  <div class="error-summary" role="alert"><h2>Please fix the following</h2><ul><% locals.errors.forEach(function(err) { %><li><%= err %></li><% }) %></ul></div>
+  <% } %>
+
+  <section class="form-layout">
+    <div class="form-card">
+      <form method="post" action="/transactions/<%= transaction.id %>/edit" class="stack" data-validate>
+        <%- include('partials/csrf') %>
+
+        <div class="form-section">
+          <div class="form-section__heading"><h2>Details</h2></div>
+          <div class="field-grid">
+            <div class="form-group">
+              <label for="edit-date">Date *</label>
+              <input id="edit-date" name="tx_date" type="date" required value="<%= (locals.values && locals.values.tx_date) || transaction.tx_date %>">
+            </div>
+            <div class="form-group">
+              <label for="edit-amount">Amount *</label>
+              <input id="edit-amount" name="amount" type="number" step="0.01" required value="<%= (locals.values && locals.values.amount) || transaction.amount %>">
+            </div>
+            <div class="form-group">
+              <label for="edit-category">Category *</label>
+              <select id="edit-category" name="category" required>
+                <% categories.forEach(function(cat) { %>
+                <option value="<%= cat.name %>" <%= ((locals.values && locals.values.category) || transaction.category) === cat.name ? 'selected' : '' %>><%= cat.name %></option>
+                <% }) %>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="edit-account"><%= isIncome ? 'Received into' : 'Paid from' %> *</label>
+              <select id="edit-account" name="account_id" required>
+                <% accounts.forEach(function(acc) { %>
+                <option value="<%= acc.id %>" <%= Number((locals.values && locals.values.account_id) || transaction.account_id) === acc.id ? 'selected' : '' %>><%= acc.name %></option>
+                <% }) %>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <div class="form-section__heading"><h2>Context</h2></div>
+          <div class="field-grid">
+            <% if (isIncome) { %>
+            <div class="form-group">
+              <label for="edit-member">Member</label>
+              <select id="edit-member" name="member_id">
+                <option value="">— No member —</option>
+                <% members.forEach(function(m) { %>
+                <option value="<%= m.id %>" <%= Number((locals.values && locals.values.member_id) || transaction.member_id) === m.id ? 'selected' : '' %>><%= m.name %></option>
+                <% }) %>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="edit-welfare">Welfare portion</label>
+              <input id="edit-welfare" name="welfare_component" type="number" step="0.01" value="<%= (locals.values && locals.values.welfare_component) || transaction.welfare_component || 0 %>">
+              <span class="form-group__hint">Amount allocated to welfare from this receipt.</span>
+            </div>
+            <% } %>
+            <div class="form-group field-grid__full">
+              <label for="edit-description">Description</label>
+              <input id="edit-description" name="description" value="<%= (locals.values && locals.values.description) || transaction.description || '' %>">
+            </div>
+            <div class="form-group">
+              <label for="edit-reference">Reference</label>
+              <input id="edit-reference" name="reference" value="<%= (locals.values && locals.values.reference) || transaction.reference || '' %>">
+            </div>
+          </div>
+        </div>
+
+        <div class="action-bar">
+          <a class="btn btn--secondary" href="<%= isIncome ? '/finance/income' : '/finance/expenses' %>">Cancel</a>
+          <button class="btn btn--primary" type="submit">Save changes</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="side-panel">
+      <h2>About editing</h2>
+      <ul class="guidance-list">
+        <li>Only unreconciled transactions can be edited</li>
+        <li>All changes are recorded in the audit trail</li>
+        <li>Use reversal for reconciled transactions</li>
+      </ul>
+    </div>
+  </section>
+</div>
+<%- include('partials/footer') %>
