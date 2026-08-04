@@ -2329,6 +2329,12 @@ body.drawer-open { overflow: hidden; touch-action: none; }
 .transaction-card__top { display:flex; justify-content:space-between; gap:var(--space-3); }
 .transaction-card__amount { flex:0 0 auto; font-variant-numeric:tabular-nums; font-weight:700; }
 .transaction-card__meta { display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:var(--space-2); color:var(--color-text-muted); font-size:var(--font-size-caption); }
+
+.transaction-card__actions {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--neutral-100);
+}
 .table-toolbar { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); margin-bottom:var(--space-4); }
 .num { text-align:right !important; font-variant-numeric:tabular-nums; }
 .status-badge::before { content:'•'; margin-right:var(--space-1); }
