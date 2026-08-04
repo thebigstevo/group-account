@@ -4,12 +4,18 @@
 <section class="panel narrow">
   <% if (locals.errors && locals.errors.length) { %><div class="error-summary" role="alert"><h2>Please correct these fields</h2><ul><% locals.errors.forEach(function(err) { %><li><%= err %></li><% }) %></ul></div><% } %>
   <% const value = function(key, fallback) { return locals.values ? (locals.values[key] || '') : (fallback || ''); }; %>
+  <%
+    // Pre-fill first/last name from the combined name field if individual fields are empty
+    const nameParts = (member.name || '').trim().split(/\s+/);
+    const inferredFirst = member.first_name || (nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : nameParts[0] || '');
+    const inferredLast = member.last_name || (nameParts.length > 1 ? nameParts[nameParts.length - 1] : '');
+  %>
   <form method="post" action="/members/<%= member.id %>" class="stack" data-validate><%- include('partials/csrf') %>
     <fieldset class="fieldset"><legend>Identity <span class="required-legend">* Required</span></legend>
       <div class="grid two"><div class="form-group"><label for="edit-title">Title</label><input id="edit-title" name="title" value="<%= value('title', member.title) %>"></div><div class="form-group"><label for="edit-preferred">Preferred name</label><input id="edit-preferred" name="preferred_name" value="<%= value('preferred_name', member.preferred_name) %>"></div></div>
-      <div class="form-group"><label for="edit-first">First name *</label><input id="edit-first" name="first_name" value="<%= value('first_name', member.first_name) %>" required></div>
+      <div class="form-group"><label for="edit-first">First name *</label><input id="edit-first" name="first_name" value="<%= value('first_name', inferredFirst) %>" required></div>
       <div class="form-group"><label for="edit-middle">Middle name</label><input id="edit-middle" name="middle_name" value="<%= value('middle_name', member.middle_name) %>"></div>
-      <div class="form-group"><label for="edit-last">Last name *</label><input id="edit-last" name="last_name" value="<%= value('last_name', member.last_name) %>" required></div>
+      <div class="form-group"><label for="edit-last">Last name *</label><input id="edit-last" name="last_name" value="<%= value('last_name', inferredLast) %>" required></div>
       <div class="form-group"><label for="edit-dob">Date of birth</label><input id="edit-dob" name="dob" type="date" value="<%= value('dob', member.dob) %>"></div>
     </fieldset>
     <fieldset class="fieldset"><legend>Contact</legend>
