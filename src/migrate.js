@@ -607,6 +607,10 @@ async function migrate() {
 
   console.log('[migrate]   ✓ Indexes created');
 
+  // ─── Welfare auto-split: designate an account as the welfare fund target ───
+  await run(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS is_welfare_fund BOOLEAN NOT NULL DEFAULT false`);
+  console.log('[migrate]   ✓ accounts.is_welfare_fund column');
+
   // Business-specific accounts, categories, and dues are configured in the application.
 
   console.log('[migrate] Migration complete.');

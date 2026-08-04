@@ -1107,14 +1107,22 @@ app.post('/config/accounts/:id', allow('admin', 'treasurer'), asyncHandler(async
     req.session.flash = { type: 'error', message: 'Account name and opening balance must be valid.' };
     return res.redirect('/config');
   }
+  const isWelfareFund = req.body.is_welfare_fund ? true : false;
+
+  // If marking this account as welfare fund, clear the flag from any other account first
+  if (isWelfareFund) {
+    await dal.run('UPDATE accounts SET is_welfare_fund = false WHERE is_welfare_fund = true AND id != $1', [Number(req.params.id)]);
+  }
+
   await dal.run(`
     UPDATE accounts
-    SET name = $1, opening_balance = $2, active = $3
-    WHERE id = $4
+    SET name = $1, opening_balance = $2, active = $3, is_welfare_fund = $4
+    WHERE id = $5
   `, [
     name,
     openingBalance,
     req.body.active ? true : false,
+    isWelfareFund,
     Number(req.params.id)
   ]);
   await dal.audit(req.session.user.id, 'update', 'account', Number(req.params.id), name);
@@ -1908,13 +1916,48 @@ app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer
   if (welfare < 0 || welfare > amount) {
     return res.status(400).render('finance_form', { ...(await financeFormData('income')), errors: ['Welfare component must be between zero and the total amount received.'], values: req.body });
   }
-  const result = await dal.run(`
-    INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
-    VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, $8, $9)
-    RETURNING id
-  `, [req.body.tx_date, req.body.member_id || null, Number(req.body.account_id), receiptCategory.name, req.body.description || null, amount, welfare, req.body.reference || null, req.session.user.id]);
-  await dal.audit(req.session.user.id, 'create', 'receipt', result.rows[0].id, `${req.body.category} ${amount}`);
-  req.session.flash = { type: 'success', message: 'Receipt saved successfully.' };
+
+  // Check if a designated welfare account exists for auto-splitting
+  const welfareAccount = await dal.queryOne('SELECT id, name FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
+  const shouldSplit = welfare > 0 && welfareAccount && welfareAccount.id !== Number(req.body.account_id);
+
+  if (shouldSplit) {
+    // Split into two transactions: operating portion → selected account, welfare portion → welfare account
+    const operatingAmount = amount - welfare;
+    const welfareCategory = await dal.queryOne("SELECT name FROM transaction_categories WHERE purpose = 'welfare_income' AND active = true LIMIT 1");
+    const welfareCatName = welfareCategory ? welfareCategory.name : receiptCategory.name;
+
+    await dal.transaction(async (client) => {
+      // Transaction 1: Operating portion into selected account
+      const opResult = await client.query(`
+        INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
+        VALUES ($1, 'receipt', $2, $3, $4, $5, $6, 0, $7, $8)
+        RETURNING id
+      `, [req.body.tx_date, req.body.member_id || null, Number(req.body.account_id), receiptCategory.name, req.body.description || null, operatingAmount, req.body.reference || null, req.session.user.id]);
+
+      // Transaction 2: Welfare portion into welfare account
+      const wfResult = await client.query(`
+        INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
+        VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING id
+      `, [req.body.tx_date, req.body.member_id || null, welfareAccount.id, welfareCatName, (req.body.description ? req.body.description + ' (welfare)' : 'Welfare portion'), welfare, welfare, req.body.reference || null, req.session.user.id]);
+
+      await dal.audit(req.session.user.id, 'create', 'receipt', opResult.rows[0].id, `${req.body.category} ${operatingAmount} (operating split)`);
+      await dal.audit(req.session.user.id, 'create', 'receipt', wfResult.rows[0].id, `${welfareCatName} ${welfare} (welfare split)`);
+    });
+
+    req.session.flash = { type: 'success', message: `Receipt split: ${operatingAmount.toFixed(2)} operating + ${welfare.toFixed(2)} welfare (→ ${welfareAccount.name}).` };
+  } else {
+    // Standard single transaction (no split)
+    const result = await dal.run(`
+      INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
+      VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id
+    `, [req.body.tx_date, req.body.member_id || null, Number(req.body.account_id), receiptCategory.name, req.body.description || null, amount, welfare, req.body.reference || null, req.session.user.id]);
+    await dal.audit(req.session.user.id, 'create', 'receipt', result.rows[0].id, `${req.body.category} ${amount}`);
+    req.session.flash = { type: 'success', message: 'Receipt saved successfully.' };
+  }
+
   res.redirect('/finance/income');
 }));
 
