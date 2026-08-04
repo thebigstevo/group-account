@@ -1790,7 +1790,7 @@ app.post('/dues/overrides/:id/delete', allow('admin', 'finance_secretary'), asyn
 async function financeFormData(kind) {
   const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
   const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
-  const categories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind IN ($1, 'both') ORDER BY sort_order, name", [kind]);
+  const categories = await dal.query("SELECT name, purpose FROM transaction_categories WHERE active = true AND kind IN ($1, 'both') ORDER BY sort_order, name", [kind]);
   return { members, accounts, categories, kind };
 }
 
@@ -1902,6 +1902,9 @@ app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer
     [req.body.category]
   );
   if (!receiptCategory) return res.status(400).render('finance_form', { ...(await financeFormData('income')), errors: ['Select an active income category.'], values: req.body });
+  if (receiptCategory.purpose === 'assessment' && !req.body.member_id) {
+    return res.status(400).render('finance_form', { ...(await financeFormData('income')), errors: ['A member must be selected for assessment payments.'], values: req.body });
+  }
   const receiptAccount = await dal.queryOne('SELECT id FROM accounts WHERE id = $1 AND active = true', [Number(req.body.account_id)]);
   if (!receiptAccount) return res.status(400).render('finance_form', { ...(await financeFormData('income')), errors: ['Select an active account to receive the income.'], values: req.body });
   const amount = Number(req.body.amount || 0);
