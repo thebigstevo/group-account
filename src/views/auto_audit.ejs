@@ -9,6 +9,7 @@
     </div>
     <div class="page-title__meta">
       <span class="badge <%= audit.score >= 80 ? 'badge--success' : audit.score >= 60 ? 'badge--warning' : 'badge--danger' %>">Score: <%= audit.score %>%</span>
+      <a class="btn btn--primary btn--sm" href="/auto-audit?year=<%= audit.year %>&format=pdf">Download PDF</a>
       <button class="btn btn--secondary btn--sm" type="button" data-print>Print</button>
     </div>
   </section>

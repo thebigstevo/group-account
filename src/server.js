@@ -2484,6 +2484,54 @@ app.get('/auto-audit', allow('admin', 'auditor', 'trustee', 'treasurer'), asyncH
   const { runAutoAudit } = require('./autoAudit');
   const year = Number(req.query.year || selectedYear(req));
   const audit = await runAutoAudit(year);
+
+  if (req.query.format === 'pdf') {
+    const doc = pdf.createDoc({ title: 'Automated Audit Report', period: `Fiscal Year ${year}`, groupName: config.groupName });
+
+    // Score summary
+    pdf.sectionHeading(doc, 'Audit Summary');
+    pdf.tableRow(doc, 'Overall Score', `${audit.score}%`, { bold: true });
+    pdf.tableRow(doc, 'Checks Passed', `${audit.passed} of ${audit.totalChecks}`);
+    pdf.tableRow(doc, 'Warnings', String(audit.warnings));
+    pdf.tableRow(doc, 'Failures', String(audit.failures));
+    doc.moveDown(0.5);
+
+    // Individual checks
+    pdf.sectionHeading(doc, 'Detailed Findings');
+    audit.checks.forEach(function(check) {
+      if (doc.y > 700) doc.addPage();
+      const icon = check.status === 'pass' ? '✓ PASS' : check.status === 'warning' ? '⚠ WARNING' : '✗ FAIL';
+      doc.font('Helvetica-Bold').fontSize(9).text(`${icon} — ${check.title}`, pdf.MARGIN, doc.y, { width: pdf.CONTENT_WIDTH });
+      doc.font('Helvetica').fontSize(8).fillColor('#555').text(check.description, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
+      doc.fillColor('#000').text(`Finding: ${check.detail}`, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
+      doc.fontSize(7).fillColor('#999').text(`Severity: ${check.severity}`, pdf.MARGIN + 10, doc.y);
+      doc.fillColor('#000');
+      doc.moveDown(0.6);
+    });
+
+    // Manual checks
+    if (doc.y > 620) doc.addPage();
+    pdf.sectionHeading(doc, 'Manual Verification Required');
+    const manualItems = [
+      'Physical vouchers/receipts are on file for all expenses',
+      'Bank statement originals match reconciled figures',
+      'Authorisations were obtained before expenditure',
+      'Proper procurement procedures were followed',
+      'Governance meetings held regularly (minutes available)',
+      'Membership register matches attendance records',
+      'Assets register is up to date'
+    ];
+    manualItems.forEach(function(item) {
+      doc.font('Helvetica').fontSize(8).text(`☐  ${item}`, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
+      doc.moveDown(0.3);
+    });
+
+    pdf.signatureBlock(doc);
+    pdf.sendPdf(res, doc, `Auto-Audit-Report-FY${year}.pdf`);
+    await dal.audit(req.session.user.id, 'download', 'auto_audit_report', null, `FY ${year}`);
+    return;
+  }
+
   res.render('auto_audit', { audit });
 }));
 
