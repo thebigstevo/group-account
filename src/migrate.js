@@ -616,6 +616,36 @@ async function migrate() {
   await run(`CREATE INDEX IF NOT EXISTS idx_transactions_split_group ON transactions(split_group_id) WHERE split_group_id IS NOT NULL`);
   console.log('[migrate]   ✓ transactions.split_group_id column');
 
+  // ─── Organization settings ───
+  await run(`
+    CREATE TABLE IF NOT EXISTS organization_settings (
+      id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      name VARCHAR(255) NOT NULL DEFAULT 'My Organization',
+      short_name VARCHAR(50),
+      address TEXT,
+      city VARCHAR(100),
+      region VARCHAR(100),
+      country VARCHAR(100) DEFAULT 'Ghana',
+      phone VARCHAR(50),
+      email VARCHAR(255),
+      website VARCHAR(255),
+      motto TEXT,
+      letterhead_line1 VARCHAR(255),
+      letterhead_line2 VARCHAR(255),
+      letterhead_line3 VARCHAR(255),
+      currency VARCHAR(10) NOT NULL DEFAULT 'GHS',
+      registration_number VARCHAR(100),
+      founded_year INTEGER,
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await run(`
+    INSERT INTO organization_settings (id, name, currency)
+    VALUES (1, 'My Organization', 'GHS')
+    ON CONFLICT (id) DO NOTHING
+  `);
+  console.log('[migrate]   ✓ organization_settings table');
+
   // Business-specific accounts, categories, and dues are configured in the application.
 
   console.log('[migrate] Migration complete.');

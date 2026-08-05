@@ -4,6 +4,7 @@
   <section class="page-title">
     <div><span class="eyebrow">Governance · Independent review</span><h1>Trustee audit workspace</h1><p>Review the account books, supporting records, reconciliations, budget performance, and system trail for <%= year %>.</p></div>
     <div class="page-actions">
+      <a class="btn btn--primary" href="/auto-audit?year=<%= year %>">Run Auto Audit</a>
       <a class="btn btn--secondary" href="/trustee-audit/report/<%= year %>">Download Report</a>
       <a class="btn btn--secondary" href="/export/transactions?startDate=<%= evidence.startDate %>&endDate=<%= evidence.endDate %>">Transactions CSV</a>
       <% if (['admin','auditor','trustee'].includes(user.role)) { %><a class="btn btn--secondary" href="/export/audit-log?days=400">Audit trail CSV</a><% } %>

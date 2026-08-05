@@ -34,6 +34,29 @@
         <p><%= check.description %></p>
         <small><strong>Finding:</strong> <%= check.detail %></small>
         <small style="display:block; margin-top:4px; color: var(--neutral-400);">Severity: <%= check.severity %></small>
+
+        <% if (check.evidence && check.evidence.length > 0) { %>
+        <details style="margin-top: var(--space-3);">
+          <summary class="btn btn--secondary btn--sm">View <%= check.evidence.length %> record(s)</summary>
+          <div class="table-wrap" style="margin-top: var(--space-2);">
+            <table class="data-table">
+              <thead><tr><th>ID</th><th>Date</th><th>Category</th><th>Member</th><th class="num">Amount</th><th>Description</th></tr></thead>
+              <tbody>
+                <% check.evidence.forEach(function(row) { %>
+                <tr>
+                  <td><a href="/transactions/<%= row.id %>/edit">#<%= row.id %></a></td>
+                  <td><%= row.date %></td>
+                  <td><%= row.category %></td>
+                  <td><%= row.member %></td>
+                  <td class="num"><%= formatMoney(row.amount) %></td>
+                  <td><%= row.description || row.reference || '—' %></td>
+                </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+        </details>
+        <% } %>
       </div>
     </div>
     <% }) %>

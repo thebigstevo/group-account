@@ -10,7 +10,7 @@ const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 
 /**
  * Create a standard report PDF document with header.
- * @param {Object} opts - { title, subtitle, groupName, period }
+ * @param {Object} opts - { title, subtitle, groupName, period, org }
  * @returns {PDFDocument}
  */
 function createDoc(opts = {}) {
@@ -24,9 +24,26 @@ function createDoc(opts = {}) {
     }
   });
 
-  // Header
-  doc.font('Helvetica-Bold').fontSize(14).text(opts.groupName || 'KSJI', { align: 'center' });
-  doc.fontSize(11).text(opts.title || 'Financial Report', { align: 'center' });
+  const org = opts.org || {};
+
+  // Letterhead (if configured)
+  if (org.letterhead_line1 || org.letterhead_line2 || org.letterhead_line3) {
+    doc.font('Helvetica-Bold').fontSize(12);
+    if (org.letterhead_line1) doc.text(org.letterhead_line1, { align: 'center' });
+    doc.font('Helvetica').fontSize(10);
+    if (org.letterhead_line2) doc.text(org.letterhead_line2, { align: 'center' });
+    doc.fontSize(8);
+    if (org.letterhead_line3) doc.text(org.letterhead_line3, { align: 'center' });
+    doc.moveDown(0.3);
+  } else {
+    // Fallback: use group name
+    doc.font('Helvetica-Bold').fontSize(14).text(opts.groupName || org.name || 'Organization', { align: 'center' });
+    if (org.motto) doc.font('Helvetica').fontSize(8).text(org.motto, { align: 'center' });
+    doc.moveDown(0.2);
+  }
+
+  // Report title
+  doc.font('Helvetica-Bold').fontSize(11).text(opts.title || 'Financial Report', { align: 'center' });
   if (opts.subtitle || opts.period) {
     doc.font('Helvetica').fontSize(9).text(opts.subtitle || opts.period || '', { align: 'center' });
   }

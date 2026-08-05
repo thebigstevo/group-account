@@ -1,0 +1,120 @@
+<%- include('partials/header') %>
+<% locals.title = 'Organization Settings'; %>
+<div class="page-container page-container--form">
+  <section class="page-title">
+    <div>
+      <span class="eyebrow">Administration</span>
+      <h1>Organization Profile</h1>
+      <p>Configure your group's identity. These details appear on reports, PDFs, statements, and the login page.</p>
+    </div>
+  </section>
+
+  <% if (locals.errors && locals.errors.length) { %>
+  <div class="error-summary" role="alert"><h2>Please fix the following</h2><ul><% locals.errors.forEach(function(err) { %><li><%= err %></li><% }) %></ul></div>
+  <% } %>
+
+  <section class="form-layout">
+    <form method="post" action="/organization" class="form-card" data-validate>
+      <%- include('partials/csrf') %>
+
+      <div class="form-section">
+        <div class="form-section__heading"><h2>Identity</h2><p>The official name and branding of your organization.</p></div>
+        <div class="field-grid">
+          <div class="form-group field-grid__full">
+            <label for="org-name">Organization name *</label>
+            <input id="org-name" name="name" required value="<%= org.name %>">
+          </div>
+          <div class="form-group">
+            <label for="org-short">Short name / Abbreviation</label>
+            <input id="org-short" name="short_name" value="<%= org.short_name || '' %>" placeholder="e.g., KSJI">
+          </div>
+          <div class="form-group">
+            <label for="org-reg">Registration number</label>
+            <input id="org-reg" name="registration_number" value="<%= org.registration_number || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-founded">Year founded</label>
+            <input id="org-founded" name="founded_year" type="number" value="<%= org.founded_year || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-currency">Currency code *</label>
+            <input id="org-currency" name="currency" required value="<%= org.currency %>" placeholder="GHS">
+            <span class="form-group__hint">ISO 4217 code (GHS, USD, GBP, NGN, etc.)</span>
+          </div>
+          <div class="form-group field-grid__full">
+            <label for="org-motto">Motto / Tagline</label>
+            <input id="org-motto" name="motto" value="<%= org.motto || '' %>">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section__heading"><h2>Contact & Address</h2><p>Used on letterheads and official documents.</p></div>
+        <div class="field-grid">
+          <div class="form-group field-grid__full">
+            <label for="org-address">Address</label>
+            <textarea id="org-address" name="address" rows="2"><%= org.address || '' %></textarea>
+          </div>
+          <div class="form-group">
+            <label for="org-city">City / Town</label>
+            <input id="org-city" name="city" value="<%= org.city || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-region">Region / State</label>
+            <input id="org-region" name="region" value="<%= org.region || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-country">Country</label>
+            <input id="org-country" name="country" value="<%= org.country || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-phone">Phone</label>
+            <input id="org-phone" name="phone" inputmode="tel" value="<%= org.phone || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-email">Email</label>
+            <input id="org-email" name="email" type="email" value="<%= org.email || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-website">Website</label>
+            <input id="org-website" name="website" value="<%= org.website || '' %>">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section__heading"><h2>Letterhead</h2><p>Up to 3 lines displayed on PDF report headers.</p></div>
+        <div class="field-grid">
+          <div class="form-group field-grid__full">
+            <label for="org-lh1">Letterhead line 1</label>
+            <input id="org-lh1" name="letterhead_line1" value="<%= org.letterhead_line1 || '' %>" placeholder="e.g., Knights of St. John International">
+          </div>
+          <div class="form-group field-grid__full">
+            <label for="org-lh2">Letterhead line 2</label>
+            <input id="org-lh2" name="letterhead_line2" value="<%= org.letterhead_line2 || '' %>" placeholder="e.g., Accra Commandery No. 33">
+          </div>
+          <div class="form-group field-grid__full">
+            <label for="org-lh3">Letterhead line 3</label>
+            <input id="org-lh3" name="letterhead_line3" value="<%= org.letterhead_line3 || '' %>" placeholder="e.g., P.O. Box 12345, Accra, Ghana">
+          </div>
+        </div>
+      </div>
+
+      <div class="action-bar">
+        <a class="btn btn--secondary" href="/config">Cancel</a>
+        <button class="btn btn--primary" type="submit">Save Organization Profile</button>
+      </div>
+    </form>
+
+    <aside class="side-panel">
+      <h2>About this page</h2>
+      <ul class="guidance-list">
+        <li>The organization name appears in the sidebar, login page, and all reports</li>
+        <li>Letterhead lines appear at the top of PDF downloads</li>
+        <li>Currency code affects how amounts are formatted throughout the app</li>
+        <li>Contact details appear on member statements and formal reports</li>
+      </ul>
+    </aside>
+  </section>
+</div>
+<%- include('partials/footer') %>

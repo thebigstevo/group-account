@@ -58,6 +58,15 @@ async function runAutoAudit(year) {
     WHERE status = 'reversed' AND tx_date >= $1 AND tx_date <= $2
   `, [yearStart, yearEnd]);
   const reversedCount = Number(reversedRow.count);
+  let reversedEvidence = [];
+  if (reversedCount > 0) {
+    reversedEvidence = await dal.query(`
+      SELECT t.id, t.tx_date, t.amount, t.category, t.description, m.name AS member_name
+      FROM transactions t LEFT JOIN members m ON m.id = t.member_id
+      WHERE t.status = 'reversed' AND t.tx_date >= $1 AND t.tx_date <= $2
+      ORDER BY t.tx_date DESC LIMIT 20
+    `, [yearStart, yearEnd]);
+  }
   checks.push({
     id: 'reversals',
     title: 'Transaction Reversals',
@@ -66,7 +75,11 @@ async function runAutoAudit(year) {
     detail: reversedCount === 0
       ? 'No reversals recorded — clean transaction history.'
       : `${reversedCount} transaction(s) reversed during the year.`,
-    severity: 'medium'
+    severity: 'medium',
+    evidence: reversedEvidence.map(t => ({
+      id: t.id, date: t.tx_date, amount: Number(t.amount), category: t.category,
+      member: t.member_name || '—', description: t.description || ''
+    }))
   });
 
   // ─── 4. Welfare Fund Integrity ───
@@ -210,6 +223,26 @@ async function runAutoAudit(year) {
     GROUP BY tx_date, member_id, amount, category
     HAVING COUNT(*) > 1
   `, [yearStart, yearEnd]);
+
+  // Fetch actual duplicate transaction details for drill-down
+  let duplicateDetails = [];
+  if (duplicates.length > 0) {
+    duplicateDetails = await dal.query(`
+      SELECT t.id, t.tx_date, t.amount, t.category, t.description, t.reference, m.name AS member_name
+      FROM transactions t
+      LEFT JOIN members m ON m.id = t.member_id
+      WHERE t.status = 'posted' AND t.tx_date >= $1 AND t.tx_date <= $2
+        AND (t.tx_date, t.member_id, t.amount, t.category) IN (
+          SELECT tx_date, member_id, amount, category
+          FROM transactions
+          WHERE status = 'posted' AND tx_date >= $1 AND tx_date <= $2
+          GROUP BY tx_date, member_id, amount, category
+          HAVING COUNT(*) > 1
+        )
+      ORDER BY t.tx_date, t.category, t.member_id
+    `, [yearStart, yearEnd]);
+  }
+
   checks.push({
     id: 'duplicates',
     title: 'Potential Duplicate Transactions',
@@ -218,7 +251,11 @@ async function runAutoAudit(year) {
     detail: duplicates.length === 0
       ? 'No potential duplicates found.'
       : `${duplicates.length} group(s) of potentially duplicate transactions detected.`,
-    severity: 'medium'
+    severity: 'medium',
+    evidence: duplicateDetails.map(t => ({
+      id: t.id, date: t.tx_date, amount: Number(t.amount), category: t.category,
+      member: t.member_name || '—', description: t.description || '', reference: t.reference || ''
+    }))
   });
 
   // ─── Score Summary ───

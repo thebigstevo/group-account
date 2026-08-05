@@ -158,17 +158,30 @@ function validateCsrf(req, res, next) {
   next();
 }
 
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   res.locals.csrfToken = generateCsrfToken(req.session);
   res.locals.user = req.session.user || null;
   res.locals.currentPath = req.path;
   res.locals.title = 'Treasurio';
-  res.locals.groupName = config.groupName;
-  res.locals.groupCurrency = config.groupCurrency;
   res.locals.assetVersion = assetVersion;
+
+  // Load organization settings (cached in app.locals, refreshed every 60s)
+  if (!app.locals._orgCache || Date.now() - app.locals._orgCacheTime > 60000) {
+    try {
+      const orgRow = await dal.queryOne('SELECT * FROM organization_settings WHERE id = 1');
+      app.locals._orgCache = orgRow || { name: config.groupName, currency: config.groupCurrency || 'GHS' };
+    } catch (e) {
+      app.locals._orgCache = { name: config.groupName, currency: config.groupCurrency || 'GHS' };
+    }
+    app.locals._orgCacheTime = Date.now();
+  }
+  const org = app.locals._orgCache;
+  res.locals.groupName = org.name || config.groupName;
+  res.locals.groupCurrency = org.currency || config.groupCurrency || 'GHS';
+  res.locals.org = org;
   res.locals.formatMoney = (value) => Number(value || 0).toLocaleString(undefined, {
     style: 'currency',
-    currency: config.groupCurrency
+    currency: res.locals.groupCurrency
   });
   res.locals.formatDate = formatDate;
   res.locals.formatDateTime = formatDateTime;
@@ -1003,6 +1016,54 @@ app.post('/change-password', requireLogin, asyncHandler(async (req, res) => {
   await dal.audit(user.id, 'password_change', 'user', user.id, user.email);
   req.session.flash = { type: 'success', message: 'Password changed successfully.' };
   res.redirect('/change-password');
+}));
+
+// ─── Organization Settings ────────────────────────────────────────────────────
+
+app.get('/organization', allow('admin'), asyncHandler(async (req, res) => {
+  const org = await dal.queryOne('SELECT * FROM organization_settings WHERE id = 1');
+  res.render('organization', { org: org || { name: 'My Organization', currency: 'GHS' } });
+}));
+
+app.post('/organization', allow('admin'), asyncHandler(async (req, res) => {
+  const errors = [];
+  if (!req.body.name || !req.body.name.trim()) errors.push('Organization name is required.');
+  if (!req.body.currency || !req.body.currency.trim()) errors.push('Currency code is required.');
+
+  if (errors.length) {
+    const org = await dal.queryOne('SELECT * FROM organization_settings WHERE id = 1') || { name: '', currency: 'GHS' };
+    return res.status(400).render('organization', { org: { ...org, ...req.body }, errors });
+  }
+
+  await dal.run(`
+    UPDATE organization_settings SET
+      name = $1, short_name = $2, address = $3, city = $4, region = $5,
+      country = $6, phone = $7, email = $8, website = $9, motto = $10,
+      letterhead_line1 = $11, letterhead_line2 = $12, letterhead_line3 = $13,
+      currency = $14, registration_number = $15, founded_year = $16, updated_at = NOW()
+    WHERE id = 1
+  `, [
+    req.body.name.trim(),
+    req.body.short_name ? req.body.short_name.trim() : null,
+    req.body.address ? req.body.address.trim() : null,
+    req.body.city ? req.body.city.trim() : null,
+    req.body.region ? req.body.region.trim() : null,
+    req.body.country ? req.body.country.trim() : null,
+    req.body.phone ? req.body.phone.trim() : null,
+    req.body.email ? req.body.email.trim() : null,
+    req.body.website ? req.body.website.trim() : null,
+    req.body.motto ? req.body.motto.trim() : null,
+    req.body.letterhead_line1 ? req.body.letterhead_line1.trim() : null,
+    req.body.letterhead_line2 ? req.body.letterhead_line2.trim() : null,
+    req.body.letterhead_line3 ? req.body.letterhead_line3.trim() : null,
+    req.body.currency.trim().toUpperCase(),
+    req.body.registration_number ? req.body.registration_number.trim() : null,
+    req.body.founded_year ? Number(req.body.founded_year) : null
+  ]);
+
+  await dal.audit(req.session.user.id, 'update', 'organization', 1, req.body.name.trim());
+  req.session.flash = { type: 'success', message: 'Organization profile updated.' };
+  res.redirect('/organization');
 }));
 
 app.get('/config', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
@@ -2486,7 +2547,7 @@ app.get('/auto-audit', allow('admin', 'auditor', 'trustee', 'treasurer'), asyncH
   const audit = await runAutoAudit(year);
 
   if (req.query.format === 'pdf') {
-    const doc = pdf.createDoc({ title: 'Automated Audit Report', period: `Fiscal Year ${year}`, groupName: config.groupName });
+    const doc = pdf.createDoc({ title: 'Automated Audit Report', period: `Fiscal Year ${year}`, groupName: config.groupName, org: res.locals.org });
 
     // Score summary
     pdf.sectionHeading(doc, 'Audit Summary');
@@ -2945,7 +3006,7 @@ app.get('/download/income-expenditure', requireLogin, asyncHandler(async (req, r
       const totalExpenses = expenses.reduce((s, r) => s + Number(r.total), 0);
       const surplus = totalIncome - totalExpenses;
 
-      const doc = pdf.createDoc({ title: 'Income & Expenditure Statement', period: `Period: ${label}`, groupName: config.groupName });
+      const doc = pdf.createDoc({ title: 'Income & Expenditure Statement', period: `Period: ${label}`, groupName: config.groupName, org: res.locals.org });
       pdf.sectionHeading(doc, 'Income');
       income.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 10 }));
       pdf.tableRow(doc, 'Total Income', pdf.fmtMoney(totalIncome), { bold: true, total: true });
@@ -2991,7 +3052,7 @@ app.get('/download/receipts-payments', requireLogin, asyncHandler(async (req, re
 
     if (req.query.format === 'pdf') {
       const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY name');
-      const doc = pdf.createDoc({ title: 'Receipts & Payments Statement', period: `Period: ${label}`, groupName: config.groupName });
+      const doc = pdf.createDoc({ title: 'Receipts & Payments Statement', period: `Period: ${label}`, groupName: config.groupName, org: res.locals.org });
 
       for (const account of accounts) {
         const receipts = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND status = 'posted' AND account_id = $1 AND tx_date >= $2 AND tx_date <= $3 GROUP BY category ORDER BY total DESC`, [account.id, startDate, endDate]);
@@ -3058,7 +3119,7 @@ app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) =>
       const totalPaidOut = payouts.reduce((s, r) => s + Number(r.total), 0);
       const liability = totalCollected - totalPaidOut;
 
-      const doc = pdf.createDoc({ title: 'Welfare Fund Statement', period: `Period: ${label}`, groupName: config.groupName });
+      const doc = pdf.createDoc({ title: 'Welfare Fund Statement', period: `Period: ${label}`, groupName: config.groupName, org: res.locals.org });
       pdf.sectionHeading(doc, 'Welfare Collections');
       collected.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 10 }));
       pdf.tableRow(doc, 'Total Welfare Collected', pdf.fmtMoney(totalCollected), { bold: true, total: true });
@@ -3110,7 +3171,7 @@ app.get('/download/financial-position', requireLogin, asyncHandler(async (req, r
       const totalAssets = balances.reduce((s, a) => s + a.balance, 0);
       const netAssets = totalAssets - welfare;
 
-      const doc = pdf.createDoc({ title: 'Statement of Financial Position', period: `As at ${label}`, groupName: config.groupName });
+      const doc = pdf.createDoc({ title: 'Statement of Financial Position', period: `As at ${label}`, groupName: config.groupName, org: res.locals.org });
 
       pdf.sectionHeading(doc, 'Assets');
       balances.forEach(a => pdf.tableRow(doc, `${a.name} (${a.type})`, pdf.fmtMoney(a.balance), { indent: 10 }));
@@ -3155,7 +3216,7 @@ app.get('/download/member-statement', requireLogin, asyncHandler(async (req, res
       const totalAllReceipts = allTransactions.filter(t => t.tx_type === 'receipt').reduce((s, t) => s + Number(t.amount), 0);
       const balance = Number(member.opening_arrears || 0) + Number(due.assessment_due) - assessmentPaid;
 
-      const doc = pdf.createDoc({ title: 'Member Statement', subtitle: `${member.name} — Year ${year}`, groupName: config.groupName });
+      const doc = pdf.createDoc({ title: 'Member Statement', subtitle: `${member.name} — Year ${year}`, groupName: config.groupName, org: res.locals.org });
 
       pdf.sectionHeading(doc, 'Assessment Summary');
       pdf.tableRow(doc, 'Member', member.name);
