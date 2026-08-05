@@ -2726,6 +2726,58 @@ app.post('/users/:id/reset-password', allow('admin'), asyncHandler(async (req, r
   res.redirect('/users');
 }));
 
+// Body-based reset password (from the select dropdown form)
+app.post('/users/reset-password', allow('admin'), asyncHandler(async (req, res) => {
+  const userId = Number(req.body.user_id);
+  if (!userId) {
+    req.session.flash = { type: 'error', message: 'Please select a user.' };
+    return res.redirect('/users');
+  }
+  const target = await dal.queryOne('SELECT * FROM users WHERE id = $1', [userId]);
+  if (!target) {
+    req.session.flash = { type: 'error', message: 'User not found.' };
+    return res.redirect('/users');
+  }
+  if (!req.body.new_password || req.body.new_password.length < 8) {
+    req.session.flash = { type: 'error', message: 'Password must be at least 8 characters.' };
+    return res.redirect('/users');
+  }
+  await dal.run('UPDATE users SET password_hash = $1 WHERE id = $2', [hashPassword(req.body.new_password), target.id]);
+  await dal.audit(req.session.user.id, 'password_reset', 'user', target.id, target.email);
+  req.session.flash = { type: 'success', message: `Password reset for ${target.name}.` };
+  res.redirect('/users');
+}));
+
+// Edit user (name/email)
+app.post('/users/:id/edit', allow('admin'), asyncHandler(async (req, res) => {
+  const target = await dal.queryOne('SELECT * FROM users WHERE id = $1', [Number(req.params.id)]);
+  if (!target) return res.status(404).render('error', { message: 'User not found.' });
+  const name = (req.body.name || '').trim();
+  const email = (req.body.email || '').trim();
+  if (!name || !email) {
+    req.session.flash = { type: 'error', message: 'Name and email are required.' };
+    return res.redirect('/users');
+  }
+  await dal.run('UPDATE users SET name = $1, email = $2 WHERE id = $3', [name, email, target.id]);
+  await dal.audit(req.session.user.id, 'update', 'user', target.id, `${name} (${email})`);
+  req.session.flash = { type: 'success', message: `User ${name} updated.` };
+  res.redirect('/users');
+}));
+
+// Delete user
+app.post('/users/:id/delete', allow('admin'), asyncHandler(async (req, res) => {
+  const target = await dal.queryOne('SELECT * FROM users WHERE id = $1', [Number(req.params.id)]);
+  if (!target) return res.status(404).render('error', { message: 'User not found.' });
+  if (target.id === req.session.user.id) {
+    req.session.flash = { type: 'error', message: 'You cannot delete your own account.' };
+    return res.redirect('/users');
+  }
+  await dal.run('DELETE FROM users WHERE id = $1', [target.id]);
+  await dal.audit(req.session.user.id, 'delete', 'user', target.id, target.email);
+  req.session.flash = { type: 'success', message: `User ${target.name} deleted.` };
+  res.redirect('/users');
+}));
+
 app.get('/trustee-dashboard', allow('admin', 'trustee', 'auditor'), asyncHandler(async (req, res) => {
   const balances = await accountBalances();
   const latestAudit = await latestCompletedAudit();

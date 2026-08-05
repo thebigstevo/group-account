@@ -5,9 +5,7 @@
 <div class="error-summary" role="alert" aria-live="assertive">
   <h2>There were errors with your submission</h2>
   <ul>
-    <% locals.errors.forEach(function(err) { %>
-      <li><%= err %></li>
-    <% }) %>
+    <% locals.errors.forEach(function(err) { %><li><%= err %></li><% }) %>
   </ul>
 </div>
 <% } %>
@@ -23,23 +21,23 @@
             <tr>
               <td><%= row.name %></td>
               <td><%= row.email %></td>
-              <td><span class="badge"><%= row.role.replace('_', ' ') %></span></td>
+              <td><span class="badge"><%= row.role.replace(/_/g, ' ') %></span></td>
               <td><span class="badge <%= row.active ? 'badge--success' : 'badge--soft' %>"><%= row.active ? 'Active' : 'Inactive' %></span></td>
               <td>
                 <% if (row.id !== user.id) { %>
+                <div class="btn-group" style="flex-wrap:wrap; gap:4px;">
                   <details class="inline-edit">
-                    <summary class="btn btn--secondary btn--sm">Change role</summary>
+                    <summary class="btn btn--secondary btn--sm">Role</summary>
                     <form method="post" action="/users/<%= row.id %>/role" class="inline-form stack">
                       <%- include('partials/csrf') %>
                       <div class="form-group">
-                        <label>New role</label>
                         <select name="role" required>
                           <option value="secretary" <%= row.role === 'secretary' ? 'selected' : '' %>>Secretary</option>
                           <option value="finance_secretary" <%= row.role === 'finance_secretary' ? 'selected' : '' %>>Finance Secretary</option>
                           <option value="treasurer" <%= row.role === 'treasurer' ? 'selected' : '' %>>Treasurer</option>
                           <option value="president" <%= row.role === 'president' ? 'selected' : '' %>>President</option>
-                          <option value="first_vice_president" <%= row.role === 'first_vice_president' ? 'selected' : '' %>>First Vice President</option>
-                          <option value="second_vice_president" <%= row.role === 'second_vice_president' ? 'selected' : '' %>>Second Vice President</option>
+                          <option value="first_vice_president" <%= row.role === 'first_vice_president' ? 'selected' : '' %>>First VP</option>
+                          <option value="second_vice_president" <%= row.role === 'second_vice_president' ? 'selected' : '' %>>Second VP</option>
                           <option value="commander" <%= row.role === 'commander' ? 'selected' : '' %>>Commander</option>
                           <option value="trustee" <%= row.role === 'trustee' ? 'selected' : '' %>>Trustee</option>
                           <option value="executive" <%= row.role === 'executive' ? 'selected' : '' %>>Executive</option>
@@ -51,10 +49,18 @@
                       <button class="btn btn--primary btn--sm" type="submit">Save</button>
                     </form>
                   </details>
-                  <form method="post" action="/users/<%= row.id %>/toggle" style="display: inline;">
-                    <%- include('partials/csrf') %>
-                    <button class="btn btn--secondary btn--sm" type="submit"><%= row.active ? 'Deactivate' : 'Activate' %></button>
-                  </form>
+                  <details class="inline-edit">
+                    <summary class="btn btn--secondary btn--sm">Edit</summary>
+                    <form method="post" action="/users/<%= row.id %>/edit" class="inline-form stack">
+                      <%- include('partials/csrf') %>
+                      <div class="form-group"><label>Name</label><input name="name" value="<%= row.name %>" required></div>
+                      <div class="form-group"><label>Email</label><input name="email" type="email" value="<%= row.email %>" required></div>
+                      <button class="btn btn--primary btn--sm" type="submit">Save</button>
+                    </form>
+                  </details>
+                  <form method="post" action="/users/<%= row.id %>/toggle" style="display:inline"><%- include('partials/csrf') %><button class="btn btn--secondary btn--sm" type="submit"><%= row.active ? 'Deactivate' : 'Activate' %></button></form>
+                  <form method="post" action="/users/<%= row.id %>/delete" style="display:inline" data-modal-confirm data-modal-title="Delete user" data-modal-body="Permanently delete this user? This cannot be undone."><%- include('partials/csrf') %><button class="btn btn--danger btn--sm" type="submit">Delete</button></form>
+                </div>
                 <% } %>
               </td>
             </tr>
@@ -69,22 +75,9 @@
       <%- include('partials/csrf') %>
       <fieldset class="fieldset">
         <legend>User details <span class="required-legend">* Required</span></legend>
-
-        <div class="form-group">
-          <label for="user-name">Name *</label>
-          <input id="user-name" name="name" required value="<%= (locals.values && locals.values.name) || '' %>">
-        </div>
-
-        <div class="form-group">
-          <label for="user-email">Email *</label>
-          <input id="user-email" name="email" type="email" required value="<%= (locals.values && locals.values.email) || '' %>">
-        </div>
-
-        <div class="form-group">
-          <label for="user-password">Password *</label>
-          <input id="user-password" name="password" type="password" required minlength="8">
-        </div>
-
+        <div class="form-group"><label for="user-name">Name *</label><input id="user-name" name="name" required value="<%= (locals.values && locals.values.name) || '' %>"></div>
+        <div class="form-group"><label for="user-email">Email *</label><input id="user-email" name="email" type="email" required value="<%= (locals.values && locals.values.email) || '' %>"></div>
+        <div class="form-group"><label for="user-password">Password *</label><input id="user-password" name="password" type="password" required minlength="8"></div>
         <div class="form-group">
           <label for="user-role">Role</label>
           <select id="user-role" name="role">
@@ -97,7 +90,7 @@
             <option value="commander">Commander</option>
             <option value="trustee">Trustee</option>
             <option value="executive">Executive</option>
-            <option value="viewer">Executive Viewer</option>
+            <option value="viewer">Viewer</option>
             <option value="auditor">Auditor</option>
             <option value="admin">Admin</option>
           </select>
@@ -107,21 +100,19 @@
     </form>
 
     <h2 style="margin-top: var(--space-6);">Reset user password</h2>
-    <form method="post" class="stack" id="reset-form" action="/users/0/reset-password" data-validate>
+    <form method="post" action="/users/reset-password" class="stack">
       <%- include('partials/csrf') %>
       <fieldset class="fieldset">
         <legend>Password reset <span class="required-legend">* Required</span></legend>
-
         <div class="form-group">
           <label for="reset-user-select">User *</label>
-          <select id="reset-user-select" name="user_id" required onchange="document.getElementById('reset-form').action='/users/' + this.value + '/reset-password'">
+          <select id="reset-user-select" name="user_id" required>
             <option value="">Select a user</option>
             <% users.filter(function(u) { return u.id !== user.id; }).forEach(function(row) { %>
               <option value="<%= row.id %>"><%= row.name %> (<%= row.email %>)</option>
             <% }) %>
           </select>
         </div>
-
         <div class="form-group">
           <label for="reset-new-password">New password *</label>
           <input id="reset-new-password" name="new_password" type="password" required minlength="8">
