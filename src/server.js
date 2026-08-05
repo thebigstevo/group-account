@@ -368,7 +368,7 @@ app.get('/', requireLogin, asyncHandler(async (req, res) => {
     const yearStart = `${year}-01-01`;
     const yearEnd = `${year}-12-31`;
     const summary = await reportSummary(yearStart, yearEnd);
-    const dashboardMonth = monthPeriod(year, year === new Date().getFullYear() ? new Date().getMonth() + 1 : 1);
+    const dashboardMonth = monthPeriod(year, year === new Date().getFullYear() ? new Date().getMonth() + 1 : 12);
     const monthSummary = await reportSummary(dashboardMonth.startDate, dashboardMonth.endDate);
     const recent = await dal.query(`
       SELECT t.*, m.name AS member_name, a.name AS account_name

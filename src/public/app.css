@@ -2342,6 +2342,40 @@ body.drawer-open { overflow: hidden; touch-action: none; }
 .status-badge::before { content:'•'; margin-right:var(--space-1); }
 .badge--soft { background:var(--neutral-100); color:var(--neutral-600); }
 
+/* Icon-only buttons */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--neutral-500);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.btn-icon:hover {
+  background: var(--neutral-100);
+  color: var(--neutral-700);
+  border-color: var(--neutral-300);
+}
+
+.btn-icon:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.btn-icon--danger:hover {
+  background: var(--danger-light);
+  color: var(--danger-base);
+  border-color: var(--danger-base);
+}
+
+.btn-icon svg { flex-shrink: 0; }
+
 /* Total row in data tables */
 .data-table__total-row {
   background-color: var(--neutral-100) !important;
