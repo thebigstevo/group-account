@@ -10,14 +10,16 @@ const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 
 // Brand colors
 const COLORS = {
-  primary: '#1e40af',       // Deep blue
-  primaryLight: '#3b82f6',  // Lighter blue
-  primaryBg: '#eff6ff',     // Very light blue background
+  primary: '#2563eb',       // Vibrant blue (lighter)
+  primaryLight: '#60a5fa',  // Soft blue
+  primaryBg: '#f0f7ff',     // Very light blue background
+  headerBg: '#4f86f7',      // Medium blue for header (glossy feel)
+  headerDark: '#3b6de0',    // Slightly darker for title bar
   accent: '#0f766e',        // Teal for positive numbers
   danger: '#dc2626',        // Red for negative
   dark: '#1e293b',          // Near-black for headings
   muted: '#64748b',         // Gray for secondary text
-  border: '#cbd5e1',        // Light gray border
+  border: '#e2e8f0',        // Light gray border
   surface: '#f8fafc',       // Light surface
   white: '#ffffff'
 };
@@ -41,7 +43,7 @@ function createDoc(opts = {}) {
   const org = opts.org || {};
 
   // ─── Header Banner ───
-  doc.rect(0, 0, PAGE_WIDTH, 85).fill(COLORS.primary);
+  doc.rect(0, 0, PAGE_WIDTH, 85).fill(COLORS.headerBg);
 
   // Organization name (white on blue)
   const orgName = org.letterhead_line1 || org.name || opts.groupName || 'Organization';
@@ -50,19 +52,19 @@ function createDoc(opts = {}) {
 
   // Subtitle line (lighter text)
   if (org.letterhead_line2 || org.motto) {
-    doc.font('Helvetica').fontSize(9).fillColor('#bfdbfe');
+    doc.font('Helvetica').fontSize(9).fillColor('#dbeafe');
     doc.text(org.letterhead_line2 || org.motto, MARGIN, 38, { width: CONTENT_WIDTH, align: 'center' });
   }
 
   // Contact line
   if (org.letterhead_line3 || org.phone || org.email) {
     const contactLine = org.letterhead_line3 || [org.phone, org.email].filter(Boolean).join(' • ');
-    doc.font('Helvetica').fontSize(7.5).fillColor('#93c5fd');
+    doc.font('Helvetica').fontSize(7.5).fillColor('#bfdbfe');
     doc.text(contactLine, MARGIN, 52, { width: CONTENT_WIDTH, align: 'center' });
   }
 
-  // Report title bar (slightly lighter strip)
-  doc.rect(0, 85, PAGE_WIDTH, 32).fill('#1d4ed8');
+  // Report title bar (slightly darker strip)
+  doc.rect(0, 85, PAGE_WIDTH, 32).fill(COLORS.headerDark);
   doc.font('Helvetica-Bold').fontSize(11).fillColor(COLORS.white);
   doc.text(opts.title || 'Financial Report', MARGIN, 93, { width: CONTENT_WIDTH, align: 'center' });
 

@@ -2573,6 +2573,9 @@ app.get('/auto-audit', allow('admin', 'auditor', 'trustee', 'treasurer'), asyncH
     // Manual checks
     if (doc.y > 620) doc.addPage();
     pdf.sectionHeading(doc, 'Manual Verification Required');
+
+    // Light background box for the checklist
+    const checklistStartY = doc.y;
     const manualItems = [
       'Physical vouchers/receipts are on file for all expenses',
       'Bank statement originals match reconciled figures',
@@ -2582,10 +2585,20 @@ app.get('/auto-audit', allow('admin', 'auditor', 'trustee', 'treasurer'), asyncH
       'Membership register matches attendance records',
       'Assets register is up to date'
     ];
+    const checklistHeight = manualItems.length * 18 + 16;
+    doc.rect(pdf.MARGIN, checklistStartY - 4, pdf.CONTENT_WIDTH, checklistHeight).fill('#f0f7ff');
+
+    doc.font('Helvetica').fontSize(7.5).fillColor('#475569');
+    doc.text('The following items require physical inspection and cannot be verified by the system:', pdf.MARGIN + 12, checklistStartY + 2, { width: pdf.CONTENT_WIDTH - 24 });
+    doc.moveDown(0.5);
+
     manualItems.forEach(function(item) {
-      doc.font('Helvetica').fontSize(8).text(`☐  ${item}`, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
-      doc.moveDown(0.3);
+      doc.font('Helvetica').fontSize(8.5).fillColor('#1e293b');
+      doc.text(`☐   ${item}`, pdf.MARGIN + 16, doc.y, { width: pdf.CONTENT_WIDTH - 32 });
+      doc.moveDown(0.5);
     });
+    doc.fillColor('#1e293b');
+    doc.moveDown(0.3);
 
     pdf.signatureBlock(doc);
     pdf.sendPdf(res, doc, `Auto-Audit-Report-FY${year}.pdf`);
