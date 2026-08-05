@@ -100,6 +100,36 @@
         </div>
       </div>
 
+      <div class="form-section">
+        <div class="form-section__heading"><h2>Report Signatories</h2><p>Names and titles that appear on the signature lines of PDF reports.</p></div>
+        <div class="field-grid">
+          <div class="form-group">
+            <label for="org-sig1-title">Signatory 1 — Title</label>
+            <input id="org-sig1-title" name="signatory1_title" value="<%= org.signatory1_title || '' %>" placeholder="e.g., Treasurer">
+          </div>
+          <div class="form-group">
+            <label for="org-sig1-name">Signatory 1 — Name</label>
+            <input id="org-sig1-name" name="signatory1_name" value="<%= org.signatory1_name || '' %>" placeholder="e.g., Sir John Mensah">
+          </div>
+          <div class="form-group">
+            <label for="org-sig2-title">Signatory 2 — Title</label>
+            <input id="org-sig2-title" name="signatory2_title" value="<%= org.signatory2_title || '' %>" placeholder="e.g., President">
+          </div>
+          <div class="form-group">
+            <label for="org-sig2-name">Signatory 2 — Name</label>
+            <input id="org-sig2-name" name="signatory2_name" value="<%= org.signatory2_name || '' %>" placeholder="e.g., Sir Kwame Asante">
+          </div>
+          <div class="form-group">
+            <label for="org-sig3-title">Signatory 3 — Title (optional)</label>
+            <input id="org-sig3-title" name="signatory3_title" value="<%= org.signatory3_title || '' %>" placeholder="e.g., Auditor">
+          </div>
+          <div class="form-group">
+            <label for="org-sig3-name">Signatory 3 — Name (optional)</label>
+            <input id="org-sig3-name" name="signatory3_name" value="<%= org.signatory3_name || '' %>" placeholder="e.g., Sir Kofi Owusu">
+          </div>
+        </div>
+      </div>
+
       <div class="action-bar">
         <a class="btn btn--secondary" href="/config">Cancel</a>
         <button class="btn btn--primary" type="submit">Save Organization Profile</button>

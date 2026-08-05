@@ -1040,7 +1040,11 @@ app.post('/organization', allow('admin'), asyncHandler(async (req, res) => {
       name = $1, short_name = $2, address = $3, city = $4, region = $5,
       country = $6, phone = $7, email = $8, website = $9, motto = $10,
       letterhead_line1 = $11, letterhead_line2 = $12, letterhead_line3 = $13,
-      currency = $14, registration_number = $15, founded_year = $16, updated_at = NOW()
+      currency = $14, registration_number = $15, founded_year = $16,
+      signatory1_title = $17, signatory1_name = $18,
+      signatory2_title = $19, signatory2_name = $20,
+      signatory3_title = $21, signatory3_name = $22,
+      updated_at = NOW()
     WHERE id = 1
   `, [
     req.body.name.trim(),
@@ -1058,7 +1062,13 @@ app.post('/organization', allow('admin'), asyncHandler(async (req, res) => {
     req.body.letterhead_line3 ? req.body.letterhead_line3.trim() : null,
     req.body.currency.trim().toUpperCase(),
     req.body.registration_number ? req.body.registration_number.trim() : null,
-    req.body.founded_year ? Number(req.body.founded_year) : null
+    req.body.founded_year ? Number(req.body.founded_year) : null,
+    req.body.signatory1_title ? req.body.signatory1_title.trim() : null,
+    req.body.signatory1_name ? req.body.signatory1_name.trim() : null,
+    req.body.signatory2_title ? req.body.signatory2_title.trim() : null,
+    req.body.signatory2_name ? req.body.signatory2_name.trim() : null,
+    req.body.signatory3_title ? req.body.signatory3_title.trim() : null,
+    req.body.signatory3_name ? req.body.signatory3_name.trim() : null
   ]);
 
   await dal.audit(req.session.user.id, 'update', 'organization', 1, req.body.name.trim());
@@ -2600,7 +2610,7 @@ app.get('/auto-audit', allow('admin', 'auditor', 'trustee', 'treasurer'), asyncH
     doc.fillColor('#1e293b');
     doc.moveDown(0.3);
 
-    pdf.signatureBlock(doc);
+    pdf.signatureBlock(doc, res.locals.org);
     pdf.sendPdf(res, doc, `Auto-Audit-Report-FY${year}.pdf`);
     await dal.audit(req.session.user.id, 'download', 'auto_audit_report', null, `FY ${year}`);
     return;
@@ -3030,7 +3040,7 @@ app.get('/download/income-expenditure', requireLogin, asyncHandler(async (req, r
 
       doc.moveDown(0.5);
       pdf.tableRow(doc, surplus >= 0 ? 'Net Surplus' : 'Net Deficit', pdf.fmtMoney(Math.abs(surplus)), { bold: true, total: true });
-      pdf.signatureBlock(doc);
+      pdf.signatureBlock(doc, res.locals.org);
       pdf.sendPdf(res, doc, `Income-Expenditure-${label.replace(/\s+/g, '-')}.pdf`);
     } else {
       const csv = await incomeAndExpenditureReport(startDate, endDate, label);
@@ -3092,7 +3102,7 @@ app.get('/download/receipts-payments', requireLogin, asyncHandler(async (req, re
         pdf.tableRow(doc, 'Closing Balance', pdf.fmtMoney(closing), { bold: true, total: true });
         doc.moveDown(0.5);
       }
-      pdf.signatureBlock(doc);
+      pdf.signatureBlock(doc, res.locals.org);
       pdf.sendPdf(res, doc, `Receipts-Payments-${label.replace(/\s+/g, '-')}.pdf`);
     } else {
       const csv = await receiptsAndPaymentsReport(startDate, endDate, label);
@@ -3147,7 +3157,7 @@ app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) =>
 
       doc.moveDown(0.8);
       pdf.tableRow(doc, 'Net Welfare Liability (still payable)', pdf.fmtMoney(liability), { bold: true, total: true });
-      pdf.signatureBlock(doc);
+      pdf.signatureBlock(doc, res.locals.org);
       pdf.sendPdf(res, doc, `Welfare-Fund-${label.replace(/\s+/g, '-')}.pdf`);
     } else {
       const csv = await welfareFundReport(startDate, endDate, label);
@@ -3196,7 +3206,7 @@ app.get('/download/financial-position', requireLogin, asyncHandler(async (req, r
 
       doc.moveDown(0.8);
       pdf.tableRow(doc, 'Net Assets', pdf.fmtMoney(netAssets), { bold: true, total: true });
-      pdf.signatureBlock(doc);
+      pdf.signatureBlock(doc, res.locals.org);
       pdf.sendPdf(res, doc, `Financial-Position-${asOfDate}.pdf`);
     } else {
       const csv = await financialPositionReport(asOfDate, label);
@@ -3261,7 +3271,7 @@ app.get('/download/member-statement', requireLogin, asyncHandler(async (req, res
         });
       }
 
-      pdf.signatureBlock(doc);
+      pdf.signatureBlock(doc, res.locals.org);
       pdf.sendPdf(res, doc, `Member-Statement-${safeName}-${year}.pdf`);
     } else {
       const csv = await memberStatementReport(memberId, year);

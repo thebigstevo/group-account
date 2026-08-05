@@ -644,6 +644,13 @@ async function migrate() {
     VALUES (1, 'My Organization', 'GHS')
     ON CONFLICT (id) DO NOTHING
   `);
+  // Signatory columns
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS signatory1_title VARCHAR(100) DEFAULT 'Treasurer / Finance Secretary'`);
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS signatory1_name VARCHAR(255)`);
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS signatory2_title VARCHAR(100) DEFAULT 'President / Chairman'`);
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS signatory2_name VARCHAR(255)`);
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS signatory3_title VARCHAR(100)`);
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS signatory3_name VARCHAR(255)`);
   console.log('[migrate]   ✓ organization_settings table');
 
   // Business-specific accounts, categories, and dues are configured in the application.
