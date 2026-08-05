@@ -107,7 +107,7 @@
     </form>
 
     <h2 style="margin-top: var(--space-6);">Reset user password</h2>
-    <form method="post" class="stack" id="reset-form" data-validate>
+    <form method="post" class="stack" id="reset-form" action="/users/0/reset-password" data-validate>
       <%- include('partials/csrf') %>
       <fieldset class="fieldset">
         <legend>Password reset <span class="required-legend">* Required</span></legend>
