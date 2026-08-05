@@ -29,6 +29,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "127.0.0.1:3100:3000"
+    volumes:
+      - uploads-dev:/app/uploads
     environment:
       NODE_ENV: development
       PGHOST: postgres
@@ -53,6 +55,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "127.0.0.1:3200:3000"
+    volumes:
+      - uploads-prod:/app/uploads
     environment:
       NODE_ENV: production
       PGHOST: postgres
@@ -77,3 +81,5 @@ networks:
 
 volumes:
   pgdata:
+  uploads-dev:
+  uploads-prod:

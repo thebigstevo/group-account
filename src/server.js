@@ -95,7 +95,7 @@ app.use(express.json());
 app.use(express.static(publicDirectory));
 
 // Upload directory for receipts/vouchers
-const uploadsDir = path.join(__dirname, 'uploads');
+const uploadsDir = process.env.UPLOADS_DIR || path.join('/app', 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 app.use('/uploads', express.static(uploadsDir));
 

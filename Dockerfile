@@ -13,6 +13,9 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY src/ ./src/
 COPY package.json ./
 
+# Create uploads directory writable by node user
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
+
 USER node
 EXPOSE 3000
 
