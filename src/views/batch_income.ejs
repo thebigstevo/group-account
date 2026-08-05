@@ -1,0 +1,87 @@
+<%- include('partials/header') %>
+<% locals.title = 'Batch Income Entry'; %>
+<div class="page-container page-container--form">
+  <section class="page-title">
+    <div>
+      <span class="eyebrow">Finance · Income</span>
+      <h1>Batch Income Entry</h1>
+      <p>Record assessments for multiple members at once. All entries use the same date, category, and account.</p>
+    </div>
+  </section>
+
+  <% if (locals.errors && locals.errors.length) { %>
+  <div class="error-summary" role="alert"><h2>Errors</h2><ul><% locals.errors.forEach(function(err) { %><li><%= err %></li><% }) %></ul></div>
+  <% } %>
+  <% if (locals.result) { %>
+  <div class="panel" style="border-left: 3px solid var(--success-base); background: var(--success-light);">
+    <strong><%= result.count %> receipt(s) recorded</strong> totalling <%= formatMoney(result.total) %>.
+  </div>
+  <% } %>
+
+  <section class="form-layout">
+    <form method="post" action="/finance/batch-income" class="form-card" data-validate>
+      <%- include('partials/csrf') %>
+
+      <div class="form-section">
+        <div class="form-section__heading"><h2>Common details</h2><p>Apply to all entries below.</p></div>
+        <div class="field-grid">
+          <div class="form-group">
+            <label for="batch-date">Date *</label>
+            <input id="batch-date" name="tx_date" type="date" required>
+          </div>
+          <div class="form-group">
+            <label for="batch-category">Category *</label>
+            <select id="batch-category" name="category" required>
+              <option value="">Select</option>
+              <% categories.forEach(function(cat) { %><option value="<%= cat.name %>" data-purpose="<%= cat.purpose %>"><%= cat.name %></option><% }) %>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="batch-account">Receive into *</label>
+            <select id="batch-account" name="account_id" required>
+              <option value="">Select</option>
+              <% accounts.forEach(function(acc) { %><option value="<%= acc.id %>"><%= acc.name %></option><% }) %>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="batch-reference">Reference</label>
+            <input id="batch-reference" name="reference" placeholder="e.g., Meeting date or collection reference">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section__heading"><h2>Member Payments</h2><p>Enter amount for each member who paid. Leave blank to skip.</p></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Member</th><th class="num" style="width:120px">Amount</th></tr></thead>
+            <tbody>
+              <% members.forEach(function(m, idx) { %>
+              <tr>
+                <td><%= m.name %><input type="hidden" name="entries[<%= idx %>][member_id]" value="<%= m.id %>"></td>
+                <td class="num"><input name="entries[<%= idx %>][amount]" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0.00" style="width:100%; text-align:right;"></td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="action-bar">
+        <a class="btn btn--secondary" href="/finance/income">Cancel</a>
+        <button class="btn btn--primary" type="submit">Save All Payments</button>
+      </div>
+    </form>
+
+    <aside class="side-panel">
+      <h2>How it works</h2>
+      <ul class="guidance-list">
+        <li>Enter the amount next to each member who paid</li>
+        <li>Members with blank/zero amounts are skipped</li>
+        <li>Welfare is auto-calculated per your split rules</li>
+        <li>Each member gets their own transaction record</li>
+      </ul>
+    </aside>
+  </section>
+</div>
+<%- include('partials/footer') %>

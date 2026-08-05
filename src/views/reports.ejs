@@ -91,7 +91,7 @@
   </section>
 
   <section class="panel">
-    <div class="section-head"><div><h2>Member arrears for <%= year %></h2><p>Members with an outstanding balance.</p></div></div>
+    <div class="section-head"><div><h2>Member arrears for <%= year %></h2><p>Members with an outstanding balance.</p></div><form method="post" action="/admin/send-arrears-reminders" class="no-print" style="display:inline"><%- include('partials/csrf') %><button class="btn btn--secondary btn--sm" type="submit" data-modal-confirm data-modal-title="Send SMS Reminders" data-modal-body="This will send an SMS reminder to all members with outstanding balances who have a phone number. Continue?">📱 Send Reminders</button></form></div>
     <div class="table-wrap"><table class="data-table"><thead><tr><th>Member</th><th>Phone</th><th class="num">Opening</th><th class="num">Due</th><th class="num">Paid</th><th class="num">Balance</th></tr></thead><tbody>
       <% arrears.filter(function(row) { return row.balance > 0; }).forEach(function(row) { %><tr><td><%= row.name %></td><td><%= row.phone || '' %></td><td class="num"><%= formatMoney(row.opening_arrears) %></td><td class="num"><%= formatMoney(row.assessment_due) %></td><td class="num"><%= formatMoney(row.paid) %></td><td class="num"><%= formatMoney(row.balance) %></td></tr><% }) %>
     </tbody></table></div>

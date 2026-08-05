@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const fs = require('fs');
 const path = require('path');
+const multer = require('multer');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const crypto = require('crypto');
@@ -92,6 +93,28 @@ app.use(helmet({
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static(publicDirectory));
+
+// Upload directory for receipts/vouchers
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+app.use('/uploads', express.static(uploadsDir));
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadsDir),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      cb(null, `tx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
+    }
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  fileFilter: (req, file, cb) => {
+    const allowed = /jpeg|jpg|png|gif|pdf|webp/;
+    const ext = allowed.test(path.extname(file.originalname).toLowerCase());
+    const mime = allowed.test(file.mimetype);
+    cb(null, ext && mime);
+  }
+});
 
 // Health check endpoint (before rate limiter and auth)
 app.get('/health', async (req, res) => {
@@ -591,11 +614,43 @@ app.get('/members/:id', requireLogin, asyncHandler(async (req, res) => {
   const emergencyContacts = mayViewEmergency
     ? await dal.query('SELECT * FROM member_emergency_contacts WHERE member_id = $1 ORDER BY is_primary DESC, id', [member.id])
     : [];
+
+  // Lifetime financial summary across all fiscal years
+  const fiscalYears = await dal.query('SELECT year FROM fiscal_years ORDER BY year');
+  const lifetimePayments = await dal.query(`
+    SELECT EXTRACT(YEAR FROM tx_date::date) AS year,
+      COALESCE(SUM(amount) FILTER (WHERE c.purpose = 'assessment'), 0) AS assessment_paid,
+      COALESCE(SUM(amount), 0) AS total_paid
+    FROM transactions t
+    JOIN transaction_categories c ON c.name = t.category
+    WHERE t.member_id = $1 AND t.tx_type = 'receipt' AND t.status = 'posted'
+    GROUP BY EXTRACT(YEAR FROM tx_date::date) ORDER BY year
+  `, [member.id]);
+
+  const yearlyBreakdown = [];
+  let cumulativeBalance = Number(member.opening_arrears || 0);
+  for (const fy of fiscalYears) {
+    const due = await memberDue(member, fy.year);
+    const payments = lifetimePayments.find(p => Number(p.year) === fy.year);
+    const assessmentPaid = payments ? Number(payments.assessment_paid) : 0;
+    const yearBalance = Number(due.assessment_due) - assessmentPaid;
+    cumulativeBalance += yearBalance;
+    yearlyBreakdown.push({
+      year: fy.year,
+      assessment_due: Number(due.assessment_due),
+      assessment_paid: assessmentPaid,
+      total_paid: payments ? Number(payments.total_paid) : 0,
+      year_balance: yearBalance,
+      cumulative_balance: cumulativeBalance
+    });
+  }
+
   res.render('member_profile', {
     member, statusHistory, rankHistory, positionHistory, transferRecord,
     rankDefinitions, positionDefinitions, memberDegrees,
     emergencyContacts, statuses: MEMBER_STATUSES,
-    canEdit: canEditMembership(req.session.user.role), mayViewEmergency
+    canEdit: canEditMembership(req.session.user.role), mayViewEmergency,
+    yearlyBreakdown, lifetimeBalance: cumulativeBalance
   });
 }));
 
@@ -1019,6 +1074,52 @@ app.post('/change-password', requireLogin, asyncHandler(async (req, res) => {
 }));
 
 // ─── Organization Settings ────────────────────────────────────────────────────
+
+// ─── Database Backup ──────────────────────────────────────────────────────────
+
+// ─── SMS Notifications ───────────────────────────────────────────────────────
+
+app.post('/admin/send-arrears-reminders', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  const { sendBulkArrearsReminders } = require('./smsService');
+  const year = selectedYear(req);
+  const result = await sendBulkArrearsReminders(year, req.session.user.id);
+  req.session.flash = {
+    type: result.sent > 0 ? 'success' : 'warning',
+    message: `SMS reminders: ${result.sent} sent, ${result.failed} failed, ${result.skipped} skipped (no phone). Total owing: ${result.total}.`
+  };
+  res.redirect('/finance/reports');
+}));
+
+app.get('/admin/backup', allow('admin'), asyncHandler(async (req, res) => {
+  const { exec } = require('child_process');
+  const { databaseUrl, pgHost, pgPort, pgDatabase, pgUser, pgPassword } = config;
+
+  const timestamp = new Date().toISOString().slice(0, 10);
+  const filename = `treasurio-backup-${timestamp}.sql`;
+
+  let pgDumpCmd;
+  if (databaseUrl) {
+    pgDumpCmd = `pg_dump "${databaseUrl}" --no-owner --no-privileges`;
+  } else {
+    pgDumpCmd = `PGPASSWORD="${pgPassword}" pg_dump -h ${pgHost} -p ${pgPort} -U ${pgUser} ${pgDatabase} --no-owner --no-privileges`;
+  }
+
+  res.setHeader('Content-Type', 'application/sql');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+  const child = exec(pgDumpCmd, { maxBuffer: 100 * 1024 * 1024 });
+  child.stdout.pipe(res);
+  child.stderr.on('data', (data) => console.error('[backup]', data));
+  child.on('error', (err) => {
+    console.error('[backup] pg_dump error:', err);
+    if (!res.headersSent) res.status(500).render('error', { message: 'Backup failed. pg_dump may not be available.' });
+  });
+  child.on('close', async (code) => {
+    if (code === 0) {
+      await dal.audit(req.session.user.id, 'download', 'database_backup', null, filename);
+    }
+  });
+}));
 
 app.get('/organization', allow('admin'), asyncHandler(async (req, res) => {
   const org = await dal.queryOne('SELECT * FROM organization_settings WHERE id = 1');
@@ -1932,6 +2033,90 @@ app.get('/finance/income/new', allow('admin', 'finance_secretary', 'treasurer'),
   res.render('finance_form', await financeFormData('income'));
 }));
 
+app.get('/finance/income/batch', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  const members = await dal.query("SELECT id, name FROM members WHERE status = 'active' ORDER BY name");
+  const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
+  const categories = await dal.query("SELECT name, purpose FROM transaction_categories WHERE active = true AND kind IN ('income','both') ORDER BY sort_order, name");
+  res.render('batch_income', { members, accounts, categories });
+}));
+
+app.post('/finance/batch-income', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  const members = await dal.query("SELECT id, name FROM members WHERE status = 'active' ORDER BY name");
+  const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
+  const categories = await dal.query("SELECT name, purpose FROM transaction_categories WHERE active = true AND kind IN ('income','both') ORDER BY sort_order, name");
+  const errors = [];
+
+  if (!req.body.tx_date) errors.push('Date is required.');
+  if (!req.body.category) errors.push('Category is required.');
+  if (!req.body.account_id) errors.push('Account is required.');
+
+  const entries = req.body.entries || [];
+  const validEntries = entries.filter(e => e && e.amount && Number(e.amount) > 0);
+  if (validEntries.length === 0) errors.push('Enter at least one payment amount.');
+
+  if (errors.length) {
+    return res.status(400).render('batch_income', { members, accounts, categories, errors });
+  }
+
+  const yearError = await transactionYearError(req, req.body.tx_date);
+  if (yearError) {
+    return res.status(400).render('batch_income', { members, accounts, categories, errors: [yearError] });
+  }
+
+  // Check for welfare account split
+  const welfareAccount = await dal.queryOne('SELECT id, name FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
+  const welfareCategory = await dal.queryOne("SELECT name FROM transaction_categories WHERE purpose = 'welfare_income' AND active = true LIMIT 1");
+
+  let totalAmount = 0;
+  let count = 0;
+
+  await dal.transaction(async (client) => {
+    for (const entry of validEntries) {
+      const amount = Number(entry.amount);
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+
+      const welfare = await calculateWelfareComponent({
+        memberId: entry.member_id,
+        category: req.body.category,
+        amount,
+        txDate: req.body.tx_date,
+        enteredWelfare: null
+      });
+
+      const shouldSplit = welfare > 0 && welfareAccount && welfareAccount.id !== Number(req.body.account_id);
+
+      if (shouldSplit) {
+        const operatingAmount = amount - welfare;
+        const welfareCatName = welfareCategory ? welfareCategory.name : req.body.category;
+
+        const opResult = await client.query(`
+          INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
+          VALUES ($1, 'receipt', $2, $3, $4, $5, $6, 0, $7, $8) RETURNING id
+        `, [req.body.tx_date, entry.member_id, Number(req.body.account_id), req.body.category, null, operatingAmount, req.body.reference || null, req.session.user.id]);
+
+        const wfResult = await client.query(`
+          INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
+          VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
+        `, [req.body.tx_date, entry.member_id, welfareAccount.id, welfareCatName, 'Welfare portion', welfare, welfare, req.body.reference || null, req.session.user.id]);
+
+        const groupId = opResult.rows[0].id;
+        await client.query('UPDATE transactions SET split_group_id = $1 WHERE id IN ($2, $3)', [groupId, opResult.rows[0].id, wfResult.rows[0].id]);
+      } else {
+        await client.query(`
+          INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
+          VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, $8, $9)
+        `, [req.body.tx_date, entry.member_id, Number(req.body.account_id), req.body.category, null, amount, welfare, req.body.reference || null, req.session.user.id]);
+      }
+
+      totalAmount += amount;
+      count++;
+    }
+  });
+
+  await dal.audit(req.session.user.id, 'create', 'batch_income', null, `${count} receipts, total ${totalAmount.toFixed(2)}`);
+  res.render('batch_income', { members, accounts, categories, result: { count, total: totalAmount } });
+}));
+
 app.get('/finance/expenses/new', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
   res.render('finance_form', await financeFormData('expense'));
 }));
@@ -2220,6 +2405,49 @@ app.post('/transactions/:id/edit', allow('admin', 'finance_secretary', 'treasure
 }));
 
 // ─── Transaction Reverse ────────────────────────────────────────────────────
+
+// ─── Transaction Attachments ─────────────────────────────────────────────────
+
+app.post('/transactions/:id/attach', allow('admin', 'finance_secretary', 'treasurer'), upload.single('receipt'), asyncHandler(async (req, res) => {
+  const txId = Number(req.params.id);
+  const tx = await dal.queryOne('SELECT * FROM transactions WHERE id = $1', [txId]);
+  if (!tx) return res.status(404).render('error', { message: 'Transaction not found.' });
+  if (!req.file) {
+    req.session.flash = { type: 'error', message: 'No file selected or file type not allowed (JPG, PNG, PDF only, max 5MB).' };
+    return res.redirect(tx.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses');
+  }
+
+  await dal.run(`
+    INSERT INTO transaction_attachments (transaction_id, filename, original_name, mime_type, size_bytes, uploaded_by)
+    VALUES ($1, $2, $3, $4, $5, $6)
+  `, [txId, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.session.user.id]);
+
+  await dal.audit(req.session.user.id, 'create', 'attachment', txId, req.file.originalname);
+  req.session.flash = { type: 'success', message: `Receipt "${req.file.originalname}" attached.` };
+  res.redirect(tx.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses');
+}));
+
+app.get('/transactions/:id/attachments', requireLogin, asyncHandler(async (req, res) => {
+  const txId = Number(req.params.id);
+  const attachments = await dal.query('SELECT * FROM transaction_attachments WHERE transaction_id = $1 ORDER BY uploaded_at', [txId]);
+  res.json(attachments);
+}));
+
+app.post('/transactions/:id/attachments/:attId/delete', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  const att = await dal.queryOne('SELECT * FROM transaction_attachments WHERE id = $1 AND transaction_id = $2', [Number(req.params.attId), Number(req.params.id)]);
+  if (!att) return res.status(404).render('error', { message: 'Attachment not found.' });
+
+  // Delete file from disk
+  const filePath = path.join(uploadsDir, att.filename);
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+  await dal.run('DELETE FROM transaction_attachments WHERE id = $1', [att.id]);
+  await dal.audit(req.session.user.id, 'delete', 'attachment', att.transaction_id, att.original_name);
+
+  const tx = await dal.queryOne('SELECT tx_type FROM transactions WHERE id = $1', [Number(req.params.id)]);
+  req.session.flash = { type: 'success', message: 'Attachment removed.' };
+  res.redirect(tx && tx.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses');
+}));
 
 app.post('/transactions/:id/reverse', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
   const txId = Number(req.params.id);

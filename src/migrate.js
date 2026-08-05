@@ -653,6 +653,22 @@ async function migrate() {
   await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS signatory3_name VARCHAR(255)`);
   console.log('[migrate]   ✓ organization_settings table');
 
+  // ─── Transaction attachments ───
+  await run(`
+    CREATE TABLE IF NOT EXISTS transaction_attachments (
+      id SERIAL PRIMARY KEY,
+      transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+      filename VARCHAR(255) NOT NULL,
+      original_name VARCHAR(255) NOT NULL,
+      mime_type VARCHAR(100) NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      uploaded_by INTEGER REFERENCES users(id),
+      uploaded_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_attachments_transaction ON transaction_attachments(transaction_id)`);
+  console.log('[migrate]   ✓ transaction_attachments table');
+
   // Business-specific accounts, categories, and dues are configured in the application.
 
   console.log('[migrate] Migration complete.');
