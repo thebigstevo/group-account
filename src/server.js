@@ -2478,6 +2478,15 @@ app.get('/trustee-dashboard', allow('admin', 'trustee', 'auditor'), asyncHandler
   });
 }));
 
+// ─── Automated Audit ─────────────────────────────────────────────────────────
+
+app.get('/auto-audit', allow('admin', 'auditor', 'trustee', 'treasurer'), asyncHandler(async (req, res) => {
+  const { runAutoAudit } = require('./autoAudit');
+  const year = Number(req.query.year || selectedYear(req));
+  const audit = await runAutoAudit(year);
+  res.render('auto_audit', { audit });
+}));
+
 app.get('/trustee-audit', allow('admin', 'auditor', 'trustee', 'treasurer'), asyncHandler(async (req, res) => {
   const years = await dal.query('SELECT year, status FROM fiscal_years ORDER BY year DESC');
   const requestedYear = Number(req.query.year || selectedYear(req));
