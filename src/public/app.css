@@ -2347,10 +2347,10 @@ body.drawer-open { overflow: hidden; touch-action: none; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--color-surface);
   color: var(--neutral-500);
   cursor: pointer;
@@ -2375,6 +2375,15 @@ body.drawer-open { overflow: hidden; touch-action: none; }
 }
 
 .btn-icon svg { flex-shrink: 0; }
+
+/* Icon action group — always single line */
+.icon-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
 
 /* Total row in data tables */
 .data-table__total-row {
