@@ -3493,10 +3493,10 @@ app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) =>
       const payouts = await dal.query(`
         SELECT category, COALESCE(SUM(amount), 0) AS total
         FROM transactions
-        WHERE status = 'posted' AND tx_date >= $1 AND tx_date <= $2
-          AND (tx_type = 'welfare_payout' OR (tx_type = 'expense' AND account_id = $3))
+        WHERE tx_type = 'welfare_payout' AND status = 'posted'
+          AND tx_date >= $1 AND tx_date <= $2
         GROUP BY category ORDER BY total DESC
-      `, [startDate, endDate, welfareAccountId]);
+      `, [startDate, endDate]);
 
       const totalCollected = collected.reduce((s, r) => s + Number(r.total), 0);
       const totalPaidOut = payouts.reduce((s, r) => s + Number(r.total), 0);

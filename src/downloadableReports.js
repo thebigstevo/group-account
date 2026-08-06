@@ -150,11 +150,20 @@ async function receiptsAndPaymentsReport(startDate, endDate, periodLabel) {
  * Shows welfare collections, payouts, and liability balance.
  */
 async function welfareFundReport(startDate, endDate, periodLabel) {
+  // Get welfare fund account
+  const welfareAccountRow = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
+  const welfareAccountId = welfareAccountRow ? welfareAccountRow.id : -1;
+
   // Opening welfare liability (all welfare collected before period minus payouts before period)
   const priorCollectedRow = await dal.queryOne(`
-    SELECT COALESCE(SUM(welfare_component), 0) AS total FROM transactions
+    SELECT COALESCE(SUM(
+      CASE WHEN welfare_component > 0 THEN welfare_component
+           WHEN account_id = $2 THEN amount
+           ELSE 0 END
+    ), 0) AS total FROM transactions
     WHERE tx_type = 'receipt' AND status = 'posted' AND tx_date < $1
-  `, [startDate]);
+      AND (welfare_component > 0 OR account_id = $2)
+  `, [startDate, welfareAccountId]);
 
   const priorPaidOutRow = await dal.queryOne(`
     SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
@@ -163,19 +172,23 @@ async function welfareFundReport(startDate, endDate, periodLabel) {
 
   const openingLiability = Number(priorCollectedRow.total) - Number(priorPaidOutRow.total);
 
-  // Period welfare collections by member
+  // Period welfare collections (welfare_component from splits + direct receipts into welfare account)
   const collections = await dal.query(`
-    SELECT m.name AS member, COALESCE(SUM(t.welfare_component), 0) AS total
+    SELECT m.name AS member, COALESCE(SUM(
+      CASE WHEN t.welfare_component > 0 THEN t.welfare_component
+           WHEN t.account_id = $3 THEN t.amount
+           ELSE 0 END
+    ), 0) AS total
     FROM transactions t
     LEFT JOIN members m ON m.id = t.member_id
     WHERE t.tx_type = 'receipt' AND t.status = 'posted'
       AND t.tx_date >= $1 AND t.tx_date <= $2
-      AND t.welfare_component > 0
+      AND (t.welfare_component > 0 OR t.account_id = $3)
     GROUP BY t.member_id, m.name
     ORDER BY m.name
-  `, [startDate, endDate]);
+  `, [startDate, endDate, welfareAccountId]);
 
-  // Period welfare payouts
+  // Period welfare payouts (only explicit welfare_payout type)
   const payouts = await dal.query(`
     SELECT t.tx_date, t.description, t.amount
     FROM transactions t
