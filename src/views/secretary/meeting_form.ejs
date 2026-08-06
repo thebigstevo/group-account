@@ -1,0 +1,107 @@
+<%- include('../partials/header') %>
+<% locals.title = meeting ? 'Edit Meeting' : 'New Meeting' %>
+<% const v = locals.values || meeting || {} %>
+
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <h1><%= meeting ? 'Edit Meeting' : 'Create Meeting' %></h1>
+      <p><%= meeting ? 'Update meeting details and minutes.' : 'Record a new meeting.' %></p>
+    </div>
+  </section>
+
+  <% if (errors && errors.length) { %>
+  <div class="alert alert--error" role="alert">
+    <ul><% errors.forEach(function(e) { %><li><%= e %></li><% }) %></ul>
+  </div>
+  <% } %>
+
+  <section class="panel">
+    <form method="post" action="<%= meeting ? '/secretary/meetings/' + meeting.id : '/secretary/meetings' %>">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="meeting_date">Meeting Date</label>
+          <input type="date" id="meeting_date" name="meeting_date" value="<%= v.meeting_date || '' %>" required>
+        </div>
+        <div class="form-group">
+          <label for="meeting_type">Type</label>
+          <select id="meeting_type" name="meeting_type" required>
+            <% MEETING_TYPES.forEach(function(t) { %>
+            <option value="<%= t %>" <%= v.meeting_type === t ? 'selected' : '' %>><%= t.charAt(0).toUpperCase() + t.slice(1) %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="location">Location</label>
+          <input type="text" id="location" name="location" value="<%= v.location || '' %>">
+        </div>
+      </div>
+
+      <% if (meeting) { %>
+      <hr style="margin: var(--space-4) 0;">
+      <h2>Minutes</h2>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="start_time">Start Time</label>
+          <input type="time" id="start_time" name="start_time" value="<%= v.start_time || '' %>">
+        </div>
+        <div class="form-group">
+          <label for="end_time">End Time</label>
+          <input type="time" id="end_time" name="end_time" value="<%= v.end_time || '' %>">
+        </div>
+        <div class="form-group">
+          <label for="opening_prayer_by">Opening Prayer By</label>
+          <input type="text" id="opening_prayer_by" name="opening_prayer_by" value="<%= v.opening_prayer_by || '' %>">
+        </div>
+        <div class="form-group">
+          <label for="closing_prayer_by">Closing Prayer By</label>
+          <input type="text" id="closing_prayer_by" name="closing_prayer_by" value="<%= v.closing_prayer_by || '' %>">
+        </div>
+        <div class="form-group">
+          <label for="mover">Motion to Close By</label>
+          <input type="text" id="mover" name="mover" value="<%= v.mover || '' %>">
+        </div>
+        <div class="form-group">
+          <label for="seconder">Seconded By</label>
+          <input type="text" id="seconder" name="seconder" value="<%= v.seconder || '' %>">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="correspondence">Correspondence</label>
+        <textarea id="correspondence" name="correspondence" rows="4"><%= v.correspondence || '' %></textarea>
+      </div>
+      <div class="form-group">
+        <label for="finance_summary">Finance Report / Treasurer's Summary</label>
+        <textarea id="finance_summary" name="finance_summary" rows="3"><%= v.finance_summary || '' %></textarea>
+      </div>
+      <div class="form-group">
+        <label for="matters_arising">Matters Arising</label>
+        <textarea id="matters_arising" name="matters_arising" rows="5"><%= v.matters_arising || '' %></textarea>
+      </div>
+      <div class="form-group">
+        <label for="agenda">Agenda / New Business</label>
+        <textarea id="agenda" name="agenda" rows="5"><%= v.agenda || '' %></textarea>
+      </div>
+      <div class="form-group">
+        <label for="good_of_order">Good of the Order</label>
+        <textarea id="good_of_order" name="good_of_order" rows="3"><%= v.good_of_order || '' %></textarea>
+      </div>
+      <div class="form-group">
+        <label for="other_notes">Other Notes</label>
+        <textarea id="other_notes" name="other_notes" rows="3"><%= v.other_notes || '' %></textarea>
+      </div>
+      <% } %>
+
+      <div class="form-actions">
+        <a class="btn btn--secondary" href="<%= meeting ? '/secretary/meetings/' + meeting.id : '/secretary/meetings' %>">Cancel</a>
+        <button class="btn btn--primary" type="submit"><%= meeting ? 'Save Changes' : 'Create Meeting' %></button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<%- include('../partials/footer') %>

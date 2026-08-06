@@ -671,6 +671,93 @@ async function migrate() {
 
   // Business-specific accounts, categories, and dues are configured in the application.
 
+  // ─── Secretary Module: Meetings, Attendance, Charitable Works, Volunteer Hours ───
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS meetings (
+      id SERIAL PRIMARY KEY,
+      commandery_id INTEGER NOT NULL REFERENCES commanderies(id) ON DELETE RESTRICT,
+      meeting_date DATE NOT NULL,
+      meeting_type VARCHAR(30) NOT NULL DEFAULT 'regular' CHECK (meeting_type IN ('regular','special','board')),
+      location VARCHAR(255),
+      start_time VARCHAR(10),
+      end_time VARCHAR(10),
+      opening_prayer_by VARCHAR(255),
+      closing_prayer_by VARCHAR(255),
+      mover VARCHAR(255),
+      seconder VARCHAR(255),
+      correspondence TEXT,
+      finance_summary TEXT,
+      matters_arising TEXT,
+      agenda TEXT,
+      good_of_order TEXT,
+      other_notes TEXT,
+      status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','submitted','approved')),
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_meetings_date ON meetings(meeting_date DESC)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_meetings_commandery ON meetings(commandery_id)`);
+  console.log('[migrate]   ✓ meetings');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS meeting_attendance (
+      id SERIAL PRIMARY KEY,
+      meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+      status VARCHAR(20) NOT NULL DEFAULT 'absent' CHECK (status IN ('present','excuse','absent')),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      UNIQUE(meeting_id, member_id)
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_meeting_attendance_meeting ON meeting_attendance(meeting_id)`);
+  console.log('[migrate]   ✓ meeting_attendance');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS charitable_works (
+      id SERIAL PRIMARY KEY,
+      commandery_id INTEGER NOT NULL REFERENCES commanderies(id) ON DELETE RESTRICT,
+      meeting_id INTEGER REFERENCES meetings(id) ON DELETE SET NULL,
+      report_month INTEGER NOT NULL,
+      report_year INTEGER NOT NULL,
+      beneficiary VARCHAR(255) NOT NULL,
+      purpose TEXT NOT NULL,
+      amount NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (amount >= 0),
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_charitable_works_period ON charitable_works(report_year, report_month)`);
+  console.log('[migrate]   ✓ charitable_works');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS volunteer_hours (
+      id SERIAL PRIMARY KEY,
+      commandery_id INTEGER NOT NULL REFERENCES commanderies(id) ON DELETE RESTRICT,
+      meeting_id INTEGER REFERENCES meetings(id) ON DELETE SET NULL,
+      report_month INTEGER NOT NULL,
+      report_year INTEGER NOT NULL,
+      num_brothers INTEGER NOT NULL DEFAULT 1 CHECK (num_brothers > 0),
+      time_spent NUMERIC(6,2) NOT NULL DEFAULT 0 CHECK (time_spent > 0),
+      total_hours NUMERIC(10,2) NOT NULL DEFAULT 0,
+      purpose TEXT NOT NULL,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_volunteer_hours_period ON volunteer_hours(report_year, report_month)`);
+  console.log('[migrate]   ✓ volunteer_hours');
+
+  // Cadets roll tracking
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS cadets_roll INTEGER NOT NULL DEFAULT 0`);
+  // Commandery number and region for monthly report
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS commandery_number VARCHAR(50)`);
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS district VARCHAR(100)`);
+  console.log('[migrate]   ✓ secretary module columns on organization_settings');
+
   console.log('[migrate] Migration complete.');
   });
 }

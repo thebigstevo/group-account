@@ -3722,6 +3722,8 @@ app.get('/export/audit-log', allow('admin', 'auditor', 'trustee'), asyncHandler(
   }
 }));
 
+app.use('/secretary/meetings', require('./secretaryRoutes'));
+
 app.use((req, res) => {
   res.status(404).render('error', { message: 'Page not found.' });
 });
