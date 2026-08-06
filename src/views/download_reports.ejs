@@ -5,39 +5,10 @@
   <section class="page-title">
     <div>
       <h1>Download Reports</h1>
-      <p>Select year and month, then download any report as PDF or CSV.</p>
+      <p>Download formal financial reports as PDF or CSV for fiscal year <%= year %>.</p>
     </div>
   </section>
 
-  <!-- Shared filter controls -->
-  <div class="report-toolbar" style="margin-bottom: var(--space-4);">
-    <div class="report-toolbar__fields" style="grid-template-columns: repeat(3, minmax(100px, 160px));">
-      <div class="form-group">
-        <label for="dl-year">Year</label>
-        <input id="dl-year" type="number" value="<%= year %>" style="width:100%">
-      </div>
-      <div class="form-group">
-        <label for="dl-month">Month</label>
-        <select id="dl-month" style="width:100%">
-          <option value="">Full Year</option>
-          <% ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].forEach(function(name, idx) { %>
-          <option value="<%= idx + 1 %>"><%= name %></option>
-          <% }) %>
-        </select>
-      </div>
-      <div class="form-group">
-        <label for="dl-member">Member (for statement)</label>
-        <select id="dl-member" style="width:100%">
-          <option value="">Select member</option>
-          <% members.forEach(function(m) { %>
-          <option value="<%= m.id %>"><%= m.name %></option>
-          <% }) %>
-        </select>
-      </div>
-    </div>
-  </div>
-
-  <!-- Reports list -->
   <section class="panel">
     <table class="data-table">
       <thead>
@@ -46,68 +17,44 @@
       <tbody>
         <tr>
           <td><strong>Income & Expenditure</strong></td>
-          <td>Income by category less expenses, showing surplus or deficit</td>
-          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/income-expenditure" data-format="csv" title="Download CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
-          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/income-expenditure" data-format="pdf" title="Download PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
+          <td>Income less expenses, surplus or deficit</td>
+          <td style="text-align:center"><a class="btn-icon" href="/download/income-expenditure?year=<%= year %>" title="CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
+          <td style="text-align:center"><a class="btn-icon" href="/download/income-expenditure?year=<%= year %>&format=pdf" title="PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
         </tr>
         <tr>
           <td><strong>Receipts & Payments</strong></td>
-          <td>Cash movements per account — opening, receipts, payments, closing</td>
-          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/receipts-payments" data-format="csv" title="Download CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
-          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/receipts-payments" data-format="pdf" title="Download PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
+          <td>Cash movements per account</td>
+          <td style="text-align:center"><a class="btn-icon" href="/download/receipts-payments?year=<%= year %>" title="CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
+          <td style="text-align:center"><a class="btn-icon" href="/download/receipts-payments?year=<%= year %>&format=pdf" title="PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
         </tr>
         <tr>
           <td><strong>Welfare Fund</strong></td>
-          <td>Welfare collections, payouts, and outstanding liability</td>
-          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/welfare-fund" data-format="csv" title="Download CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
-          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/welfare-fund" data-format="pdf" title="Download PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
+          <td>Collections, payouts, liability</td>
+          <td style="text-align:center"><a class="btn-icon" href="/download/welfare-fund?year=<%= year %>" title="CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
+          <td style="text-align:center"><a class="btn-icon" href="/download/welfare-fund?year=<%= year %>&format=pdf" title="PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
         </tr>
         <tr>
           <td><strong>Financial Position</strong></td>
-          <td>Assets, liabilities (welfare payable), and net assets</td>
-          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/financial-position" data-format="csv" title="Download CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
-          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/financial-position" data-format="pdf" title="Download PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
-        </tr>
-        <tr>
-          <td><strong>Member Statement</strong></td>
-          <td>Individual member's dues, payments, and balance for the year</td>
-          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/member-statement" data-format="csv" data-needs-member="true" title="Download CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
-          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/member-statement" data-format="pdf" data-needs-member="true" title="Download PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
+          <td>Assets, liabilities, net assets</td>
+          <td style="text-align:center"><a class="btn-icon" href="/download/financial-position?year=<%= year %>" title="CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
+          <td style="text-align:center"><a class="btn-icon" href="/download/financial-position?year=<%= year %>&format=pdf" title="PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
         </tr>
       </tbody>
     </table>
+
+    <h2 style="margin-top: var(--space-5);">Member Statement</h2>
+    <form method="get" action="/download/member-statement" style="display:flex; align-items:end; gap: var(--space-3); flex-wrap:wrap;">
+      <div class="form-group" style="margin:0; min-width:200px;">
+        <label for="ms-member">Member</label>
+        <select id="ms-member" name="member_id" required>
+          <option value="">Select member</option>
+          <% members.forEach(function(m) { %><option value="<%= m.id %>"><%= m.name %></option><% }) %>
+        </select>
+      </div>
+      <input type="hidden" name="year" value="<%= year %>">
+      <button class="btn btn--secondary btn--sm" type="submit">CSV</button>
+      <button class="btn btn--secondary btn--sm" type="submit" name="format" value="pdf" style="color:var(--danger-base)">PDF</button>
+    </form>
   </section>
 </div>
-
 <%- include('partials/footer') %>
-<script>
-(function() {
-  document.querySelectorAll('[data-report]').forEach(function(link) {
-    link.style.cursor = 'pointer';
-    link.removeAttribute('href');
-    link.addEventListener('click', function(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      var year = document.getElementById('dl-year').value;
-      var month = document.getElementById('dl-month').value;
-      var member = document.getElementById('dl-member').value;
-      var base = link.getAttribute('data-report');
-      var format = link.getAttribute('data-format');
-      var needsMember = link.getAttribute('data-needs-member');
-
-      if (needsMember && !member) {
-        alert('Please select a member first.');
-        document.getElementById('dl-member').focus();
-        return;
-      }
-
-      var url = base + '?year=' + encodeURIComponent(year);
-      if (month) url += '&month=' + encodeURIComponent(month);
-      if (format === 'pdf') url += '&format=pdf';
-      if (needsMember && member) url += '&member_id=' + encodeURIComponent(member);
-
-      window.location.href = url;
-    });
-  });
-})();
-</script>
