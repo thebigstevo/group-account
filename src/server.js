@@ -3473,8 +3473,31 @@ app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) =>
     }
 
     if (req.query.format === 'pdf') {
-      const collected = await dal.query(`SELECT category, COALESCE(SUM(welfare_component), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND status = 'posted' AND welfare_component > 0 AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
-      const payouts = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type = 'welfare_payout' AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
+      // Welfare collections: welfare_component from splits + direct receipts into welfare fund account
+      const welfareAccountRow = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
+      const welfareAccountId = welfareAccountRow ? welfareAccountRow.id : -1;
+
+      const collected = await dal.query(`
+        SELECT category, COALESCE(SUM(
+          CASE WHEN welfare_component > 0 THEN welfare_component
+               WHEN account_id = $3 THEN amount
+               ELSE 0 END
+        ), 0) AS total
+        FROM transactions
+        WHERE tx_type = 'receipt' AND status = 'posted'
+          AND tx_date >= $1 AND tx_date <= $2
+          AND (welfare_component > 0 OR account_id = $3)
+        GROUP BY category ORDER BY total DESC
+      `, [startDate, endDate, welfareAccountId]);
+
+      const payouts = await dal.query(`
+        SELECT category, COALESCE(SUM(amount), 0) AS total
+        FROM transactions
+        WHERE status = 'posted' AND tx_date >= $1 AND tx_date <= $2
+          AND (tx_type = 'welfare_payout' OR (tx_type = 'expense' AND account_id = $3))
+        GROUP BY category ORDER BY total DESC
+      `, [startDate, endDate, welfareAccountId]);
+
       const totalCollected = collected.reduce((s, r) => s + Number(r.total), 0);
       const totalPaidOut = payouts.reduce((s, r) => s + Number(r.total), 0);
       const liability = totalCollected - totalPaidOut;
