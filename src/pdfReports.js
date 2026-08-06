@@ -152,6 +152,46 @@ function tableRow(doc, label, amount, opts = {}) {
 }
 
 /**
+ * Draw a single underline across the amount column (subtotal marker).
+ */
+function subtotalLine(doc) {
+  const y = doc.y;
+  doc.moveTo(MARGIN + CONTENT_WIDTH * 0.6, y)
+    .lineTo(PAGE_WIDTH - MARGIN, y)
+    .lineWidth(0.75)
+    .strokeColor(COLORS.muted)
+    .stroke();
+  doc.strokeColor('#000');
+  doc.moveDown(0.3);
+}
+
+/**
+ * Draw a double underline across the amount column (grand total / final figure).
+ */
+function grandTotalLine(doc) {
+  const y = doc.y;
+  const x1 = MARGIN + CONTENT_WIDTH * 0.6;
+  const x2 = PAGE_WIDTH - MARGIN;
+  doc.moveTo(x1, y).lineTo(x2, y).lineWidth(1).strokeColor(COLORS.primary).stroke();
+  doc.moveTo(x1, y + 3).lineTo(x2, y + 3).lineWidth(1).strokeColor(COLORS.primary).stroke();
+  doc.strokeColor('#000');
+  doc.moveDown(0.6);
+}
+
+/**
+ * Draw a label-only row (no amount), e.g. "Add: Receipts" or "Less: Payments".
+ */
+function labelRow(doc, text, opts = {}) {
+  if (doc.y > 730) doc.addPage();
+  const isBold = opts.bold || false;
+  const indent = opts.indent || 0;
+  const fontName = isBold ? 'Helvetica-Bold' : 'Helvetica';
+  doc.font(fontName).fontSize(9.5).fillColor(COLORS.dark);
+  doc.text(text, MARGIN + indent, doc.y, { width: CONTENT_WIDTH - indent });
+  doc.moveDown(0.3);
+}
+
+/**
  * Draw a multi-column table header with colored background.
  */
 function tableHeader(doc, columns) {
@@ -298,6 +338,9 @@ module.exports = {
   createDoc,
   sectionHeading,
   tableRow,
+  subtotalLine,
+  grandTotalLine,
+  labelRow,
   tableHeader,
   dataRow,
   signatureBlock,

@@ -3302,24 +3302,34 @@ app.get('/download/income-expenditure', requireLogin, asyncHandler(async (req, r
     }
 
     if (req.query.format === 'pdf') {
-      // PDF generation
+      // PDF generation — proper accounting layout
       const income = await dal.query(`SELECT category, COALESCE(SUM(amount - welfare_component), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
       const expenses = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type IN ('expense', 'welfare_payout') AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
       const totalIncome = income.reduce((s, r) => s + Number(r.total), 0);
       const totalExpenses = expenses.reduce((s, r) => s + Number(r.total), 0);
       const surplus = totalIncome - totalExpenses;
 
-      const doc = pdf.createDoc({ title: 'Income & Expenditure Statement', period: `Period: ${label}`, groupName: config.groupName, org: res.locals.org });
+      const doc = pdf.createDoc({ title: 'Income & Expenditure Statement', period: `For the period: ${label}`, groupName: config.groupName, org: res.locals.org });
+
+      // INCOME section
       pdf.sectionHeading(doc, 'Income');
-      income.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 10 }));
-      pdf.tableRow(doc, 'Total Income', pdf.fmtMoney(totalIncome), { bold: true, total: true });
+      income.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 15 }));
+      pdf.subtotalLine(doc);
+      pdf.tableRow(doc, 'TOTAL INCOME', pdf.fmtMoney(totalIncome), { bold: true });
+      doc.moveDown(0.8);
 
-      pdf.sectionHeading(doc, 'Expenditure');
-      expenses.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 10 }));
-      pdf.tableRow(doc, 'Total Expenditure', pdf.fmtMoney(totalExpenses), { bold: true, total: true });
+      // LESS: EXPENDITURE section
+      pdf.sectionHeading(doc, 'Less: Expenditure');
+      expenses.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 15 }));
+      pdf.subtotalLine(doc);
+      pdf.tableRow(doc, 'TOTAL EXPENDITURE', pdf.fmtMoney(totalExpenses), { bold: true });
+      doc.moveDown(1.0);
 
-      doc.moveDown(0.5);
-      pdf.tableRow(doc, surplus >= 0 ? 'Net Surplus' : 'Net Deficit', pdf.fmtMoney(Math.abs(surplus)), { bold: true, total: true });
+      // NET SURPLUS / DEFICIT
+      pdf.grandTotalLine(doc);
+      pdf.tableRow(doc, surplus >= 0 ? 'NET SURPLUS FOR THE PERIOD' : 'NET DEFICIT FOR THE PERIOD', pdf.fmtMoney(Math.abs(surplus)), { bold: true });
+      pdf.grandTotalLine(doc);
+
       pdf.signatureBlock(doc, res.locals.org);
       pdf.sendPdf(res, doc, `Income-Expenditure-${label.replace(/\s+/g, '-')}.pdf`);
     } else {
@@ -3355,7 +3365,9 @@ app.get('/download/receipts-payments', requireLogin, asyncHandler(async (req, re
 
     if (req.query.format === 'pdf') {
       const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY name');
-      const doc = pdf.createDoc({ title: 'Receipts & Payments Statement', period: `Period: ${label}`, groupName: config.groupName, org: res.locals.org });
+      const doc = pdf.createDoc({ title: 'Receipts & Payments Statement', period: `For the period: ${label}`, groupName: config.groupName, org: res.locals.org });
+
+      let grandOpening = 0, grandReceipts = 0, grandPayments = 0, grandClosing = 0;
 
       for (const account of accounts) {
         const receipts = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND status = 'posted' AND account_id = $1 AND tx_date >= $2 AND tx_date <= $3 GROUP BY category ORDER BY total DESC`, [account.id, startDate, endDate]);
@@ -3365,23 +3377,49 @@ app.get('/download/receipts-payments', requireLogin, asyncHandler(async (req, re
         const totalPayments = payments.reduce((s, r) => s + Number(r.total), 0);
         const closing = openingBalance + totalReceipts - totalPayments;
 
-        pdf.sectionHeading(doc, `${account.name} (${account.type})`);
+        grandOpening += openingBalance;
+        grandReceipts += totalReceipts;
+        grandPayments += totalPayments;
+        grandClosing += closing;
+
+        pdf.sectionHeading(doc, `Account: ${account.name} (${account.type})`);
         pdf.tableRow(doc, 'Opening Balance', pdf.fmtMoney(openingBalance), { bold: true });
-        doc.moveDown(0.3);
-        if (receipts.length) {
-          pdf.tableRow(doc, 'Receipts:', '', { bold: true });
-          receipts.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 15 }));
-          pdf.tableRow(doc, 'Total Receipts', pdf.fmtMoney(totalReceipts), { total: true });
-        }
-        if (payments.length) {
-          pdf.tableRow(doc, 'Payments:', '', { bold: true });
-          payments.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 15 }));
-          pdf.tableRow(doc, 'Total Payments', pdf.fmtMoney(totalPayments), { total: true });
-        }
-        doc.moveDown(0.3);
-        pdf.tableRow(doc, 'Closing Balance', pdf.fmtMoney(closing), { bold: true, total: true });
         doc.moveDown(0.5);
+
+        // Add: Receipts
+        if (receipts.length) {
+          pdf.labelRow(doc, 'Add: Receipts', { bold: true });
+          receipts.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 15 }));
+          pdf.subtotalLine(doc);
+          pdf.tableRow(doc, 'Total Receipts', pdf.fmtMoney(totalReceipts), { bold: true, indent: 15 });
+          doc.moveDown(0.5);
+        }
+
+        // Less: Payments
+        if (payments.length) {
+          pdf.labelRow(doc, 'Less: Payments', { bold: true });
+          payments.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 15 }));
+          pdf.subtotalLine(doc);
+          pdf.tableRow(doc, 'Total Payments', pdf.fmtMoney(totalPayments), { bold: true, indent: 15 });
+          doc.moveDown(0.5);
+        }
+
+        // Closing balance with double underline
+        pdf.grandTotalLine(doc);
+        pdf.tableRow(doc, 'CLOSING BALANCE', pdf.fmtMoney(closing), { bold: true });
+        pdf.grandTotalLine(doc);
+        doc.moveDown(0.8);
       }
+
+      // Grand totals
+      pdf.sectionHeading(doc, 'Grand Totals');
+      pdf.tableRow(doc, 'Total Opening Balances', pdf.fmtMoney(grandOpening));
+      pdf.tableRow(doc, 'Total Receipts', pdf.fmtMoney(grandReceipts));
+      pdf.tableRow(doc, 'Total Payments', pdf.fmtMoney(grandPayments));
+      pdf.subtotalLine(doc);
+      pdf.tableRow(doc, 'Total Closing Balances', pdf.fmtMoney(grandClosing), { bold: true });
+      pdf.grandTotalLine(doc);
+
       pdf.signatureBlock(doc, res.locals.org);
       pdf.sendPdf(res, doc, `Receipts-Payments-${label.replace(/\s+/g, '-')}.pdf`);
     } else {
@@ -3515,40 +3553,51 @@ app.get('/download/member-statement', requireLogin, asyncHandler(async (req, res
       const due = await memberDue(member, year);
       const allTransactions = await dal.query(`SELECT t.*, a.name AS account_name, tc.purpose AS category_purpose FROM transactions t LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN transaction_categories tc ON tc.name = t.category WHERE t.member_id = $1 AND t.tx_date >= $2 AND t.tx_date <= $3 AND t.status = 'posted' ORDER BY t.tx_date, t.id`, [memberId, `${year}-01-01`, `${year}-12-31`]);
       // Only assessment-category receipts count toward the balance
-      const assessmentPaid = allTransactions.filter(t => t.tx_type === 'receipt' && t.category_purpose === 'assessment').reduce((s, t) => s + Number(t.amount), 0);
-      const totalAllReceipts = allTransactions.filter(t => t.tx_type === 'receipt').reduce((s, t) => s + Number(t.amount), 0);
+      const assessmentTxns = allTransactions.filter(t => t.tx_type === 'receipt' && t.category_purpose === 'assessment');
+      const otherTxns = allTransactions.filter(t => !(t.tx_type === 'receipt' && t.category_purpose === 'assessment'));
+      const assessmentPaid = assessmentTxns.reduce((s, t) => s + Number(t.amount), 0);
+      const otherPaid = otherTxns.filter(t => t.tx_type === 'receipt').reduce((s, t) => s + Number(t.amount), 0);
       const balance = Number(member.opening_arrears || 0) + Number(due.assessment_due) - assessmentPaid;
 
-      const doc = pdf.createDoc({ title: 'Member Statement', subtitle: `${member.name} — Year ${year}`, groupName: config.groupName, org: res.locals.org });
+      const doc = pdf.createDoc({ title: 'Member Statement', subtitle: `${member.name} — ${member.membership_number || 'N/A'}`, period: `Year: ${year}`, groupName: config.groupName, org: res.locals.org });
 
-      pdf.sectionHeading(doc, 'Assessment Summary');
-      pdf.tableRow(doc, 'Member', member.name);
-      pdf.tableRow(doc, 'Membership Number', member.membership_number || '—');
-      pdf.tableRow(doc, 'Opening Balance (arrears)', pdf.fmtMoney(member.opening_arrears || 0));
-      pdf.tableRow(doc, 'Annual Assessment Due', pdf.fmtMoney(due.assessment_due));
-      pdf.tableRow(doc, 'Total Billed', pdf.fmtMoney(Number(member.opening_arrears || 0) + Number(due.assessment_due)), { bold: true });
-      pdf.tableRow(doc, 'Assessment Payments', pdf.fmtMoney(assessmentPaid));
-      pdf.tableRow(doc, balance > 0 ? 'Outstanding Balance (owes)' : 'Overpayment / Credit', pdf.fmtMoney(Math.abs(balance)), { bold: true, total: true });
+      // ASSESSMENT ACCOUNT section
+      pdf.sectionHeading(doc, 'Assessment Account');
+      pdf.tableRow(doc, 'Opening balance (arrears)', pdf.fmtMoney(member.opening_arrears || 0), { indent: 15 });
+      pdf.tableRow(doc, 'Annual assessment due', pdf.fmtMoney(due.assessment_due), { indent: 15 });
+      pdf.subtotalLine(doc);
+      pdf.tableRow(doc, 'TOTAL BILLED', pdf.fmtMoney(Number(member.opening_arrears || 0) + Number(due.assessment_due)), { bold: true });
+      doc.moveDown(0.6);
 
-      if (totalAllReceipts !== assessmentPaid) {
-        doc.moveDown(0.5);
-        pdf.tableRow(doc, 'Other receipts (welfare, donations, etc.)', pdf.fmtMoney(totalAllReceipts - assessmentPaid));
-        pdf.tableRow(doc, 'Grand total all payments', pdf.fmtMoney(totalAllReceipts));
-      }
-
-      if (allTransactions.length) {
-        pdf.sectionHeading(doc, 'All Transactions');
-        const cols = [
-          { label: 'Date', width: 65, align: 'left' },
-          { label: 'Category', width: 110, align: 'left' },
-          { label: 'Account', width: 90, align: 'left' },
-          { label: 'Reference', width: 75, align: 'left' },
-          { label: 'Amount', width: 75, align: 'right' }
-        ];
-        pdf.tableHeader(doc, cols);
-        allTransactions.forEach(t => {
-          pdf.dataRow(doc, cols, [t.tx_date, t.category, t.account_name || '', t.reference || '', pdf.fmtMoney(t.amount)]);
+      // Less: Assessment payments received
+      pdf.labelRow(doc, 'Less: Assessment payments received', { bold: true });
+      if (assessmentTxns.length) {
+        assessmentTxns.forEach(t => {
+          const desc = `${t.tx_date}  ${t.category} (${t.account_name || 'Cash'})`;
+          pdf.tableRow(doc, desc, pdf.fmtMoney(t.amount), { indent: 15 });
         });
+      } else {
+        pdf.tableRow(doc, 'No assessment payments recorded', 'GHS 0.00', { indent: 15 });
+      }
+      pdf.subtotalLine(doc);
+      pdf.tableRow(doc, 'TOTAL ASSESSMENT PAYMENTS', pdf.fmtMoney(assessmentPaid), { bold: true });
+      doc.moveDown(0.8);
+
+      // Outstanding balance with double underline
+      pdf.grandTotalLine(doc);
+      pdf.tableRow(doc, balance > 0 ? 'OUTSTANDING BALANCE' : 'OVERPAYMENT / CREDIT', pdf.fmtMoney(Math.abs(balance)), { bold: true });
+      pdf.grandTotalLine(doc);
+
+      // OTHER PAYMENTS section (if any)
+      if (otherTxns.length) {
+        doc.moveDown(0.8);
+        pdf.sectionHeading(doc, 'Other Payments (not against assessment)');
+        otherTxns.forEach(t => {
+          const desc = `${t.tx_date}  ${t.category}  (${t.account_name || 'Cash'})`;
+          pdf.tableRow(doc, desc, pdf.fmtMoney(t.amount), { indent: 15 });
+        });
+        pdf.subtotalLine(doc);
+        pdf.tableRow(doc, 'TOTAL OTHER PAYMENTS', pdf.fmtMoney(otherPaid), { bold: true });
       }
 
       pdf.signatureBlock(doc, res.locals.org);
