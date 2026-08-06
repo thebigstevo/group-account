@@ -15,7 +15,7 @@
   </section>
 
   <section class="summary-strip" aria-label="Key financial metrics">
-    <div class="summary-strip__item"><span class="summary-strip__label">Total available balance</span><strong class="summary-strip__value"><%= formatMoney(summary.totalCashPosition) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Current total balance</span><strong class="summary-strip__value"><%= formatMoney(summary.totalCashPosition) %></strong></div>
     <div class="summary-strip__item"><span class="summary-strip__label">Income · <%= dashboardMonth.label %></span><strong class="summary-strip__value"><%= formatMoney(monthSummary.income) %></strong></div>
     <div class="summary-strip__item"><span class="summary-strip__label">Expenses · <%= dashboardMonth.label %></span><strong class="summary-strip__value"><%= formatMoney(monthSummary.expenses) %></strong></div>
     <div class="summary-strip__item"><span class="summary-strip__label">Members with overdue dues</span><strong class="summary-strip__value"><%= arrearsCount %></strong></div>
@@ -24,7 +24,7 @@
   <section class="dashboard-layout">
     <div class="dashboard-stack">
       <div>
-        <div class="dashboard-total"><span>Total available balance</span><strong><%= formatMoney(summary.totalCashPosition) %></strong></div>
+        <div class="dashboard-total"><span>Current total balance (all accounts)</span><strong><%= formatMoney(summary.totalCashPosition) %></strong></div>
         <div class="account-list" aria-label="Account balances">
           <% if (!summary.balances.length) { %><div class="empty-state"><p>No active accounts are configured.</p></div><% } %>
           <% summary.balances.forEach(function(account) { %><div class="account-row"><span class="account-row__name"><%= account.name %></span><strong class="account-row__value"><%= formatMoney(account.balance) %></strong></div><% }) %>
