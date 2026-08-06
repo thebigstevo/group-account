@@ -220,4 +220,22 @@ router.post('/events/:id/attendance', allow('admin', 'secretary'), asyncHandler(
   res.redirect(`/secretary/meetings/events/${event.id}`);
 }));
 
+// ─── Send Event Reminder SMS ─────────────────────────────────────────────────
+
+router.post('/events/:id/send-reminder', allow('admin', 'secretary'), asyncHandler(async (req, res) => {
+  const event = await dal.queryOne('SELECT * FROM meetings WHERE id = $1', [Number(req.params.id)]);
+  if (!event) return res.status(404).render('error', { message: 'Event not found.' });
+
+  const sms = require('./smsService');
+  const result = await sms.sendEventReminder(event.id, req.session.user.id);
+
+  if (result.error) {
+    req.session.flash = { type: 'error', message: result.error };
+  } else {
+    req.session.flash = { type: 'success', message: `Reminder sent: ${result.sent} delivered, ${result.failed} failed.` };
+  }
+  await dal.audit(req.session.user.id, 'sms_send', 'event_reminder', event.id, { sent: result.sent, failed: result.failed });
+  res.redirect(`/secretary/meetings/events/${event.id}`);
+}));
+
 module.exports = router;

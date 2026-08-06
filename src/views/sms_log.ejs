@@ -1,0 +1,76 @@
+<%- include('partials/header') %>
+<% locals.title = 'SMS Messages' %>
+
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <h1>SMS Messages</h1>
+      <p>View sent messages and send assessment reminders.</p>
+    </div>
+    <div class="hero-actions">
+      <% if (['admin','treasurer'].includes(user.role)) { %>
+      <form method="post" action="/sms/send-assessment-reminders" style="display:inline" data-modal-confirm data-modal-title="Send Assessment Reminders" data-modal-body="This will send an SMS to every active member with an outstanding balance. Are you sure?">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button class="btn btn--primary" type="submit">Send Assessment Reminders</button>
+      </form>
+      <% } %>
+    </div>
+  </section>
+
+  <!-- Stats -->
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-5);">
+    <div class="panel" style="text-align:center;">
+      <div style="font-size: 1.5rem; font-weight: 700;"><%= stats.total %></div>
+      <div style="font-size: 0.7rem; color: var(--neutral-500); text-transform: uppercase;">Total Sent</div>
+    </div>
+    <div class="panel" style="text-align:center;">
+      <div style="font-size: 1.5rem; font-weight: 700; color: var(--success-base);"><%= stats.sent %></div>
+      <div style="font-size: 0.7rem; color: var(--neutral-500); text-transform: uppercase;">Delivered</div>
+    </div>
+    <div class="panel" style="text-align:center;">
+      <div style="font-size: 1.5rem; font-weight: 700; color: var(--danger-base);"><%= stats.failed %></div>
+      <div style="font-size: 0.7rem; color: var(--neutral-500); text-transform: uppercase;">Failed</div>
+    </div>
+    <div class="panel" style="text-align:center;">
+      <div style="font-size: 1.5rem; font-weight: 700;"><%= stats.last_30_days %></div>
+      <div style="font-size: 0.7rem; color: var(--neutral-500); text-transform: uppercase;">Last 30 Days</div>
+    </div>
+  </div>
+
+  <!-- Log table -->
+  <section class="panel">
+    <% if (!log.length) { %>
+    <div class="empty-state"><p>No SMS messages have been sent yet.</p></div>
+    <% } else { %>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Recipient</th>
+            <th>Type</th>
+            <th>Message</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% log.forEach(function(s) { %>
+          <tr>
+            <td><%= formatDate(s.created_at) %></td>
+            <td><%= s.recipient_name || s.recipient_phone %></td>
+            <td><span class="badge"><%= s.sms_type.replace(/_/g, ' ') %></span></td>
+            <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<%= s.message %>"><%= s.message %></td>
+            <td>
+              <span class="badge status-badge <%= s.status === 'sent' ? 'badge--success' : s.status === 'failed' ? 'badge--danger' : 'badge--warning' %>"><%= s.status %></span>
+              <% if (s.error_message) { %><small style="display:block; color:var(--danger-base); font-size:0.65rem;"><%= s.error_message %></small><% } %>
+            </td>
+          </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+    <% } %>
+  </section>
+</div>
+
+<%- include('partials/footer') %>

@@ -1145,6 +1145,8 @@ app.post('/organization', allow('admin'), asyncHandler(async (req, res) => {
       signatory1_title = $17, signatory1_name = $18,
       signatory2_title = $19, signatory2_name = $20,
       signatory3_title = $21, signatory3_name = $22,
+      sms_api_key = $23, sms_sender_id = $24, sms_enabled = $25,
+      sms_event_reminder_days = $26, sms_payment_notify = $27,
       updated_at = NOW()
     WHERE id = 1
   `, [
@@ -1169,7 +1171,12 @@ app.post('/organization', allow('admin'), asyncHandler(async (req, res) => {
     req.body.signatory2_title ? req.body.signatory2_title.trim() : null,
     req.body.signatory2_name ? req.body.signatory2_name.trim() : null,
     req.body.signatory3_title ? req.body.signatory3_title.trim() : null,
-    req.body.signatory3_name ? req.body.signatory3_name.trim() : null
+    req.body.signatory3_name ? req.body.signatory3_name.trim() : null,
+    req.body.sms_api_key ? req.body.sms_api_key.trim() : null,
+    req.body.sms_sender_id ? req.body.sms_sender_id.trim() : 'KSJI',
+    req.body.sms_enabled === 'true',
+    req.body.sms_event_reminder_days ? Number(req.body.sms_event_reminder_days) : 2,
+    req.body.sms_payment_notify === 'true'
   ]);
 
   await dal.audit(req.session.user.id, 'update', 'organization', 1, req.body.name.trim());
@@ -2221,6 +2228,14 @@ app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer
     `, [req.body.tx_date, req.body.member_id || null, Number(req.body.account_id), receiptCategory.name, req.body.description || null, amount, welfare, req.body.reference || null, req.session.user.id]);
     await dal.audit(req.session.user.id, 'create', 'receipt', result.rows[0].id, `${req.body.category} ${amount}`);
     req.session.flash = { type: 'success', message: 'Receipt saved successfully.' };
+
+    // Auto-send payment confirmation SMS
+    if (req.body.member_id) {
+      try {
+        const sms = require('./smsService');
+        await sms.sendPaymentConfirmation(Number(req.body.member_id), amount, req.body.category, req.session.user.id);
+      } catch (smsErr) { console.error('SMS payment notify error:', smsErr.message); }
+    }
   }
 
   res.redirect('/finance/income');
@@ -3720,6 +3735,41 @@ app.get('/export/audit-log', allow('admin', 'auditor', 'trustee'), asyncHandler(
     console.error('Export error:', error);
     res.status(500).render('error', { message: 'Failed to export audit log.' });
   }
+}));
+
+// ─── SMS Routes ──────────────────────────────────────────────────────────────
+
+app.get('/sms', allow('admin', 'secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  const log = await dal.query(`
+    SELECT s.*, m.name AS member_name_joined
+    FROM sms_log s
+    LEFT JOIN members m ON m.id = s.member_id
+    ORDER BY s.created_at DESC
+    LIMIT 100
+  `);
+  const stats = await dal.queryOne(`
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE status = 'sent')::int AS sent,
+      COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
+      COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')::int AS last_30_days
+    FROM sms_log
+  `);
+  res.render('sms_log', { log, stats: stats || { total: 0, sent: 0, failed: 0, last_30_days: 0 } });
+}));
+
+app.post('/sms/send-assessment-reminders', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  const sms = require('./smsService');
+  const year = selectedYear(req);
+  const result = await sms.sendAssessmentReminders(year, memberDue, req.session.user.id);
+
+  if (result.error) {
+    req.session.flash = { type: 'error', message: result.error };
+  } else {
+    req.session.flash = { type: 'success', message: `Assessment reminders: ${result.sent} sent, ${result.failed} failed.` };
+  }
+  await dal.audit(req.session.user.id, 'sms_send', 'assessment_reminder', null, { year, sent: result.sent, failed: result.failed });
+  res.redirect('/sms');
 }));
 
 app.use('/secretary/meetings', require('./secretaryRoutes'));

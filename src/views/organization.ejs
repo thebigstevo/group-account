@@ -130,6 +130,40 @@
         </div>
       </div>
 
+      <div class="form-section">
+        <div class="form-section__heading"><h2>SMS Notifications (mNotify)</h2><p>Configure SMS messaging to send event reminders, payment confirmations, and assessment reminders to members.</p></div>
+        <div class="field-grid">
+          <div class="form-group field-grid__full">
+            <label for="org-sms-key">mNotify API Key</label>
+            <input id="org-sms-key" name="sms_api_key" type="password" value="<%= org.sms_api_key || '' %>" placeholder="Paste your mNotify API key here" autocomplete="off">
+            <span class="form-group__hint">Get this from your <a href="https://apps.mnotify.net" target="_blank" rel="noopener">mNotify dashboard</a> → Settings → API Keys.</span>
+          </div>
+          <div class="form-group">
+            <label for="org-sms-sender">Sender ID</label>
+            <input id="org-sms-sender" name="sms_sender_id" value="<%= org.sms_sender_id || 'KSJI' %>" maxlength="11" placeholder="KSJI">
+            <span class="form-group__hint">Max 11 characters. Must be registered with mNotify.</span>
+          </div>
+          <div class="form-group">
+            <label for="org-sms-enabled">SMS Enabled</label>
+            <select id="org-sms-enabled" name="sms_enabled">
+              <option value="true" <%= org.sms_enabled ? 'selected' : '' %>>Yes — send messages</option>
+              <option value="false" <%= !org.sms_enabled ? 'selected' : '' %>>No — disabled</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="org-sms-reminder-days">Event Reminder (days before)</label>
+            <input id="org-sms-reminder-days" name="sms_event_reminder_days" type="number" min="1" max="14" value="<%= org.sms_event_reminder_days || 2 %>">
+          </div>
+          <div class="form-group">
+            <label for="org-sms-payment">Auto-notify on Payment</label>
+            <select id="org-sms-payment" name="sms_payment_notify">
+              <option value="true" <%= org.sms_payment_notify !== false ? 'selected' : '' %>>Yes — send confirmation when payment is posted</option>
+              <option value="false" <%= org.sms_payment_notify === false ? 'selected' : '' %>>No</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       <div class="action-bar">
         <a class="btn btn--secondary" href="/config">Cancel</a>
         <button class="btn btn--primary" type="submit">Save Organization Profile</button>

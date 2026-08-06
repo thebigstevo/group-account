@@ -776,7 +776,35 @@ async function migrate() {
   // Commandery number and region for monthly report
   await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS commandery_number VARCHAR(50)`);
   await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS district VARCHAR(100)`);
-  console.log('[migrate]   ✓ secretary module columns on organization_settings');
+  // SMS configuration (mNotify)
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS sms_api_key TEXT`);
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS sms_sender_id VARCHAR(11) DEFAULT 'KSJI'`);
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS sms_enabled BOOLEAN NOT NULL DEFAULT false`);
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS sms_event_reminder_days INTEGER NOT NULL DEFAULT 2`);
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS sms_payment_notify BOOLEAN NOT NULL DEFAULT true`);
+  console.log('[migrate]   ✓ secretary module + SMS columns on organization_settings');
+
+  // SMS log table
+  await run(`
+    CREATE TABLE IF NOT EXISTS sms_log (
+      id SERIAL PRIMARY KEY,
+      commandery_id INTEGER REFERENCES commanderies(id) ON DELETE SET NULL,
+      recipient_phone VARCHAR(20) NOT NULL,
+      recipient_name VARCHAR(255),
+      member_id INTEGER REFERENCES members(id) ON DELETE SET NULL,
+      message TEXT NOT NULL,
+      sms_type VARCHAR(30) NOT NULL DEFAULT 'general' CHECK (sms_type IN ('event_reminder','payment_confirmation','assessment_reminder','general')),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','failed')),
+      provider_ref VARCHAR(255),
+      error_message TEXT,
+      sent_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_sms_log_created ON sms_log(created_at DESC)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_sms_log_member ON sms_log(member_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_sms_log_type ON sms_log(sms_type)`);
+  console.log('[migrate]   ✓ sms_log');
 
   console.log('[migrate] Migration complete.');
   });

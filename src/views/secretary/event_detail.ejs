@@ -23,6 +23,12 @@
       <a class="btn btn--primary" href="/secretary/meetings/events/<%= event.id %>/attendance">Mark Attendance</a>
       <% } %>
       <a class="btn btn--secondary" href="<%= googleCalendarUrl %>" target="_blank" rel="noopener">Add to Google Calendar</a>
+      <% if (['admin','secretary'].includes(user.role)) { %>
+      <form method="post" action="/secretary/meetings/events/<%= event.id %>/send-reminder" style="display:inline">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button class="btn btn--secondary" type="submit">Send SMS Reminder</button>
+      </form>
+      <% } %>
     </div>
   </section>
 
