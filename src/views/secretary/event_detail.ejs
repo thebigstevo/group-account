@@ -21,6 +21,10 @@
       <% if (['admin','secretary'].includes(user.role)) { %>
       <a class="btn btn--secondary" href="/secretary/meetings/events/<%= event.id %>/edit">Edit</a>
       <a class="btn btn--primary" href="/secretary/meetings/events/<%= event.id %>/attendance">Mark Attendance</a>
+      <form method="post" action="/secretary/meetings/events/<%= event.id %>/delete" style="display:inline" data-modal-confirm data-modal-title="Delete Event" data-modal-body="This will permanently delete this event and all its attendance records. Are you sure?">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button class="btn btn--secondary" type="submit" style="color:var(--danger-base)">Delete</button>
+      </form>
       <% } %>
       <a class="btn btn--secondary" href="<%= googleCalendarUrl %>" target="_blank" rel="noopener">Add to Google Calendar</a>
       <% if (['admin','secretary'].includes(user.role)) { %>

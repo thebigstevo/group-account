@@ -709,7 +709,7 @@ async function migrate() {
   await run(`ALTER TABLE meetings DROP CONSTRAINT IF EXISTS meetings_event_level_check`);
   await run(`ALTER TABLE meetings DROP CONSTRAINT IF EXISTS meetings_event_type_check`);
   await run(`ALTER TABLE meetings ADD CONSTRAINT meetings_event_level_check CHECK (event_level IN ('local','district','grand','supreme_subordinate'))`);
-  await run(`ALTER TABLE meetings ADD CONSTRAINT meetings_event_type_check CHECK (event_type IN ('meeting','offertory','convention','social','funeral','community_service','other'))`);
+  // event_type is now free-text referencing event_types.slug (no CHECK constraint);
   // Additional fields for formal meeting minutes (kept for backward compat)
   await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS pro_tem_appointments TEXT`);
   await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS opening_rituals TEXT`);
@@ -787,6 +787,37 @@ async function migrate() {
   await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS sms_tpl_payment TEXT DEFAULT 'Dear {name}, your payment of GHS {amount} for {category} has been received. Thank you. - KSJI'`);
   await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS sms_tpl_assessment TEXT DEFAULT 'Dear {name}, your outstanding balance for {year} is GHS {balance}. Kindly make payment. - KSJI'`);
   console.log('[migrate]   ✓ secretary module + SMS columns on organization_settings');
+
+  // Event types (admin-configurable)
+  await run(`
+    CREATE TABLE IF NOT EXISTS event_types (
+      id SERIAL PRIMARY KEY,
+      commandery_id INTEGER NOT NULL REFERENCES commanderies(id) ON DELETE RESTRICT,
+      name VARCHAR(100) NOT NULL,
+      slug VARCHAR(50) NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT true,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_event_types_slug ON event_types(commandery_id, slug)`);
+  // Seed default event types if empty
+  await run(`
+    INSERT INTO event_types (commandery_id, name, slug, sort_order)
+    SELECT c.id, t.name, t.slug, t.sort_order
+    FROM commanderies c,
+    (VALUES
+      ('Meeting', 'meeting', 1),
+      ('Church Offertory', 'offertory', 2),
+      ('Convention', 'convention', 3),
+      ('Social Event', 'social', 4),
+      ('Funeral', 'funeral', 5),
+      ('Community Service', 'community_service', 6),
+      ('Other', 'other', 7)
+    ) AS t(name, slug, sort_order)
+    WHERE NOT EXISTS (SELECT 1 FROM event_types WHERE commandery_id = c.id)
+  `);
+  console.log('[migrate]   ✓ event_types');
 
   // SMS log table
   await run(`

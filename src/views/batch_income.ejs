@@ -27,7 +27,8 @@
         <div class="field-grid">
           <div class="form-group">
             <label for="batch-date">Date *</label>
-            <input id="batch-date" name="tx_date" type="date" required>
+            <input id="batch-date" name="tx_date" type="date" required min="<%= locals.activeFiscalYear ? locals.activeFiscalYear.year + '-01-01' : '' %>" max="<%= locals.activeFiscalYear ? locals.activeFiscalYear.year + '-12-31' : '' %>" value="<%= locals.activeFiscalYear ? locals.activeFiscalYear.year + '-01-01' : '' %>">
+            <span class="form-group__hint">Must be within fiscal year <%= locals.activeFiscalYear ? locals.activeFiscalYear.year : '' %>.</span>
           </div>
           <div class="form-group">
             <label for="batch-category">Category *</label>

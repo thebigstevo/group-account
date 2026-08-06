@@ -47,8 +47,8 @@
         <div class="form-group">
           <label for="event_type">Type</label>
           <select id="event_type" name="event_type" required>
-            <% EVENT_TYPES.forEach(function(t) { %>
-            <option value="<%= t %>" <%= (v.event_type || 'meeting') === t ? 'selected' : '' %>><%= EVENT_TYPE_LABELS[t] %></option>
+            <% eventTypes.forEach(function(t) { %>
+            <option value="<%= t.slug %>" <%= (v.event_type || 'meeting') === t.slug ? 'selected' : '' %>><%= t.name %></option>
             <% }) %>
           </select>
         </div>
