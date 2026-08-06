@@ -1,185 +1,108 @@
 <%- include('partials/header') %>
 <% locals.title = 'Downloads' %>
 
-<section class="page-title">
-  <div>
-    <h1>Download reports</h1>
-    <p>Generate and download formal financial reports as CSV files. Open in Excel or Google Sheets for printing or sharing.</p>
-  </div>
-</section>
-
-<section class="grid two">
-  <div class="panel">
-    <h2>Income &amp; Expenditure</h2>
-    <p class="text-muted text-sm">Income by category less expenditure by category, showing surplus or deficit for the period.</p>
-    <form method="get" action="/download/income-expenditure" class="stack" data-validate>
-      <fieldset class="fieldset">
-        <legend>Report parameters <span class="required-legend">* Required</span></legend>
-        <div class="row">
-          <div class="form-group">
-            <label for="ie-year">Year *</label>
-            <input id="ie-year" name="year" type="number" value="<%= year %>" required>
-          </div>
-          <div class="form-group">
-            <label for="ie-month">Month (blank = full year)</label>
-            <select id="ie-month" name="month">
-              <option value="">Full Year</option>
-              <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach(function(name, index) { %>
-                <option value="<%= index + 1 %>"><%= name %></option>
-              <% }) %>
-            </select>
-          </div>
-        </div>
-      </fieldset>
-      <div class="btn-group">
-        <button class="btn btn--primary" type="submit" name="format" value="csv">Download CSV</button>
-        <button class="btn btn--secondary" type="submit" name="format" value="pdf">Download PDF</button>
-      </div>
-    </form>
-  </div>
-
-  <div class="panel">
-    <h2>Receipts &amp; Payments</h2>
-    <p class="text-muted text-sm">All cash movements per account — opening balance, receipts by category, payments by category, closing balance.</p>
-    <form method="get" action="/download/receipts-payments" class="stack" data-validate>
-      <fieldset class="fieldset">
-        <legend>Report parameters <span class="required-legend">* Required</span></legend>
-        <div class="row">
-          <div class="form-group">
-            <label for="rp-year">Year *</label>
-            <input id="rp-year" name="year" type="number" value="<%= year %>" required>
-          </div>
-          <div class="form-group">
-            <label for="rp-month">Month (blank = full year)</label>
-            <select id="rp-month" name="month">
-              <option value="">Full Year</option>
-              <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach(function(name, index) { %>
-                <option value="<%= index + 1 %>"><%= name %></option>
-              <% }) %>
-            </select>
-          </div>
-        </div>
-      </fieldset>
-      <div class="btn-group">
-        <button class="btn btn--primary" type="submit" name="format" value="csv">Download CSV</button>
-        <button class="btn btn--secondary" type="submit" name="format" value="pdf">Download PDF</button>
-      </div>
-    </form>
-  </div>
-</section>
-
-<section class="grid two">
-  <div class="panel">
-    <h2>Welfare Fund Statement</h2>
-    <p class="text-muted text-sm">Welfare collections from members, payouts made, and outstanding welfare liability.</p>
-    <form method="get" action="/download/welfare-fund" class="stack" data-validate>
-      <fieldset class="fieldset">
-        <legend>Report parameters <span class="required-legend">* Required</span></legend>
-        <div class="row">
-          <div class="form-group">
-            <label for="wf-year">Year *</label>
-            <input id="wf-year" name="year" type="number" value="<%= year %>" required>
-          </div>
-          <div class="form-group">
-            <label for="wf-month">Month (blank = full year)</label>
-            <select id="wf-month" name="month">
-              <option value="">Full Year</option>
-              <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach(function(name, index) { %>
-                <option value="<%= index + 1 %>"><%= name %></option>
-              <% }) %>
-            </select>
-          </div>
-        </div>
-      </fieldset>
-      <div class="btn-group">
-        <button class="btn btn--primary" type="submit" name="format" value="csv">Download CSV</button>
-        <button class="btn btn--secondary" type="submit" name="format" value="pdf">Download PDF</button>
-      </div>
-    </form>
-  </div>
-
-  <div class="panel">
-    <h2>Statement of Financial Position</h2>
-    <p class="text-muted text-sm">Assets (account balances), liabilities (welfare fund payable), and net assets as at end of period.</p>
-    <form method="get" action="/download/financial-position" class="stack" data-validate>
-      <fieldset class="fieldset">
-        <legend>Report parameters <span class="required-legend">* Required</span></legend>
-        <div class="row">
-          <div class="form-group">
-            <label for="fp-year">Year *</label>
-            <input id="fp-year" name="year" type="number" value="<%= year %>" required>
-          </div>
-          <div class="form-group">
-            <label for="fp-month">Month (blank = year end)</label>
-            <select id="fp-month" name="month">
-              <option value="">Year End (31 Dec)</option>
-              <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach(function(name, index) { %>
-                <option value="<%= index + 1 %>"><%= name %></option>
-              <% }) %>
-            </select>
-          </div>
-        </div>
-      </fieldset>
-      <div class="btn-group">
-        <button class="btn btn--primary" type="submit" name="format" value="csv">Download CSV</button>
-        <button class="btn btn--secondary" type="submit" name="format" value="pdf">Download PDF</button>
-      </div>
-    </form>
-  </div>
-</section>
-
-<section class="panel narrow">
-  <h2>Member Statement</h2>
-  <p class="text-muted text-sm">Individual member's transactions, dues summary, and outstanding balance for a year. Useful for sending to members.</p>
-  <form method="get" action="/download/member-statement" class="stack" data-validate>
-    <fieldset class="fieldset">
-      <legend>Statement parameters <span class="required-legend">* Required</span></legend>
-      <div class="row">
-        <div class="form-group">
-          <label for="ms-member">Member *</label>
-          <select id="ms-member" name="member_id" required>
-            <option value="">Select a member</option>
-            <% members.forEach(function(member) { %>
-              <option value="<%= member.id %>"><%= member.name %></option>
-            <% }) %>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="ms-year">Year *</label>
-          <input id="ms-year" name="year" type="number" value="<%= year %>" required>
-        </div>
-      </div>
-    </fieldset>
-    <div class="btn-group">
-      <button class="btn btn--primary" type="submit" name="format" value="csv">Download CSV</button>
-      <button class="btn btn--secondary" type="submit" name="format" value="pdf">Download PDF</button>
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <h1>Download Reports</h1>
+      <p>Select year and month, then download any report as PDF or CSV.</p>
     </div>
-  </form>
-</section>
+  </section>
+
+  <!-- Shared filter controls -->
+  <div class="report-toolbar" style="margin-bottom: var(--space-4);">
+    <div class="report-toolbar__fields" style="grid-template-columns: repeat(3, minmax(100px, 160px));">
+      <div class="form-group">
+        <label for="dl-year">Year</label>
+        <input id="dl-year" type="number" value="<%= year %>" style="width:100%">
+      </div>
+      <div class="form-group">
+        <label for="dl-month">Month</label>
+        <select id="dl-month" style="width:100%">
+          <option value="">Full Year</option>
+          <% ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].forEach(function(name, idx) { %>
+          <option value="<%= idx + 1 %>"><%= name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="dl-member">Member (for statement)</label>
+        <select id="dl-member" style="width:100%">
+          <option value="">Select member</option>
+          <% members.forEach(function(m) { %>
+          <option value="<%= m.id %>"><%= m.name %></option>
+          <% }) %>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reports list -->
+  <section class="panel">
+    <table class="data-table">
+      <thead>
+        <tr><th>Report</th><th>Description</th><th style="text-align:center">CSV</th><th style="text-align:center">PDF</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Income & Expenditure</strong></td>
+          <td>Income by category less expenses, showing surplus or deficit</td>
+          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/income-expenditure" data-format="csv" title="Download CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
+          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/income-expenditure" data-format="pdf" title="Download PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
+        </tr>
+        <tr>
+          <td><strong>Receipts & Payments</strong></td>
+          <td>Cash movements per account — opening, receipts, payments, closing</td>
+          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/receipts-payments" data-format="csv" title="Download CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
+          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/receipts-payments" data-format="pdf" title="Download PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
+        </tr>
+        <tr>
+          <td><strong>Welfare Fund</strong></td>
+          <td>Welfare collections, payouts, and outstanding liability</td>
+          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/welfare-fund" data-format="csv" title="Download CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
+          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/welfare-fund" data-format="pdf" title="Download PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
+        </tr>
+        <tr>
+          <td><strong>Financial Position</strong></td>
+          <td>Assets, liabilities (welfare payable), and net assets</td>
+          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/financial-position" data-format="csv" title="Download CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
+          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/financial-position" data-format="pdf" title="Download PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
+        </tr>
+        <tr>
+          <td><strong>Member Statement</strong></td>
+          <td>Individual member's dues, payments, and balance for the year</td>
+          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/member-statement" data-format="csv" data-needs-member="true" title="Download CSV"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg></a></td>
+          <td style="text-align:center"><a class="btn-icon" href="#" data-report="/download/member-statement" data-format="pdf" data-needs-member="true" title="Download PDF" style="color:var(--danger-base)"><svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4-1a1 1 0 10-2 0v7a1 1 0 102 0V8z" clip-rule="evenodd"/></svg></a></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+
 <%- include('partials/footer') %>
 <script>
-// Ensure format parameter is submitted correctly for PDF downloads
-document.querySelectorAll('button[name="format"][value="pdf"]').forEach(function(btn) {
-  btn.addEventListener('click', function(e) {
+// Wire up download icons to use the shared year/month/member filters
+document.querySelectorAll('[data-report]').forEach(function(link) {
+  link.addEventListener('click', function(e) {
     e.preventDefault();
-    var form = btn.closest('form');
-    var existing = form.querySelector('input[name="format"]');
-    if (existing) existing.remove();
-    var input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'format';
-    input.value = 'pdf';
-    form.appendChild(input);
-    form.submit();
-  });
-});
-document.querySelectorAll('button[name="format"][value="csv"]').forEach(function(btn) {
-  btn.addEventListener('click', function(e) {
-    e.preventDefault();
-    var form = btn.closest('form');
-    var existing = form.querySelector('input[name="format"]');
-    if (existing) existing.remove();
-    form.submit();
+    var year = document.getElementById('dl-year').value;
+    var month = document.getElementById('dl-month').value;
+    var member = document.getElementById('dl-member').value;
+    var base = link.dataset.report;
+    var format = link.dataset.format;
+    var needsMember = link.dataset.needsMember;
+
+    if (needsMember && !member) {
+      alert('Please select a member for this report.');
+      return;
+    }
+
+    var params = 'year=' + year;
+    if (month) params += '&month=' + month;
+    if (format === 'pdf') params += '&format=pdf';
+    if (needsMember && member) params += '&member_id=' + member;
+
+    window.location.href = base + '?' + params;
   });
 });
 </script>

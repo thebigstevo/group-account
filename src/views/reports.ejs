@@ -33,15 +33,15 @@
   </form>
 
   <section class="summary-strip" aria-label="Period summary">
-    <div class="summary-strip__item"><span class="summary-strip__label">Total raw balance</span><strong class="summary-strip__value"><%= formatMoney(summary.totalCashPosition) %></strong></div>
-    <div class="summary-strip__item"><span class="summary-strip__label">Income this month</span><strong class="summary-strip__value"><%= formatMoney(summary.income) %></strong></div>
-    <div class="summary-strip__item"><span class="summary-strip__label">Expenses this month</span><strong class="summary-strip__value"><%= formatMoney(summary.expenses) %></strong></div>
-    <div class="summary-strip__item"><span class="summary-strip__label">Estimated spendable</span><strong class="summary-strip__value"><%= formatMoney(summary.spendableBalance) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Current Balance (all accounts)</span><strong class="summary-strip__value"><%= formatMoney(summary.totalCashPosition) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Net Income · <%= period.label %></span><strong class="summary-strip__value" style="color: var(--success-dark)"><%= formatMoney(summary.income) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Expenses · <%= period.label %></span><strong class="summary-strip__value" style="color: var(--danger-dark)"><%= formatMoney(summary.expenses) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Spendable (excl. welfare)</span><strong class="summary-strip__value"><%= formatMoney(summary.spendableBalance) %></strong></div>
   </section>
 
   <section class="grid two report-grid">
     <div class="panel">
-      <div class="section-head"><div><h2>Account balances</h2><p>Raw and last reconciled positions.</p></div></div>
+      <div class="section-head"><div><h2>Account Balances</h2><p>Current position of each account, with last reconciliation status.</p></div></div>
       <div class="account-list">
         <% summary.balances.forEach(function(account) {
           const rec = reconciliations.find(function(item) { return item.account_id === account.id; });
@@ -54,13 +54,12 @@
       </div>
     </div>
     <div class="panel">
-      <div class="section-head"><div><h2>Period notes</h2><p>Key reporting context.</p></div></div>
+      <div class="section-head"><div><h2>Period Summary</h2><p>Key figures for <%= period.label %>.</p></div></div>
       <dl class="report-notes">
-        <div><dt>Period start</dt><dd><%= period.startDate %></dd></div>
-        <div><dt>Period end</dt><dd><%= period.endDate %></dd></div>
-        <div><dt>Gross receipts</dt><dd><%= formatMoney(summary.grossReceipts) %></dd></div>
-        <div><dt>Welfare collected</dt><dd><%= formatMoney(summary.welfareCollected) %></dd></div>
-        <div><dt>Welfare still payable</dt><dd><%= formatMoney(summary.welfareLiability) %></dd></div>
+        <div><dt>Period</dt><dd><%= period.startDate %> to <%= period.endDate %></dd></div>
+        <div><dt>Gross receipts (incl. welfare)</dt><dd><%= formatMoney(summary.grossReceipts) %></dd></div>
+        <div><dt>Welfare collected this period</dt><dd><%= formatMoney(summary.welfareCollected) %></dd></div>
+        <div><dt>Total welfare liability (still payable)</dt><dd><%= formatMoney(summary.welfareLiability) %></dd></div>
       </dl>
     </div>
   </section>
