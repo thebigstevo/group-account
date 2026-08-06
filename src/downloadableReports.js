@@ -15,15 +15,20 @@ function csvFromRows(rows) {
  * and net surplus/deficit for a period.
  */
 async function incomeAndExpenditureReport(startDate, endDate, periodLabel) {
-  // Income (assessment income, net of welfare)
+  // Get welfare fund account to exclude from operational income
+  const welfareAcct = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
+  const welfareAcctId = welfareAcct ? welfareAcct.id : -1;
+
+  // Income (assessment income, net of welfare, excluding direct welfare account deposits)
   const income = await dal.query(`
     SELECT category, COALESCE(SUM(amount - welfare_component), 0) AS total
     FROM transactions
     WHERE tx_type = 'receipt' AND status = 'posted'
       AND tx_date >= $1 AND tx_date <= $2
+      AND (account_id != $3 OR account_id IS NULL)
     GROUP BY category
     ORDER BY total DESC
-  `, [startDate, endDate]);
+  `, [startDate, endDate, welfareAcctId]);
 
   // Expenses
   const expenses = await dal.query(`

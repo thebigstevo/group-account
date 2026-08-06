@@ -3322,7 +3322,10 @@ app.get('/download/income-expenditure', requireLogin, asyncHandler(async (req, r
 
     if (req.query.format === 'pdf') {
       // PDF generation — proper accounting layout
-      const income = await dal.query(`SELECT category, COALESCE(SUM(amount - welfare_component), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
+      // Exclude receipts into welfare fund account (they're welfare collections, not operational income)
+      const welfareAcct = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
+      const welfareAcctId = welfareAcct ? welfareAcct.id : -1;
+      const income = await dal.query(`SELECT category, COALESCE(SUM(amount - welfare_component), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2 AND (account_id != $3 OR account_id IS NULL) GROUP BY category ORDER BY total DESC`, [startDate, endDate, welfareAcctId]);
       const expenses = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type IN ('expense', 'welfare_payout') AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
       const totalIncome = income.reduce((s, r) => s + Number(r.total), 0);
       const totalExpenses = expenses.reduce((s, r) => s + Number(r.total), 0);
