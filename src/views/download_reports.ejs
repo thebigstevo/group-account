@@ -81,28 +81,33 @@
 
 <%- include('partials/footer') %>
 <script>
-// Wire up download icons to use the shared year/month/member filters
-document.querySelectorAll('[data-report]').forEach(function(link) {
-  link.addEventListener('click', function(e) {
-    e.preventDefault();
-    var year = document.getElementById('dl-year').value;
-    var month = document.getElementById('dl-month').value;
-    var member = document.getElementById('dl-member').value;
-    var base = link.dataset.report;
-    var format = link.dataset.format;
-    var needsMember = link.dataset.needsMember;
+(function() {
+  document.querySelectorAll('[data-report]').forEach(function(link) {
+    link.style.cursor = 'pointer';
+    link.removeAttribute('href');
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var year = document.getElementById('dl-year').value;
+      var month = document.getElementById('dl-month').value;
+      var member = document.getElementById('dl-member').value;
+      var base = link.getAttribute('data-report');
+      var format = link.getAttribute('data-format');
+      var needsMember = link.getAttribute('data-needs-member');
 
-    if (needsMember && !member) {
-      alert('Please select a member for this report.');
-      return;
-    }
+      if (needsMember && !member) {
+        alert('Please select a member first.');
+        document.getElementById('dl-member').focus();
+        return;
+      }
 
-    var params = 'year=' + year;
-    if (month) params += '&month=' + month;
-    if (format === 'pdf') params += '&format=pdf';
-    if (needsMember && member) params += '&member_id=' + member;
+      var url = base + '?year=' + encodeURIComponent(year);
+      if (month) url += '&month=' + encodeURIComponent(month);
+      if (format === 'pdf') url += '&format=pdf';
+      if (needsMember && member) url += '&member_id=' + encodeURIComponent(member);
 
-    window.location.href = base + '?' + params;
+      window.location.href = url;
+    });
   });
-});
+})();
 </script>
