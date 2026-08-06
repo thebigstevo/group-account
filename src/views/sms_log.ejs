@@ -37,6 +37,24 @@
     </div>
   </div>
 
+  <!-- Send Test SMS -->
+  <section class="panel">
+    <h2>Send Test SMS</h2>
+    <p style="font-size: 0.85rem; color: var(--neutral-500); margin-bottom: var(--space-3);">Use this to verify your mNotify configuration works.</p>
+    <form method="post" action="/sms/send-test" style="display:flex; gap: var(--space-3); flex-wrap:wrap; align-items:end;">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div class="form-group" style="margin:0; min-width:140px;">
+        <label for="test-phone">Phone number</label>
+        <input type="tel" id="test-phone" name="phone" required placeholder="0244000000">
+      </div>
+      <div class="form-group" style="margin:0; flex:1; min-width:200px;">
+        <label for="test-msg">Message</label>
+        <input type="text" id="test-msg" name="message" required placeholder="Hello, this is a test from KSJI." value="Hello, this is a test message from Treasurio.">
+      </div>
+      <button class="btn btn--primary btn--sm" type="submit">Send</button>
+    </form>
+  </section>
+
   <!-- Log table -->
   <section class="panel">
     <% if (!log.length) { %>

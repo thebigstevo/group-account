@@ -3772,6 +3772,33 @@ app.post('/sms/send-assessment-reminders', allow('admin', 'treasurer'), asyncHan
   res.redirect('/sms');
 }));
 
+app.post('/sms/send-test', allow('admin', 'secretary', 'treasurer'), asyncHandler(async (req, res) => {
+  const phone = (req.body.phone || '').trim();
+  const message = (req.body.message || '').trim();
+  if (!phone || !message) {
+    req.session.flash = { type: 'error', message: 'Phone number and message are required.' };
+    return res.redirect('/sms');
+  }
+
+  const sms = require('./smsService');
+  const result = await sms.sendAndLog({
+    phone,
+    name: req.body.name || 'Test',
+    memberId: null,
+    message,
+    smsType: 'general',
+    sentBy: req.session.user.id,
+    commanderyId: null
+  });
+
+  if (result.success) {
+    req.session.flash = { type: 'success', message: `Test SMS sent to ${phone}.` };
+  } else {
+    req.session.flash = { type: 'error', message: `SMS failed: ${result.error}` };
+  }
+  res.redirect('/sms');
+}));
+
 app.use('/secretary/meetings', require('./secretaryRoutes'));
 
 app.use((req, res) => {

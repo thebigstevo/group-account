@@ -7,7 +7,8 @@ const dal = require('./dal');
  * Config (API key, sender ID, etc.) is stored in organization_settings and loaded on demand.
  */
 
-const MNOTIFY_BASE_URL = 'https://apps.mnotify.net/smsapi';
+const MNOTIFY_LEGACY_URL = 'https://apps.mnotify.net/smsapi';
+const MNOTIFY_V2_URL = 'https://api.mnotify.com/api/sms/quick';
 
 /**
  * Normalize a Ghanaian phone number to 233XXXXXXXXX format.
@@ -20,7 +21,6 @@ function normalizePhone(phone) {
   if (cleaned.startsWith('233') && cleaned.length === 12) return cleaned;
   if (cleaned.startsWith('0') && cleaned.length === 10) return '233' + cleaned.slice(1);
   if (cleaned.length === 9 && !cleaned.startsWith('0')) return '233' + cleaned;
-  // Return as-is if format is unclear
   return cleaned;
 }
 
@@ -33,7 +33,7 @@ async function getConfig() {
 }
 
 /**
- * Send a single SMS via mNotify.
+ * Send a single SMS via mNotify (tries v2 API first, falls back to legacy).
  * @param {string} to - Phone number (will be normalized)
  * @param {string} message - Message content
  * @param {object} config - { sms_api_key, sms_sender_id }
@@ -46,24 +46,50 @@ async function sendSms(to, message, config) {
   const phone = normalizePhone(to);
   if (!phone) return { success: false, error: 'Invalid phone number' };
 
-  const params = new URLSearchParams({
-    key: config.sms_api_key,
-    to: phone,
-    msg: message,
-    sender_id: config.sms_sender_id || 'KSJI'
-  });
-
+  // Try mNotify v2 API (POST with JSON body, key as query param)
   try {
-    const response = await fetch(`${MNOTIFY_BASE_URL}?${params.toString()}`);
-    const text = await response.text();
-    let data;
-    try { data = JSON.parse(text); } catch (e) { data = { code: text }; }
+    const v2Url = `${MNOTIFY_V2_URL}?key=${encodeURIComponent(config.sms_api_key)}`;
+    const v2Response = await fetch(v2Url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        recipient: [phone],
+        sender: config.sms_sender_id || 'KSJI',
+        message: message,
+        is_schedule: false,
+        schedule_date: ''
+      })
+    });
 
-    // mNotify returns code "1000" for success
-    if (data.code === '1000' || data.code === 1000 || data.status === 'success') {
-      return { success: true, messageId: data.message_id || data.id || null };
+    const v2Text = await v2Response.text();
+    let v2Data;
+    try { v2Data = JSON.parse(v2Text); } catch (e) { v2Data = null; }
+
+    if (v2Data && (v2Data.status === 'success' || v2Data.code === '2000')) {
+      return { success: true, messageId: v2Data.message_id || v2Data.id || null };
     }
-    return { success: false, error: `mNotify error: ${data.code || data.message || text}` };
+
+    // If v2 returns a recognizable error, use it
+    if (v2Data && v2Data.status === 'error') {
+      return { success: false, error: `mNotify: ${v2Data.message || v2Data.code || v2Text}` };
+    }
+
+    // Fall back to legacy API
+    const params = new URLSearchParams({
+      key: config.sms_api_key,
+      to: phone,
+      msg: message,
+      sender_id: config.sms_sender_id || 'KSJI'
+    });
+    const legacyResponse = await fetch(`${MNOTIFY_LEGACY_URL}?${params.toString()}`);
+    const legacyText = await legacyResponse.text();
+    let legacyData;
+    try { legacyData = JSON.parse(legacyText); } catch (e) { legacyData = { code: legacyText }; }
+
+    if (legacyData.code === '1000' || legacyData.code === 1000) {
+      return { success: true, messageId: legacyData.message_id || null };
+    }
+    return { success: false, error: `mNotify error: ${legacyData.code || legacyData.message || legacyText}` };
   } catch (err) {
     return { success: false, error: `Network error: ${err.message}` };
   }
