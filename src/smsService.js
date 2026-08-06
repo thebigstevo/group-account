@@ -25,11 +25,29 @@ function normalizePhone(phone) {
 }
 
 /**
- * Load SMS config from organization_settings.
+ * Load SMS config from organization_settings (includes templates).
  */
 async function getConfig() {
-  const org = await dal.queryOne('SELECT sms_api_key, sms_sender_id, sms_enabled, sms_event_reminder_days, sms_payment_notify FROM organization_settings WHERE id = 1');
-  return org || { sms_api_key: null, sms_sender_id: 'KSJI', sms_enabled: false, sms_event_reminder_days: 2, sms_payment_notify: true };
+  const org = await dal.queryOne(`
+    SELECT sms_api_key, sms_sender_id, sms_enabled, sms_event_reminder_days, sms_payment_notify,
+      sms_tpl_event_reminder, sms_tpl_payment, sms_tpl_assessment
+    FROM organization_settings WHERE id = 1
+  `);
+  return org || {
+    sms_api_key: null, sms_sender_id: 'KSJI', sms_enabled: false,
+    sms_event_reminder_days: 2, sms_payment_notify: true,
+    sms_tpl_event_reminder: 'Dear {name}, reminder: {event} on {date} at {time} at {location}. Attendance is expected. - KSJI',
+    sms_tpl_payment: 'Dear {name}, your payment of GHS {amount} for {category} has been received. Thank you. - KSJI',
+    sms_tpl_assessment: 'Dear {name}, your outstanding balance for {year} is GHS {balance}. Kindly make payment. - KSJI'
+  };
+}
+
+/**
+ * Replace placeholders in a template string.
+ */
+function renderTemplate(template, vars) {
+  if (!template) return '';
+  return template.replace(/\{(\w+)\}/g, (match, key) => vars[key] !== undefined ? vars[key] : match);
 }
 
 /**
@@ -145,13 +163,20 @@ async function sendEventReminder(eventId, sentBy) {
   const eventDate = new Date(event.meeting_date);
   const dateStr = eventDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   const eventName = event.title || 'meeting';
-  const location = event.location ? ` at ${event.location}` : '';
-  const time = event.start_time ? ` by ${formatTime12(event.start_time)}` : '';
+  const location = event.location || '';
+  const time = event.start_time ? formatTime12(event.start_time) : '';
+  const template = config.sms_tpl_event_reminder || 'Dear {name}, reminder: {event} on {date} at {time} at {location}. Attendance is expected. - KSJI';
 
   let sent = 0, failed = 0;
   for (const member of members) {
     const firstName = member.name.split(' ')[0];
-    const message = `Dear ${firstName}, reminder: ${eventName} on ${dateStr}${time}${location}. Attendance is expected. - KSJI`;
+    const message = renderTemplate(template, {
+      name: firstName,
+      event: eventName,
+      date: dateStr,
+      time: time,
+      location: location
+    });
 
     const result = await sendAndLog({
       phone: member.phone,
@@ -181,7 +206,12 @@ async function sendPaymentConfirmation(memberId, amount, category, sentBy) {
 
   const firstName = member.name.split(' ')[0];
   const amtStr = Number(amount).toFixed(2);
-  const message = `Dear ${firstName}, your payment of GHS ${amtStr} for ${category} has been received and confirmed. Thank you. - KSJI`;
+  const template = config.sms_tpl_payment || 'Dear {name}, your payment of GHS {amount} for {category} has been received. Thank you. - KSJI';
+  const message = renderTemplate(template, {
+    name: firstName,
+    amount: amtStr,
+    category: category
+  });
 
   return sendAndLog({
     phone: member.phone,
@@ -225,7 +255,12 @@ async function sendAssessmentReminders(year, memberDueFn, sentBy) {
     if (balance <= 0) continue;
 
     const firstName = member.name.split(' ')[0];
-    const message = `Dear ${firstName}, your outstanding assessment balance for ${year} is GHS ${balance.toFixed(2)}. Kindly make payment at your earliest convenience. - KSJI`;
+    const template = config.sms_tpl_assessment || 'Dear {name}, your outstanding balance for {year} is GHS {balance}. Kindly make payment. - KSJI';
+    const message = renderTemplate(template, {
+      name: firstName,
+      year: String(year),
+      balance: balance.toFixed(2)
+    });
 
     const result = await sendAndLog({
       phone: member.phone,

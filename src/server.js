@@ -1147,6 +1147,7 @@ app.post('/organization', allow('admin'), asyncHandler(async (req, res) => {
       signatory3_title = $21, signatory3_name = $22,
       sms_api_key = $23, sms_sender_id = $24, sms_enabled = $25,
       sms_event_reminder_days = $26, sms_payment_notify = $27,
+      sms_tpl_event_reminder = $28, sms_tpl_payment = $29, sms_tpl_assessment = $30,
       updated_at = NOW()
     WHERE id = 1
   `, [
@@ -1176,7 +1177,10 @@ app.post('/organization', allow('admin'), asyncHandler(async (req, res) => {
     req.body.sms_sender_id ? req.body.sms_sender_id.trim() : 'KSJI',
     req.body.sms_enabled === 'true',
     req.body.sms_event_reminder_days ? Number(req.body.sms_event_reminder_days) : 2,
-    req.body.sms_payment_notify === 'true'
+    req.body.sms_payment_notify === 'true',
+    req.body.sms_tpl_event_reminder ? req.body.sms_tpl_event_reminder.trim() : null,
+    req.body.sms_tpl_payment ? req.body.sms_tpl_payment.trim() : null,
+    req.body.sms_tpl_assessment ? req.body.sms_tpl_assessment.trim() : null
   ]);
 
   await dal.audit(req.session.user.id, 'update', 'organization', 1, req.body.name.trim());
