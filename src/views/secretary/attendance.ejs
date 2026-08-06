@@ -14,7 +14,7 @@
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
 
       <p style="margin-bottom: var(--space-3); font-size: 0.875rem; color: var(--neutral-600);">
-        Mark each member as Present, Excused, or Absent. Default is Absent.
+        Mark each member as Present, Late, Permission (Excused), or Absent.
       </p>
 
       <div class="table-wrap">
@@ -23,7 +23,8 @@
             <tr>
               <th>Member</th>
               <th style="text-align:center">Present</th>
-              <th style="text-align:center">Excused</th>
+              <th style="text-align:center">Late</th>
+              <th style="text-align:center">Permission</th>
               <th style="text-align:center">Absent</th>
             </tr>
           </thead>
@@ -34,6 +35,9 @@
               <td><%= m.name %></td>
               <td style="text-align:center">
                 <input type="radio" name="member_<%= m.id %>" value="present" <%= current === 'present' ? 'checked' : '' %> aria-label="<%= m.name %> present">
+              </td>
+              <td style="text-align:center">
+                <input type="radio" name="member_<%= m.id %>" value="late" <%= current === 'late' ? 'checked' : '' %> aria-label="<%= m.name %> late">
               </td>
               <td style="text-align:center">
                 <input type="radio" name="member_<%= m.id %>" value="excuse" <%= current === 'excuse' ? 'checked' : '' %> aria-label="<%= m.name %> excused">

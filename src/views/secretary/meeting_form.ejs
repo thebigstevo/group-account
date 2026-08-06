@@ -1,6 +1,7 @@
 <%- include('../partials/header') %>
 <% locals.title = meeting ? 'Edit Meeting' : 'New Meeting' %>
 <% const v = locals.values || meeting || {} %>
+<% const meetingType = v.meeting_type || 'regular' %>
 
 <div class="page-container">
   <section class="page-title">
@@ -29,7 +30,7 @@
           <label for="meeting_type">Type</label>
           <select id="meeting_type" name="meeting_type" required>
             <% MEETING_TYPES.forEach(function(t) { %>
-            <option value="<%= t %>" <%= v.meeting_type === t ? 'selected' : '' %>><%= t.charAt(0).toUpperCase() + t.slice(1) %></option>
+            <option value="<%= t %>" <%= meetingType === t ? 'selected' : '' %>><%= t === 'regular' ? 'Regular (Formal)' : t === 'special' ? 'Special (Informal)' : 'Board of Trustees' %></option>
             <% }) %>
           </select>
         </div>
@@ -41,8 +42,8 @@
 
       <% if (meeting) { %>
       <hr style="margin: var(--space-4) 0;">
-      <h2>Minutes</h2>
 
+      <h2>1. Commencement</h2>
       <div class="form-grid">
         <div class="form-group">
           <label for="start_time">Start Time</label>
@@ -52,46 +53,72 @@
           <label for="end_time">End Time</label>
           <input type="time" id="end_time" name="end_time" value="<%= v.end_time || '' %>">
         </div>
-        <div class="form-group">
-          <label for="opening_prayer_by">Opening Prayer By</label>
-          <input type="text" id="opening_prayer_by" name="opening_prayer_by" value="<%= v.opening_prayer_by || '' %>">
-        </div>
-        <div class="form-group">
-          <label for="closing_prayer_by">Closing Prayer By</label>
-          <input type="text" id="closing_prayer_by" name="closing_prayer_by" value="<%= v.closing_prayer_by || '' %>">
-        </div>
-        <div class="form-group">
-          <label for="mover">Motion to Close By</label>
-          <input type="text" id="mover" name="mover" value="<%= v.mover || '' %>">
-        </div>
-        <div class="form-group">
-          <label for="seconder">Seconded By</label>
-          <input type="text" id="seconder" name="seconder" value="<%= v.seconder || '' %>">
-        </div>
       </div>
 
+      <% if (meetingType === 'regular' || meetingType === 'board') { %>
+      <!-- Formal meeting sections -->
+
+      <h2>3. Pro Tem Appointments</h2>
       <div class="form-group">
-        <label for="correspondence">Correspondence</label>
-        <textarea id="correspondence" name="correspondence" rows="4"><%= v.correspondence || '' %></textarea>
+        <label for="pro_tem_appointments">Temporary role assignments for this meeting</label>
+        <textarea id="pro_tem_appointments" name="pro_tem_appointments" rows="4" placeholder="A. 1st Vice President – Name&#10;B. 2nd Vice President – Name&#10;C. Secretary – Name"><%= v.pro_tem_appointments || '' %></textarea>
       </div>
+
+      <h2>4. Opening Rituals</h2>
       <div class="form-group">
-        <label for="finance_summary">Finance Report / Treasurer's Summary</label>
-        <textarea id="finance_summary" name="finance_summary" rows="3"><%= v.finance_summary || '' %></textarea>
+        <label for="opening_rituals">Notes on rituals observed</label>
+        <textarea id="opening_rituals" name="opening_rituals" rows="2" placeholder="All opening rituals were observed."><%= v.opening_rituals || '' %></textarea>
       </div>
+
+      <h2>6. Reading & Acceptance of Previous Minutes</h2>
       <div class="form-group">
-        <label for="matters_arising">Matters Arising</label>
-        <textarea id="matters_arising" name="matters_arising" rows="5"><%= v.matters_arising || '' %></textarea>
+        <label for="previous_minutes">Who delivered, who seconded, corrections</label>
+        <textarea id="previous_minutes" name="previous_minutes" rows="2" placeholder="Delivered by acting secretary and seconded by Br. Name. No corrections."><%= v.previous_minutes || '' %></textarea>
       </div>
+
+      <h2>7. Matters Arising & Agenda</h2>
       <div class="form-group">
-        <label for="agenda">Agenda / New Business</label>
-        <textarea id="agenda" name="agenda" rows="5"><%= v.agenda || '' %></textarea>
+        <label for="matters_arising">Discussion items with sub-headings (A. Topic, B. Topic...)</label>
+        <textarea id="matters_arising" name="matters_arising" rows="8" placeholder="A. First Topic&#10;Discussion content...&#10;&#10;B. Second Topic&#10;Discussion content..."><%= v.matters_arising || '' %></textarea>
       </div>
+
+      <h2>Good of the Order</h2>
       <div class="form-group">
-        <label for="good_of_order">Good of the Order</label>
-        <textarea id="good_of_order" name="good_of_order" rows="3"><%= v.good_of_order || '' %></textarea>
+        <label for="good_of_order">Member contributions and suggestions</label>
+        <textarea id="good_of_order" name="good_of_order" rows="5" placeholder="i. Topic one&#10;Discussion...&#10;&#10;ii. Topic two&#10;Discussion..."><%= v.good_of_order || '' %></textarea>
       </div>
+
+      <h2>Finance</h2>
       <div class="form-group">
-        <label for="other_notes">Other Notes</label>
+        <label for="finance_summary">Collections and financial summary for this meeting</label>
+        <textarea id="finance_summary" name="finance_summary" rows="4" placeholder="Assessment – 200ghs&#10;Levy – 50ghs&#10;Total – 250ghs"><%= v.finance_summary || '' %></textarea>
+      </div>
+
+      <h2>Correspondence</h2>
+      <div class="form-group">
+        <label for="correspondence">Letters and communications received or sent</label>
+        <textarea id="correspondence" name="correspondence" rows="3"><%= v.correspondence || '' %></textarea>
+      </div>
+
+      <h2>Closing</h2>
+      <div class="form-group">
+        <label for="closing_notes">Closing rituals and time</label>
+        <textarea id="closing_notes" name="closing_notes" rows="2" placeholder="All closing rituals were observed and meeting came to a close at 10:57am."><%= v.closing_notes || '' %></textarea>
+      </div>
+
+      <% } else { %>
+      <!-- Informal/Special meeting — simple numbered discussion -->
+
+      <h2>Discussion Notes</h2>
+      <div class="form-group">
+        <label for="discussion_notes">Numbered discussion items</label>
+        <textarea id="discussion_notes" name="discussion_notes" rows="12" placeholder="1. First item discussed...&#10;2. Second item discussed...&#10;3. Third item discussed..."><%= v.discussion_notes || '' %></textarea>
+      </div>
+
+      <% } %>
+
+      <div class="form-group">
+        <label for="other_notes">Other Notes (optional)</label>
         <textarea id="other_notes" name="other_notes" rows="3"><%= v.other_notes || '' %></textarea>
       </div>
       <% } %>

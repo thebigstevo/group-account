@@ -112,8 +112,10 @@ router.post('/:id', allow('admin', 'secretary'), asyncHandler(async (req, res) =
       start_time = $4, end_time = $5, opening_prayer_by = $6, closing_prayer_by = $7,
       mover = $8, seconder = $9, correspondence = $10, finance_summary = $11,
       matters_arising = $12, agenda = $13, good_of_order = $14, other_notes = $15,
+      pro_tem_appointments = $16, opening_rituals = $17, previous_minutes = $18,
+      closing_notes = $19, discussion_notes = $20,
       updated_at = NOW()
-    WHERE id = $16
+    WHERE id = $21
   `, [
     req.body.meeting_date, req.body.meeting_type, req.body.location || null,
     req.body.start_time || null, req.body.end_time || null,
@@ -122,6 +124,9 @@ router.post('/:id', allow('admin', 'secretary'), asyncHandler(async (req, res) =
     req.body.correspondence || null, req.body.finance_summary || null,
     req.body.matters_arising || null, req.body.agenda || null,
     req.body.good_of_order || null, req.body.other_notes || null,
+    req.body.pro_tem_appointments || null, req.body.opening_rituals || null,
+    req.body.previous_minutes || null, req.body.closing_notes || null,
+    req.body.discussion_notes || null,
     meeting.id
   ]);
 
@@ -154,7 +159,7 @@ router.post('/:id/attendance', allow('admin', 'secretary'), asyncHandler(async (
     await client.query('DELETE FROM meeting_attendance WHERE meeting_id = $1', [meeting.id]);
     for (const member of members) {
       const status = req.body[`member_${member.id}`] || 'absent';
-      if (['present', 'excuse', 'absent'].includes(status)) {
+      if (['present', 'late', 'excuse', 'absent'].includes(status)) {
         await client.query(
           'INSERT INTO meeting_attendance (meeting_id, member_id, status) VALUES ($1, $2, $3)',
           [meeting.id, member.id, status]
@@ -432,85 +437,240 @@ router.get('/:id/minutes', allow('admin', 'secretary', 'president', 'trustee'), 
   const org = await dal.queryOne('SELECT * FROM organization_settings WHERE id = 1');
   const commandery = await dal.queryOne('SELECT * FROM commanderies WHERE id = $1', [getCommanderyId(req)]);
 
+  // Attendance grouped by status
   const presentMembers = await dal.query(`
     SELECT m.name FROM meeting_attendance ma
     JOIN members m ON m.id = ma.member_id
     WHERE ma.meeting_id = $1 AND ma.status = 'present'
     ORDER BY m.name
   `, [meeting.id]);
+  const lateMembers = await dal.query(`
+    SELECT m.name FROM meeting_attendance ma
+    JOIN members m ON m.id = ma.member_id
+    WHERE ma.meeting_id = $1 AND ma.status = 'late'
+    ORDER BY m.name
+  `, [meeting.id]);
+  const excusedMembers = await dal.query(`
+    SELECT m.name FROM meeting_attendance ma
+    JOIN members m ON m.id = ma.member_id
+    WHERE ma.meeting_id = $1 AND ma.status = 'excuse'
+    ORDER BY m.name
+  `, [meeting.id]);
+
+  const meetingDate = new Date(meeting.meeting_date);
+  const dayName = meetingDate.toLocaleDateString('en-GB', { weekday: 'long' }).toUpperCase();
+  const dateStr = meetingDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
+  const cmdName = commandery ? commandery.name.toUpperCase() : (org.name || '').toUpperCase();
+  const cmdNumber = org.commandery_number || (commandery ? commandery.commandery_number : '');
 
   const doc = pdf.createDoc({
-    title: `Minutes of Meeting — ${new Date(meeting.meeting_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`,
-    subtitle: commandery ? commandery.name : (org.name || ''),
+    title: `Minutes — ${meetingDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`,
+    subtitle: cmdName,
     groupName: org ? org.name : 'KSJI',
     org
   });
 
-  // Attendance list
-  pdf.sectionHeading(doc, 'Members Present');
-  if (presentMembers.length) {
-    const nameList = presentMembers.map(m => m.name).join(', ');
-    doc.font('Helvetica').fontSize(9).fillColor(pdf.COLORS.dark);
-    doc.text(nameList, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
-    doc.moveDown(0.5);
+  // ─── HEADER ─────────────────────────────────────────────────
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(pdf.COLORS.dark);
+  doc.text(
+    `MINUTES OF ${cmdName} COMMANDERY #${cmdNumber} OF THE KNIGHTS OF ST. JOHN INTERNATIONAL HELD ON ${dayName} ${dateStr}`,
+    pdf.MARGIN, doc.y, { width: pdf.CONTENT_WIDTH, align: 'center' }
+  );
+  doc.moveDown(1.2);
+
+  if (meeting.meeting_type === 'special') {
+    // ─── INFORMAL MEETING: simple format ────────────────────────
+
+    // Attendance (three-column)
+    renderAttendanceTable(doc, presentMembers, lateMembers, excusedMembers);
+    doc.moveDown(0.8);
+
+    // Discussion notes
+    if (meeting.discussion_notes) {
+      pdf.sectionHeading(doc, 'Discussion');
+      renderFormattedText(doc, meeting.discussion_notes);
+      doc.moveDown(0.5);
+    }
+
+    if (meeting.other_notes) {
+      pdf.sectionHeading(doc, 'Notes');
+      renderFormattedText(doc, meeting.other_notes);
+    }
+
   } else {
-    doc.font('Helvetica').fontSize(9).text('No attendance recorded.', pdf.MARGIN + 10, doc.y);
-    doc.moveDown(0.5);
+    // ─── FORMAL MEETING: numbered sections ──────────────────────
+    let sectionNum = 1;
+
+    // 1. COMMENCEMENT
+    pdf.sectionHeading(doc, `${sectionNum}. Commencement`);
+    sectionNum++;
+    if (meeting.start_time) {
+      const timeFormatted = formatTime12(meeting.start_time);
+      doc.font('Helvetica').fontSize(9).fillColor(pdf.COLORS.dark);
+      doc.text(`The meeting began at ${timeFormatted}.`, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
+      doc.moveDown(0.6);
+    }
+
+    // 2. ATTENDANCE
+    pdf.sectionHeading(doc, `${sectionNum}. Attendance`);
+    sectionNum++;
+    renderAttendanceTable(doc, presentMembers, lateMembers, excusedMembers);
+    doc.moveDown(0.8);
+
+    // 3. PRO TEM APPOINTMENTS
+    if (meeting.pro_tem_appointments) {
+      pdf.sectionHeading(doc, `${sectionNum}. Pro Tem Appointments`);
+      sectionNum++;
+      renderFormattedText(doc, meeting.pro_tem_appointments);
+      doc.moveDown(0.6);
+    }
+
+    // 4. OPENING RITUALS
+    if (meeting.opening_rituals) {
+      pdf.sectionHeading(doc, `${sectionNum}. Opening Rituals`);
+      sectionNum++;
+      renderFormattedText(doc, meeting.opening_rituals);
+      doc.moveDown(0.6);
+    }
+
+    // 5. READING & ACCEPTANCE OF PREVIOUS MINUTES
+    if (meeting.previous_minutes) {
+      pdf.sectionHeading(doc, `${sectionNum}. Reading & Acceptance of Previous Minutes`);
+      sectionNum++;
+      renderFormattedText(doc, meeting.previous_minutes);
+      doc.moveDown(0.6);
+    }
+
+    // 6. MATTERS ARISING & AGENDA
+    if (meeting.matters_arising) {
+      pdf.sectionHeading(doc, `${sectionNum}. Matters Arising & Agenda`);
+      sectionNum++;
+      renderFormattedText(doc, meeting.matters_arising);
+      doc.moveDown(0.6);
+    }
+
+    // GOOD OF THE ORDER
+    if (meeting.good_of_order) {
+      pdf.sectionHeading(doc, `${sectionNum}. Good of the Order`);
+      sectionNum++;
+      renderFormattedText(doc, meeting.good_of_order);
+      doc.moveDown(0.6);
+    }
+
+    // FINANCE
+    if (meeting.finance_summary) {
+      pdf.sectionHeading(doc, `${sectionNum}. Finance`);
+      sectionNum++;
+      renderFormattedText(doc, meeting.finance_summary);
+      doc.moveDown(0.6);
+    }
+
+    // CORRESPONDENCE
+    if (meeting.correspondence) {
+      pdf.sectionHeading(doc, `${sectionNum}. Correspondence`);
+      sectionNum++;
+      renderFormattedText(doc, meeting.correspondence);
+      doc.moveDown(0.6);
+    }
+
+    // CLOSING
+    if (meeting.closing_notes || meeting.end_time) {
+      pdf.sectionHeading(doc, `${sectionNum}. Closing`);
+      if (meeting.closing_notes) {
+        renderFormattedText(doc, meeting.closing_notes);
+      } else if (meeting.end_time) {
+        doc.font('Helvetica').fontSize(9).fillColor(pdf.COLORS.dark);
+        doc.text(`Meeting came to a close at ${formatTime12(meeting.end_time)}.`, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
+      }
+      doc.moveDown(0.6);
+    }
+
+    if (meeting.other_notes) {
+      pdf.sectionHeading(doc, 'Other Notes');
+      renderFormattedText(doc, meeting.other_notes);
+    }
   }
 
-  // Meeting details
-  if (meeting.start_time || meeting.opening_prayer_by) {
-    pdf.sectionHeading(doc, 'Commencement');
-    if (meeting.start_time) pdf.tableRow(doc, 'Start Time', meeting.start_time);
-    if (meeting.opening_prayer_by) pdf.tableRow(doc, 'Opening Prayer By', meeting.opening_prayer_by);
-    doc.moveDown(0.3);
-  }
-
-  if (meeting.correspondence) {
-    pdf.sectionHeading(doc, 'Correspondence');
-    doc.font('Helvetica').fontSize(9).fillColor(pdf.COLORS.dark);
-    doc.text(meeting.correspondence, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
-    doc.moveDown(0.5);
-  }
-
-  if (meeting.finance_summary) {
-    pdf.sectionHeading(doc, 'Finance Report');
-    doc.font('Helvetica').fontSize(9).fillColor(pdf.COLORS.dark);
-    doc.text(meeting.finance_summary, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
-    doc.moveDown(0.5);
-  }
-
-  if (meeting.matters_arising) {
-    pdf.sectionHeading(doc, 'Matters Arising');
-    doc.font('Helvetica').fontSize(9).fillColor(pdf.COLORS.dark);
-    doc.text(meeting.matters_arising, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
-    doc.moveDown(0.5);
-  }
-
-  if (meeting.agenda) {
-    pdf.sectionHeading(doc, 'Agenda / New Business');
-    doc.font('Helvetica').fontSize(9).fillColor(pdf.COLORS.dark);
-    doc.text(meeting.agenda, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
-    doc.moveDown(0.5);
-  }
-
-  if (meeting.good_of_order) {
-    pdf.sectionHeading(doc, 'Good of the Order');
-    doc.font('Helvetica').fontSize(9).fillColor(pdf.COLORS.dark);
-    doc.text(meeting.good_of_order, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
-    doc.moveDown(0.5);
-  }
-
-  if (meeting.end_time || meeting.closing_prayer_by || meeting.mover) {
-    pdf.sectionHeading(doc, 'Closing');
-    if (meeting.mover) pdf.tableRow(doc, 'Motion to Close by', meeting.mover);
-    if (meeting.seconder) pdf.tableRow(doc, 'Seconded by', meeting.seconder);
-    if (meeting.closing_prayer_by) pdf.tableRow(doc, 'Closing Prayer By', meeting.closing_prayer_by);
-    if (meeting.end_time) pdf.tableRow(doc, 'End Time', meeting.end_time);
-  }
-
-  const dateStr = new Date(meeting.meeting_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-  pdf.sendPdf(res, doc, `Minutes-${dateStr.replace(/\s+/g, '-')}.pdf`);
+  const monthName = meetingDate.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+  pdf.sendPdf(res, doc, `Minutes-${monthName.replace(/\s+/g, '-')}.pdf`);
 }));
+
+/**
+ * Render attendance as a three-column layout: Present | Late | Permission
+ */
+function renderAttendanceTable(doc, present, late, excused) {
+  const colWidth = pdf.CONTENT_WIDTH / 3;
+  const startY = doc.y;
+
+  // Column headers
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(pdf.COLORS.primary);
+  doc.text('A. Present', pdf.MARGIN, startY, { width: colWidth });
+  doc.text('B. Late', pdf.MARGIN + colWidth, startY, { width: colWidth });
+  doc.text('C. Permission', pdf.MARGIN + colWidth * 2, startY, { width: colWidth });
+
+  const headerY = startY + 14;
+  doc.moveTo(pdf.MARGIN, headerY).lineTo(pdf.MARGIN + pdf.CONTENT_WIDTH, headerY)
+    .lineWidth(0.5).strokeColor(pdf.COLORS.border).stroke();
+  doc.strokeColor('#000');
+
+  // Names
+  doc.font('Helvetica').fontSize(8.5).fillColor(pdf.COLORS.dark);
+  const nameStartY = headerY + 6;
+  const lineHeight = 13;
+
+  const maxRows = Math.max(present.length, late.length, excused.length, 1);
+  for (let i = 0; i < maxRows; i++) {
+    const rowY = nameStartY + i * lineHeight;
+    if (rowY > 720) { doc.addPage(); break; }
+    if (present[i]) doc.text(present[i].name, pdf.MARGIN + 4, rowY, { width: colWidth - 8 });
+    if (late[i]) doc.text(late[i].name, pdf.MARGIN + colWidth + 4, rowY, { width: colWidth - 8 });
+    if (excused[i]) doc.text(excused[i].name, pdf.MARGIN + colWidth * 2 + 4, rowY, { width: colWidth - 8 });
+  }
+
+  doc.y = nameStartY + maxRows * lineHeight + 4;
+}
+
+/**
+ * Render formatted text with paragraph spacing — handles numbered lists and sub-headings nicely.
+ */
+function renderFormattedText(doc, text) {
+  if (!text) return;
+  const lines = text.split('\n');
+  doc.font('Helvetica').fontSize(9).fillColor(pdf.COLORS.dark);
+
+  for (const line of lines) {
+    if (doc.y > 730) doc.addPage();
+    const trimmed = line.trim();
+    if (!trimmed) {
+      doc.moveDown(0.3);
+      continue;
+    }
+
+    // Detect headings (A. Topic, B. Topic, i. Topic, etc.)
+    const isHeading = /^[A-Z]\.\s/.test(trimmed) || /^[ivxIVX]+\.\s/.test(trimmed);
+    if (isHeading) {
+      doc.moveDown(0.2);
+      doc.font('Helvetica-Bold').fontSize(9).fillColor(pdf.COLORS.dark);
+      doc.text(trimmed, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
+      doc.font('Helvetica').fontSize(9);
+      doc.moveDown(0.15);
+    } else {
+      doc.font('Helvetica').fontSize(9).fillColor(pdf.COLORS.dark);
+      doc.text(trimmed, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
+      doc.moveDown(0.15);
+    }
+  }
+}
+
+/**
+ * Format a 24h time string (HH:MM) to 12h with am/pm.
+ */
+function formatTime12(timeStr) {
+  if (!timeStr) return '';
+  const [h, m] = timeStr.split(':').map(Number);
+  const ampm = h >= 12 ? 'pm' : 'am';
+  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${hour12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
 
 module.exports = router;

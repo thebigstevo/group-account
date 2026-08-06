@@ -699,6 +699,12 @@ async function migrate() {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
+  // Additional fields for formal meeting minutes
+  await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS pro_tem_appointments TEXT`);
+  await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS opening_rituals TEXT`);
+  await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS previous_minutes TEXT`);
+  await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS closing_notes TEXT`);
+  await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS discussion_notes TEXT`);
   await run(`CREATE INDEX IF NOT EXISTS idx_meetings_date ON meetings(meeting_date DESC)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_meetings_commandery ON meetings(commandery_id)`);
   console.log('[migrate]   ✓ meetings');
@@ -708,11 +714,14 @@ async function migrate() {
       id SERIAL PRIMARY KEY,
       meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
       member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
-      status VARCHAR(20) NOT NULL DEFAULT 'absent' CHECK (status IN ('present','excuse','absent')),
+      status VARCHAR(20) NOT NULL DEFAULT 'absent' CHECK (status IN ('present','late','excuse','absent')),
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       UNIQUE(meeting_id, member_id)
     )
   `);
+  // Add 'late' status if upgrading from previous schema
+  await run(`ALTER TABLE meeting_attendance DROP CONSTRAINT IF EXISTS meeting_attendance_status_check`);
+  await run(`ALTER TABLE meeting_attendance ADD CONSTRAINT meeting_attendance_status_check CHECK (status IN ('present','late','excuse','absent'))`);
   await run(`CREATE INDEX IF NOT EXISTS idx_meeting_attendance_meeting ON meeting_attendance(meeting_id)`);
   console.log('[migrate]   ✓ meeting_attendance');
 
