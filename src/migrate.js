@@ -782,6 +782,10 @@ async function migrate() {
   await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS sms_enabled BOOLEAN NOT NULL DEFAULT false`);
   await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS sms_event_reminder_days INTEGER NOT NULL DEFAULT 2`);
   await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS sms_payment_notify BOOLEAN NOT NULL DEFAULT true`);
+  // SMS message templates (editable with placeholders)
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS sms_tpl_event_reminder TEXT DEFAULT 'Dear {name}, reminder: {event} on {date} at {time} at {location}. Attendance is expected. - KSJI'`);
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS sms_tpl_payment TEXT DEFAULT 'Dear {name}, your payment of GHS {amount} for {category} has been received. Thank you. - KSJI'`);
+  await run(`ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS sms_tpl_assessment TEXT DEFAULT 'Dear {name}, your outstanding balance for {year} is GHS {balance}. Kindly make payment. - KSJI'`);
   console.log('[migrate]   ✓ secretary module + SMS columns on organization_settings');
 
   // SMS log table

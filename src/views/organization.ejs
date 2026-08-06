@@ -162,6 +162,25 @@
             </select>
           </div>
         </div>
+
+        <h3 style="margin-top: var(--space-5);">Message Templates</h3>
+        <p style="font-size: 0.8rem; color: var(--neutral-500); margin-bottom: var(--space-3);">
+          Use placeholders: <code>{name}</code> = member first name, <code>{event}</code> = event title, <code>{date}</code> = event date, <code>{time}</code> = event time, <code>{location}</code> = venue, <code>{amount}</code> = payment amount, <code>{category}</code> = payment category, <code>{balance}</code> = outstanding balance, <code>{year}</code> = fiscal year.
+        </p>
+        <div class="field-grid">
+          <div class="form-group field-grid__full">
+            <label for="org-sms-tpl-event">Event Reminder Template</label>
+            <textarea id="org-sms-tpl-event" name="sms_tpl_event_reminder" rows="2"><%= org.sms_tpl_event_reminder || 'Dear {name}, reminder: {event} on {date} at {time} at {location}. Attendance is expected. - KSJI' %></textarea>
+          </div>
+          <div class="form-group field-grid__full">
+            <label for="org-sms-tpl-payment">Payment Confirmation Template</label>
+            <textarea id="org-sms-tpl-payment" name="sms_tpl_payment" rows="2"><%= org.sms_tpl_payment || 'Dear {name}, your payment of GHS {amount} for {category} has been received. Thank you. - KSJI' %></textarea>
+          </div>
+          <div class="form-group field-grid__full">
+            <label for="org-sms-tpl-assessment">Assessment Reminder Template</label>
+            <textarea id="org-sms-tpl-assessment" name="sms_tpl_assessment" rows="2"><%= org.sms_tpl_assessment || 'Dear {name}, your outstanding balance for {year} is GHS {balance}. Kindly make payment. - KSJI' %></textarea>
+          </div>
+        </div>
       </div>
 
       <div class="action-bar">
