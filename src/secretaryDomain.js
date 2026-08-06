@@ -1,17 +1,40 @@
 'use strict';
 
-const MEETING_TYPES = Object.freeze(['regular', 'special', 'board']);
+const EVENT_LEVELS = Object.freeze(['local', 'district', 'grand', 'supreme_subordinate']);
+const EVENT_TYPES = Object.freeze(['meeting', 'offertory', 'convention', 'social', 'funeral', 'community_service', 'other']);
 const ATTENDANCE_STATUSES = Object.freeze(['present', 'excuse', 'absent']);
 
-function validateMeetingInput(input) {
+const EVENT_LEVEL_LABELS = Object.freeze({
+  local: 'Local Commandery',
+  district: 'District / Regiment',
+  grand: 'Grand Commandery',
+  supreme_subordinate: 'Supreme Subordinate'
+});
+
+const EVENT_TYPE_LABELS = Object.freeze({
+  meeting: 'Meeting',
+  offertory: 'Church Offertory',
+  convention: 'Convention',
+  social: 'Social Event',
+  funeral: 'Funeral',
+  community_service: 'Community Service',
+  other: 'Other'
+});
+
+function validateEventInput(input) {
   const errors = [];
-  if (!input.meeting_date) errors.push('Date is required.');
-  if (!MEETING_TYPES.includes(input.meeting_type)) errors.push('Select a valid event type.');
+  if (!input.title || !input.title.trim()) errors.push('Event name is required.');
+  if (!input.event_date) errors.push('Date is required.');
+  if (!EVENT_LEVELS.includes(input.event_level)) errors.push('Select a valid event level.');
+  if (!EVENT_TYPES.includes(input.event_type)) errors.push('Select a valid event type.');
   return errors;
 }
 
 module.exports = {
-  MEETING_TYPES,
+  EVENT_LEVELS,
+  EVENT_TYPES,
+  EVENT_LEVEL_LABELS,
+  EVENT_TYPE_LABELS,
   ATTENDANCE_STATUSES,
-  validateMeetingInput
+  validateEventInput
 };

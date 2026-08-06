@@ -5,16 +5,16 @@
   <section class="page-title">
     <div>
       <h1>Mark Attendance</h1>
-      <p>Meeting: <%= formatDate(meeting.meeting_date) %> (<%= meeting.meeting_type %>)</p>
+      <p><%= meeting.title || 'Event' %> — <%= formatDate(meeting.meeting_date) %></p>
     </div>
   </section>
 
   <section class="panel">
-    <form method="post" action="/secretary/meetings/<%= meeting.id %>/attendance">
+    <form method="post" action="/secretary/meetings/events/<%= meeting.id %>/attendance">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
 
       <p style="margin-bottom: var(--space-3); font-size: 0.875rem; color: var(--neutral-600);">
-        Mark each member as Present, Permission (Excused), or Absent.
+        Mark each member as Present, Permission, or Absent.
       </p>
 
       <div class="table-wrap">
@@ -33,13 +33,13 @@
             <tr>
               <td><%= m.name %></td>
               <td style="text-align:center">
-                <input type="radio" name="member_<%= m.id %>" value="present" <%= current === 'present' ? 'checked' : '' %> aria-label="<%= m.name %> present">
+                <input type="radio" name="member_<%= m.id %>" value="present" <%= current === 'present' ? 'checked' : '' %>>
               </td>
               <td style="text-align:center">
-                <input type="radio" name="member_<%= m.id %>" value="excuse" <%= current === 'excuse' ? 'checked' : '' %> aria-label="<%= m.name %> permission">
+                <input type="radio" name="member_<%= m.id %>" value="excuse" <%= current === 'excuse' ? 'checked' : '' %>>
               </td>
               <td style="text-align:center">
-                <input type="radio" name="member_<%= m.id %>" value="absent" <%= current === 'absent' ? 'checked' : '' %> aria-label="<%= m.name %> absent">
+                <input type="radio" name="member_<%= m.id %>" value="absent" <%= current === 'absent' ? 'checked' : '' %>>
               </td>
             </tr>
             <% }) %>
@@ -48,7 +48,7 @@
       </div>
 
       <div class="form-actions" style="margin-top: var(--space-4);">
-        <a class="btn btn--secondary" href="/secretary/meetings/<%= meeting.id %>">Cancel</a>
+        <a class="btn btn--secondary" href="/secretary/meetings/events/<%= meeting.id %>">Cancel</a>
         <button class="btn btn--primary" type="submit">Save Attendance</button>
       </div>
     </form>

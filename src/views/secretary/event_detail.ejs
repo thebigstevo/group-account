@@ -1,31 +1,35 @@
 <%- include('../partials/header') %>
-<% locals.title = 'Event — ' + formatDate(event.meeting_date) %>
+<% locals.title = event.title || 'Event' %>
 <%
   const present = attendance.filter(a => a.status === 'present');
   const excused = attendance.filter(a => a.status === 'excuse');
   const absent = attendance.filter(a => a.status === 'absent');
-  const minutesLink = event.other_notes && event.other_notes.startsWith('http') ? event.other_notes : null;
 %>
 
 <div class="page-container">
   <section class="page-title">
     <div>
-      <h1><%= event.meeting_type === 'regular' ? 'Regular Meeting' : event.meeting_type === 'special' ? 'Special Meeting' : 'Board of Trustees' %></h1>
-      <p><%= formatDate(event.meeting_date) %> <% if (event.location) { %>— <%= event.location %><% } %></p>
+      <h1><%= event.title || EVENT_TYPE_LABELS[event.event_type] || 'Event' %></h1>
+      <p>
+        <%= formatDate(event.meeting_date) %>
+        <% if (event.location) { %>— <%= event.location %><% } %>
+        <span class="badge" style="margin-left: var(--space-2);"><%= EVENT_LEVEL_LABELS[event.event_level] || event.event_level %></span>
+        <span class="badge" style="margin-left: var(--space-1);"><%= EVENT_TYPE_LABELS[event.event_type] || event.event_type %></span>
+      </p>
     </div>
     <div class="hero-actions">
       <% if (['admin','secretary'].includes(user.role)) { %>
-      <a class="btn btn--secondary" href="/secretary/meetings/<%= event.id %>/edit">Edit</a>
-      <a class="btn btn--secondary" href="/secretary/meetings/<%= event.id %>/attendance">Mark Attendance</a>
+      <a class="btn btn--secondary" href="/secretary/meetings/events/<%= event.id %>/edit">Edit</a>
+      <a class="btn btn--primary" href="/secretary/meetings/events/<%= event.id %>/attendance">Mark Attendance</a>
       <% } %>
       <a class="btn btn--secondary" href="<%= googleCalendarUrl %>" target="_blank" rel="noopener">Add to Google Calendar</a>
     </div>
   </section>
 
   <!-- Minutes link -->
-  <% if (minutesLink) { %>
+  <% if (event.minutes_url) { %>
   <section class="panel" style="background: var(--primary-50); border-color: var(--primary-200);">
-    <p style="margin:0;"><strong>Minutes:</strong> <a href="<%= minutesLink %>" target="_blank" rel="noopener"><%= minutesLink %></a></p>
+    <p style="margin:0;"><strong>Minutes:</strong> <a href="<%= event.minutes_url %>" target="_blank" rel="noopener">View on Google Drive</a></p>
   </section>
   <% } %>
 
@@ -33,7 +37,7 @@
   <section class="panel">
     <h2>Attendance</h2>
     <% if (!attendance.length) { %>
-    <p class="text-muted">No attendance recorded yet. <% if (['admin','secretary'].includes(user.role)) { %><a href="/secretary/meetings/<%= event.id %>/attendance">Mark attendance now.</a><% } %></p>
+    <p class="text-muted">No attendance recorded yet. <% if (['admin','secretary'].includes(user.role)) { %><a href="/secretary/meetings/events/<%= event.id %>/attendance">Mark attendance now.</a><% } %></p>
     <% } else { %>
     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4); margin-top: var(--space-3);">
       <div>

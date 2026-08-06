@@ -671,7 +671,7 @@ async function migrate() {
 
   // Business-specific accounts, categories, and dues are configured in the application.
 
-  // ─── Secretary Module: Meetings, Attendance, Charitable Works, Volunteer Hours ───
+  // ─── Secretary Module: Events & Attendance ───
 
   await run(`
     CREATE TABLE IF NOT EXISTS meetings (
@@ -699,7 +699,18 @@ async function migrate() {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
-  // Additional fields for formal meeting minutes
+  // Extend meetings table into a full events model
+  await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS title VARCHAR(255)`);
+  await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS event_level VARCHAR(30) NOT NULL DEFAULT 'local'`);
+  await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS event_type VARCHAR(30) NOT NULL DEFAULT 'meeting'`);
+  await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS minutes_url TEXT`);
+  // Drop old constraints if they exist and add flexible ones
+  await run(`ALTER TABLE meetings DROP CONSTRAINT IF EXISTS meetings_meeting_type_check`);
+  await run(`ALTER TABLE meetings DROP CONSTRAINT IF EXISTS meetings_event_level_check`);
+  await run(`ALTER TABLE meetings DROP CONSTRAINT IF EXISTS meetings_event_type_check`);
+  await run(`ALTER TABLE meetings ADD CONSTRAINT meetings_event_level_check CHECK (event_level IN ('local','district','grand','supreme_subordinate'))`);
+  await run(`ALTER TABLE meetings ADD CONSTRAINT meetings_event_type_check CHECK (event_type IN ('meeting','offertory','convention','social','funeral','community_service','other'))`);
+  // Additional fields for formal meeting minutes (kept for backward compat)
   await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS pro_tem_appointments TEXT`);
   await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS opening_rituals TEXT`);
   await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS previous_minutes TEXT`);
@@ -707,7 +718,8 @@ async function migrate() {
   await run(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS discussion_notes TEXT`);
   await run(`CREATE INDEX IF NOT EXISTS idx_meetings_date ON meetings(meeting_date DESC)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_meetings_commandery ON meetings(commandery_id)`);
-  console.log('[migrate]   ✓ meetings');
+  await run(`CREATE INDEX IF NOT EXISTS idx_meetings_level_type ON meetings(event_level, event_type)`);
+  console.log('[migrate]   ✓ meetings (events)');
 
   await run(`
     CREATE TABLE IF NOT EXISTS meeting_attendance (

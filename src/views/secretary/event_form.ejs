@@ -6,7 +6,6 @@
   <section class="page-title">
     <div>
       <h1><%= event ? 'Edit Event' : 'New Event' %></h1>
-      <p><%= event ? 'Update event details.' : 'Record a meeting, social, or other event.' %></p>
     </div>
   </section>
 
@@ -17,41 +16,57 @@
   <% } %>
 
   <section class="panel narrow">
-    <form method="post" action="<%= event ? '/secretary/meetings/' + event.id : '/secretary/meetings' %>">
+    <form method="post" action="<%= event ? '/secretary/meetings/events/' + event.id : '/secretary/meetings/events' %>">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
 
       <div class="form-group">
-        <label for="meeting_date">Date</label>
-        <input type="date" id="meeting_date" name="meeting_date" value="<%= v.meeting_date || '' %>" required>
+        <label for="title">Event Name</label>
+        <input type="text" id="title" name="title" value="<%= v.title || '' %>" required placeholder="e.g. May Regular Meeting, Grand Convention 2026">
       </div>
 
-      <div class="form-group">
-        <label for="meeting_type">Type</label>
-        <select id="meeting_type" name="meeting_type" required>
-          <% MEETING_TYPES.forEach(function(t) { %>
-          <option value="<%= t %>" <%= (v.meeting_type || 'regular') === t ? 'selected' : '' %>><%= t === 'regular' ? 'Regular Meeting' : t === 'special' ? 'Special Meeting' : 'Board of Trustees' %></option>
-          <% }) %>
-        </select>
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="event_date">Date</label>
+          <input type="date" id="event_date" name="event_date" value="<%= v.event_date || v.meeting_date || '' %>" required>
+        </div>
+        <div class="form-group">
+          <label for="start_time">Time (optional)</label>
+          <input type="time" id="start_time" name="start_time" value="<%= v.start_time || '' %>">
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="event_level">Level</label>
+          <select id="event_level" name="event_level" required>
+            <% EVENT_LEVELS.forEach(function(l) { %>
+            <option value="<%= l %>" <%= (v.event_level || 'local') === l ? 'selected' : '' %>><%= EVENT_LEVEL_LABELS[l] %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="event_type">Type</label>
+          <select id="event_type" name="event_type" required>
+            <% EVENT_TYPES.forEach(function(t) { %>
+            <option value="<%= t %>" <%= (v.event_type || 'meeting') === t ? 'selected' : '' %>><%= EVENT_TYPE_LABELS[t] %></option>
+            <% }) %>
+          </select>
+        </div>
       </div>
 
       <div class="form-group">
         <label for="location">Location</label>
-        <input type="text" id="location" name="location" value="<%= v.location || '' %>" placeholder="e.g. Parish Hall">
+        <input type="text" id="location" name="location" value="<%= v.location || '' %>" placeholder="e.g. Parish Hall, Accra Convention Centre">
       </div>
 
       <div class="form-group">
-        <label for="start_time">Time</label>
-        <input type="time" id="start_time" name="start_time" value="<%= v.start_time || '' %>">
-      </div>
-
-      <div class="form-group">
-        <label for="minutes_link">Minutes Link (Google Drive URL)</label>
-        <input type="url" id="minutes_link" name="minutes_link" value="<%= v.other_notes || v.minutes_link || '' %>" placeholder="https://drive.google.com/...">
-        <span class="form-group__hint">Paste a link to the minutes document on Google Drive (optional).</span>
+        <label for="minutes_url">Minutes Link (optional)</label>
+        <input type="url" id="minutes_url" name="minutes_url" value="<%= v.minutes_url || '' %>" placeholder="https://drive.google.com/...">
+        <span class="form-group__hint">Link to meeting minutes on Google Drive.</span>
       </div>
 
       <div class="form-actions">
-        <a class="btn btn--secondary" href="<%= event ? '/secretary/meetings/' + event.id : '/secretary/meetings' %>">Cancel</a>
+        <a class="btn btn--secondary" href="/secretary/meetings/events">Cancel</a>
         <button class="btn btn--primary" type="submit"><%= event ? 'Save' : 'Create Event' %></button>
       </div>
     </form>
