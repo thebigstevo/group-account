@@ -1,0 +1,65 @@
+<%- include('../partials/header') %>
+<% locals.title = 'Event — ' + formatDate(event.meeting_date) %>
+<%
+  const present = attendance.filter(a => a.status === 'present');
+  const excused = attendance.filter(a => a.status === 'excuse');
+  const absent = attendance.filter(a => a.status === 'absent');
+  const minutesLink = event.other_notes && event.other_notes.startsWith('http') ? event.other_notes : null;
+%>
+
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <h1><%= event.meeting_type === 'regular' ? 'Regular Meeting' : event.meeting_type === 'special' ? 'Special Meeting' : 'Board of Trustees' %></h1>
+      <p><%= formatDate(event.meeting_date) %> <% if (event.location) { %>— <%= event.location %><% } %></p>
+    </div>
+    <div class="hero-actions">
+      <% if (['admin','secretary'].includes(user.role)) { %>
+      <a class="btn btn--secondary" href="/secretary/meetings/<%= event.id %>/edit">Edit</a>
+      <a class="btn btn--secondary" href="/secretary/meetings/<%= event.id %>/attendance">Mark Attendance</a>
+      <% } %>
+      <a class="btn btn--secondary" href="<%= googleCalendarUrl %>" target="_blank" rel="noopener">Add to Google Calendar</a>
+    </div>
+  </section>
+
+  <!-- Minutes link -->
+  <% if (minutesLink) { %>
+  <section class="panel" style="background: var(--primary-50); border-color: var(--primary-200);">
+    <p style="margin:0;"><strong>Minutes:</strong> <a href="<%= minutesLink %>" target="_blank" rel="noopener"><%= minutesLink %></a></p>
+  </section>
+  <% } %>
+
+  <!-- Attendance -->
+  <section class="panel">
+    <h2>Attendance</h2>
+    <% if (!attendance.length) { %>
+    <p class="text-muted">No attendance recorded yet. <% if (['admin','secretary'].includes(user.role)) { %><a href="/secretary/meetings/<%= event.id %>/attendance">Mark attendance now.</a><% } %></p>
+    <% } else { %>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4); margin-top: var(--space-3);">
+      <div>
+        <strong style="color: var(--success-base);">Present (<%= present.length %>)</strong>
+        <ul style="margin-top: var(--space-2); font-size: 0.85rem; list-style: none;">
+          <% present.forEach(function(a) { %><li><%= a.member_name %></li><% }) %>
+          <% if (!present.length) { %><li style="color: var(--neutral-400);">—</li><% } %>
+        </ul>
+      </div>
+      <div>
+        <strong style="color: var(--warning-base);">Permission (<%= excused.length %>)</strong>
+        <ul style="margin-top: var(--space-2); font-size: 0.85rem; list-style: none;">
+          <% excused.forEach(function(a) { %><li><%= a.member_name %></li><% }) %>
+          <% if (!excused.length) { %><li style="color: var(--neutral-400);">—</li><% } %>
+        </ul>
+      </div>
+      <div>
+        <strong style="color: var(--danger-base);">Absent (<%= absent.length %>)</strong>
+        <ul style="margin-top: var(--space-2); font-size: 0.85rem; list-style: none;">
+          <% absent.forEach(function(a) { %><li><%= a.member_name %></li><% }) %>
+          <% if (!absent.length) { %><li style="color: var(--neutral-400);">—</li><% } %>
+        </ul>
+      </div>
+    </div>
+    <% } %>
+  </section>
+</div>
+
+<%- include('../partials/footer') %>

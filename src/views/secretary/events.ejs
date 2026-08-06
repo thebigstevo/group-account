@@ -1,0 +1,59 @@
+<%- include('../partials/header') %>
+<% locals.title = 'Events & Meetings' %>
+
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <h1>Events & Meetings</h1>
+      <p>Track events, mark attendance, and link to minutes on Google Drive.</p>
+    </div>
+    <div class="hero-actions">
+      <% if (['admin','secretary'].includes(user.role)) { %>
+      <a class="btn btn--primary" href="/secretary/meetings/new">New Event</a>
+      <% } %>
+    </div>
+  </section>
+
+  <section class="panel">
+    <% if (!events.length) { %>
+    <div class="empty-state">
+      <p>No events recorded yet. Create one to get started.</p>
+    </div>
+    <% } else { %>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Event</th>
+            <th>Location</th>
+            <th style="text-align:center">Present</th>
+            <th style="text-align:center">Excuse</th>
+            <th style="text-align:center">Absent</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% events.forEach(function(e) { %>
+          <tr>
+            <td><a href="/secretary/meetings/<%= e.id %>"><%= formatDate(e.meeting_date) %></a></td>
+            <td><span class="badge"><%= e.meeting_type %></span></td>
+            <td><%= e.location || '—' %></td>
+            <td style="text-align:center"><%= e.present_count %></td>
+            <td style="text-align:center"><%= e.excuse_count %></td>
+            <td style="text-align:center"><%= e.absent_count %></td>
+            <td>
+              <% if (['admin','secretary'].includes(user.role)) { %>
+              <a class="btn btn--secondary btn--sm" href="/secretary/meetings/<%= e.id %>/attendance">Attendance</a>
+              <% } %>
+            </td>
+          </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+    <% } %>
+  </section>
+</div>
+
+<%- include('../partials/footer') %>

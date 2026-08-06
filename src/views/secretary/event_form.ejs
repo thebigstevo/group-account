@@ -1,0 +1,61 @@
+<%- include('../partials/header') %>
+<% locals.title = event ? 'Edit Event' : 'New Event' %>
+<% const v = locals.values || event || {} %>
+
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <h1><%= event ? 'Edit Event' : 'New Event' %></h1>
+      <p><%= event ? 'Update event details.' : 'Record a meeting, social, or other event.' %></p>
+    </div>
+  </section>
+
+  <% if (errors && errors.length) { %>
+  <div class="alert alert--error" role="alert">
+    <ul><% errors.forEach(function(e) { %><li><%= e %></li><% }) %></ul>
+  </div>
+  <% } %>
+
+  <section class="panel narrow">
+    <form method="post" action="<%= event ? '/secretary/meetings/' + event.id : '/secretary/meetings' %>">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="form-group">
+        <label for="meeting_date">Date</label>
+        <input type="date" id="meeting_date" name="meeting_date" value="<%= v.meeting_date || '' %>" required>
+      </div>
+
+      <div class="form-group">
+        <label for="meeting_type">Type</label>
+        <select id="meeting_type" name="meeting_type" required>
+          <% MEETING_TYPES.forEach(function(t) { %>
+          <option value="<%= t %>" <%= (v.meeting_type || 'regular') === t ? 'selected' : '' %>><%= t === 'regular' ? 'Regular Meeting' : t === 'special' ? 'Special Meeting' : 'Board of Trustees' %></option>
+          <% }) %>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="location">Location</label>
+        <input type="text" id="location" name="location" value="<%= v.location || '' %>" placeholder="e.g. Parish Hall">
+      </div>
+
+      <div class="form-group">
+        <label for="start_time">Time</label>
+        <input type="time" id="start_time" name="start_time" value="<%= v.start_time || '' %>">
+      </div>
+
+      <div class="form-group">
+        <label for="minutes_link">Minutes Link (Google Drive URL)</label>
+        <input type="url" id="minutes_link" name="minutes_link" value="<%= v.other_notes || v.minutes_link || '' %>" placeholder="https://drive.google.com/...">
+        <span class="form-group__hint">Paste a link to the minutes document on Google Drive (optional).</span>
+      </div>
+
+      <div class="form-actions">
+        <a class="btn btn--secondary" href="<%= event ? '/secretary/meetings/' + event.id : '/secretary/meetings' %>">Cancel</a>
+        <button class="btn btn--primary" type="submit"><%= event ? 'Save' : 'Create Event' %></button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<%- include('../partials/footer') %>
