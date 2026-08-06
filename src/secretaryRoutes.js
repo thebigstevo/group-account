@@ -159,7 +159,7 @@ router.post('/:id/attendance', allow('admin', 'secretary'), asyncHandler(async (
     await client.query('DELETE FROM meeting_attendance WHERE meeting_id = $1', [meeting.id]);
     for (const member of members) {
       const status = req.body[`member_${member.id}`] || 'absent';
-      if (['present', 'late', 'excuse', 'absent'].includes(status)) {
+      if (['present', 'excuse', 'absent'].includes(status)) {
         await client.query(
           'INSERT INTO meeting_attendance (meeting_id, member_id, status) VALUES ($1, $2, $3)',
           [meeting.id, member.id, status]
@@ -444,12 +444,6 @@ router.get('/:id/minutes', allow('admin', 'secretary', 'president', 'trustee'), 
     WHERE ma.meeting_id = $1 AND ma.status = 'present'
     ORDER BY m.name
   `, [meeting.id]);
-  const lateMembers = await dal.query(`
-    SELECT m.name FROM meeting_attendance ma
-    JOIN members m ON m.id = ma.member_id
-    WHERE ma.meeting_id = $1 AND ma.status = 'late'
-    ORDER BY m.name
-  `, [meeting.id]);
   const excusedMembers = await dal.query(`
     SELECT m.name FROM meeting_attendance ma
     JOIN members m ON m.id = ma.member_id
@@ -482,7 +476,7 @@ router.get('/:id/minutes', allow('admin', 'secretary', 'president', 'trustee'), 
     // ─── INFORMAL MEETING: simple format ────────────────────────
 
     // Attendance (three-column)
-    renderAttendanceTable(doc, presentMembers, lateMembers, excusedMembers);
+    renderAttendanceTable(doc, presentMembers, excusedMembers);
     doc.moveDown(0.8);
 
     // Discussion notes
@@ -509,12 +503,16 @@ router.get('/:id/minutes', allow('admin', 'secretary', 'president', 'trustee'), 
       doc.font('Helvetica').fontSize(9).fillColor(pdf.COLORS.dark);
       doc.text(`The meeting began at ${timeFormatted}.`, pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
       doc.moveDown(0.6);
+    } else {
+      doc.font('Helvetica').fontSize(9).fillColor(pdf.COLORS.muted);
+      doc.text('Start time not recorded.', pdf.MARGIN + 10, doc.y, { width: pdf.CONTENT_WIDTH - 10 });
+      doc.moveDown(0.6);
     }
 
     // 2. ATTENDANCE
     pdf.sectionHeading(doc, `${sectionNum}. Attendance`);
     sectionNum++;
-    renderAttendanceTable(doc, presentMembers, lateMembers, excusedMembers);
+    renderAttendanceTable(doc, presentMembers, excusedMembers);
     doc.moveDown(0.8);
 
     // 3. PRO TEM APPOINTMENTS
@@ -596,38 +594,45 @@ router.get('/:id/minutes', allow('admin', 'secretary', 'president', 'trustee'), 
 }));
 
 /**
- * Render attendance as a three-column layout: Present | Late | Permission
+ * Render attendance as a two-column layout: Present | Permission (Excused)
+ * Uses explicit Y positioning to avoid PDFKit cursor drift between columns.
  */
-function renderAttendanceTable(doc, present, late, excused) {
-  const colWidth = pdf.CONTENT_WIDTH / 3;
+function renderAttendanceTable(doc, present, excused) {
+  const colWidth = Math.floor(pdf.CONTENT_WIDTH / 2);
+  const col1X = pdf.MARGIN;
+  const col2X = pdf.MARGIN + colWidth;
   const startY = doc.y;
 
   // Column headers
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(pdf.COLORS.primary);
-  doc.text('A. Present', pdf.MARGIN, startY, { width: colWidth });
-  doc.text('B. Late', pdf.MARGIN + colWidth, startY, { width: colWidth });
-  doc.text('C. Permission', pdf.MARGIN + colWidth * 2, startY, { width: colWidth });
+  doc.font('Helvetica-Bold').fontSize(8.5).fillColor(pdf.COLORS.primary);
+  doc.text('A. Present', col1X, startY, { width: colWidth, lineBreak: false });
+  doc.text('B. Permission', col2X, startY, { width: colWidth, lineBreak: false });
 
   const headerY = startY + 14;
   doc.moveTo(pdf.MARGIN, headerY).lineTo(pdf.MARGIN + pdf.CONTENT_WIDTH, headerY)
     .lineWidth(0.5).strokeColor(pdf.COLORS.border).stroke();
   doc.strokeColor('#000');
 
-  // Names
+  // Render names in each column independently
   doc.font('Helvetica').fontSize(8.5).fillColor(pdf.COLORS.dark);
-  const nameStartY = headerY + 6;
+  const nameStartY = headerY + 8;
   const lineHeight = 13;
 
-  const maxRows = Math.max(present.length, late.length, excused.length, 1);
+  const maxRows = Math.max(present.length, excused.length, 1);
+
   for (let i = 0; i < maxRows; i++) {
     const rowY = nameStartY + i * lineHeight;
     if (rowY > 720) { doc.addPage(); break; }
-    if (present[i]) doc.text(present[i].name, pdf.MARGIN + 4, rowY, { width: colWidth - 8 });
-    if (late[i]) doc.text(late[i].name, pdf.MARGIN + colWidth + 4, rowY, { width: colWidth - 8 });
-    if (excused[i]) doc.text(excused[i].name, pdf.MARGIN + colWidth * 2 + 4, rowY, { width: colWidth - 8 });
+    if (present[i]) {
+      doc.text(present[i].name, col1X + 4, rowY, { width: colWidth - 8, lineBreak: false });
+    }
+    if (excused[i]) {
+      doc.text(excused[i].name, col2X + 4, rowY, { width: colWidth - 8, lineBreak: false });
+    }
   }
 
-  doc.y = nameStartY + maxRows * lineHeight + 4;
+  // Set doc.y past the table
+  doc.y = nameStartY + maxRows * lineHeight + 6;
 }
 
 /**

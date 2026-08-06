@@ -1,7 +1,7 @@
 'use strict';
 
 const MEETING_TYPES = Object.freeze(['regular', 'special', 'board']);
-const ATTENDANCE_STATUSES = Object.freeze(['present', 'late', 'excuse', 'absent']);
+const ATTENDANCE_STATUSES = Object.freeze(['present', 'excuse', 'absent']);
 const MEETING_STATUSES = Object.freeze(['draft', 'submitted', 'approved']);
 
 function validateMeetingInput(input) {
