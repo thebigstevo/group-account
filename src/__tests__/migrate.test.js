@@ -16,10 +16,20 @@ describe('Phase 1 migration contract', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     client = {
-      query: jest.fn().mockImplementation(async (sql) => ({
-        rowCount: 0,
-        rows: String(sql).includes('SELECT COUNT(*)::int AS count') ? [{ count: 1 }] : [],
-      })),
+      query: jest.fn().mockImplementation(async (sql) => {
+        const s = String(sql);
+        if (s.includes('SELECT COUNT(*)::int AS count')) return { rowCount: 1, rows: [{ count: 1 }] };
+        if (s.includes('SELECT COUNT(*) AS cnt')) return { rowCount: 1, rows: [{ cnt: '0' }] };
+        // Fund classification lookups for receipt_allocations backfill
+        if (s.includes("FROM fund_classifications WHERE code = 'mens_operating'")) return { rows: [{ id: 1 }] };
+        if (s.includes("FROM fund_classifications WHERE code = 'joint_welfare'")) return { rows: [{ id: 2 }] };
+        if (s.includes('FROM accounts WHERE is_welfare_fund')) return { rows: [{ id: 10 }] };
+        // Split group and transaction queries return empty results
+        if (s.includes('SELECT DISTINCT split_group_id')) return { rows: [] };
+        // Migration verification query (no mismatches = success)
+        if (s.includes('HAVING ABS(t.amount')) return { rows: [] };
+        return { rowCount: 0, rows: [] };
+      }),
     };
     dal.transaction.mockImplementation(async callback => callback(client));
     logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -51,5 +61,17 @@ describe('Phase 1 migration contract', () => {
     expect(sql).toContain('CREATE OR REPLACE FUNCTION assign_member_foundation_defaults');
     expect(sql).toContain("CHECK (status IN ('active','suspended','expelled','transferred','resigned'))");
     expect(sql).toContain("'secretary','finance_secretary','treasurer'");
+    // Reversal metadata migration
+    expect(sql).toContain('UPDATE transactions');
+    expect(sql).toContain('SET reversal_transaction_id = reversed_by');
+    expect(sql).toContain('SET reverses_transaction_id = orig.id');
+    // Receipt allocations backfill
+    expect(sql).toContain("FROM fund_classifications WHERE code = 'mens_operating'");
+    expect(sql).toContain("FROM fund_classifications WHERE code = 'joint_welfare'");
+    expect(sql).toContain('FROM accounts WHERE is_welfare_fund');
+    // Phase 1 migration: drop is_welfare_fund and verify allocations
+    expect(sql).toContain('ALTER TABLE accounts DROP COLUMN IF EXISTS is_welfare_fund');
+    expect(sql).toContain('HAVING ABS(t.amount');
+    expect(sql).toContain("'migration', 'schema'");
   });
 });

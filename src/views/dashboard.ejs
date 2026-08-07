@@ -33,6 +33,17 @@
         </div>
       </div>
 
+      <% if (locals.fundBalances) { %>
+      <div class="dashboard-section">
+        <div class="section-head"><div><h2>Funds Availability</h2><p>Breakdown of cash by fund designation.</p></div></div>
+        <div class="account-list" aria-label="Funds availability">
+          <div class="account-row"><span class="account-row__name">Total Cash &amp; Bank</span><strong class="account-row__value"><%= formatMoney(summary.totalCashPosition) %></strong></div>
+          <div class="account-row"><span class="account-row__name">Less: Joint Welfare held</span><strong class="account-row__value">(<%= formatMoney(fundBalances.joint_welfare || 0) %>)</strong></div>
+          <div class="account-row" style="border-top: 2px solid var(--border-color, #ddd); padding-top: 0.5rem; margin-top: 0.5rem;"><span class="account-row__name"><strong>Men's Operating Funds Available</strong></span><strong class="account-row__value"><%= formatMoney(summary.totalCashPosition - (fundBalances.joint_welfare || 0)) %></strong></div>
+        </div>
+      </div>
+      <% } %>
+
       <div class="dashboard-section">
         <div class="section-head"><div><h2>Recent activity</h2><p>Latest posted transactions.</p></div><a href="/finance">View finance</a></div>
         <% if (!recent.length) { %><div class="empty-state"><p>No transactions have been recorded yet.</p></div><% } else { %>

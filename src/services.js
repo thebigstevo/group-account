@@ -46,104 +46,83 @@ async function accountBalances(asOfDate = null) {
   const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
   const results = [];
   for (const account of accounts) {
-    let incomingSql;
-    let incomingParams;
-    if (asOfDate) {
-      incomingSql = `
-        SELECT COALESCE(SUM(amount), 0) AS total
-        FROM transactions
-        WHERE (
-          (tx_type = 'receipt' AND account_id = $1)
-          OR (tx_type = 'transfer' AND to_account_id = $2)
-        ) AND status = 'posted' AND tx_date <= $3
-      `;
-      incomingParams = [account.id, account.id, asOfDate];
-    } else {
-      incomingSql = `
-        SELECT COALESCE(SUM(amount), 0) AS total
-        FROM transactions
-        WHERE (
-          (tx_type = 'receipt' AND account_id = $1)
-          OR (tx_type = 'transfer' AND to_account_id = $2)
-        ) AND status = 'posted'
-      `;
-      incomingParams = [account.id, account.id];
-    }
-    const incomingRow = await dal.queryOne(incomingSql, incomingParams);
+    const dateFilter = asOfDate ? ' AND tx_date <= $2' : '';
+    const params = asOfDate ? [account.id, asOfDate] : [account.id];
 
-    let outgoingSql;
-    let outgoingParams;
-    if (asOfDate) {
-      outgoingSql = `
-        SELECT COALESCE(SUM(amount), 0) AS total
-        FROM transactions
-        WHERE (
-          (tx_type IN ('expense','welfare_payout') AND account_id = $1)
-          OR (tx_type = 'transfer' AND account_id = $2)
-        ) AND status = 'posted' AND tx_date <= $3
-      `;
-      outgoingParams = [account.id, account.id, asOfDate];
-    } else {
-      outgoingSql = `
-        SELECT COALESCE(SUM(amount), 0) AS total
-        FROM transactions
-        WHERE (
-          (tx_type IN ('expense','welfare_payout') AND account_id = $1)
-          OR (tx_type = 'transfer' AND account_id = $2)
-        ) AND status = 'posted'
-      `;
-      outgoingParams = [account.id, account.id];
-    }
-    const outgoingRow = await dal.queryOne(outgoingSql, outgoingParams);
+    const sql = `
+      SELECT COALESCE(SUM(
+        CASE
+          WHEN reverses_transaction_id IS NULL THEN
+            CASE
+              WHEN (tx_type = 'receipt' AND account_id = $1) OR (tx_type = 'transfer' AND to_account_id = $1) THEN amount
+              WHEN (tx_type IN ('expense','welfare_payout') AND account_id = $1) OR (tx_type = 'transfer' AND account_id = $1 AND to_account_id IS NOT NULL) THEN -amount
+              ELSE 0
+            END
+          ELSE
+            CASE
+              WHEN (tx_type = 'receipt' AND account_id = $1) OR (tx_type = 'transfer' AND to_account_id = $1) THEN -amount
+              WHEN (tx_type IN ('expense','welfare_payout') AND account_id = $1) OR (tx_type = 'transfer' AND account_id = $1 AND to_account_id IS NOT NULL) THEN amount
+              ELSE 0
+            END
+        END
+      ), 0) AS net_movement
+      FROM transactions
+      WHERE status = 'posted'${dateFilter}
+    `;
 
+    const row = await dal.queryOne(sql, params);
     results.push({
       ...account,
-      balance: money(account.opening_balance) + money(incomingRow.total) - money(outgoingRow.total)
+      balance: money(account.opening_balance) + money(row.net_movement)
     });
   }
   return results;
 }
 
+async function computeFundBalances(asOfDate = null) {
+  const dateFilter = asOfDate ? ' AND t.tx_date <= $1' : '';
+  const params = asOfDate ? [asOfDate] : [];
+
+  const sql = `
+    SELECT
+      fc.code,
+      fc.name,
+      COALESCE(SUM(ra.amount), 0) AS balance
+    FROM fund_classifications fc
+    LEFT JOIN receipt_allocations ra ON ra.fund_classification_id = fc.id
+    LEFT JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted'${dateFilter}
+    WHERE fc.active = true
+    GROUP BY fc.id, fc.code, fc.name
+    ORDER BY fc.id
+  `;
+
+  const rows = await dal.query(sql, params);
+  const result = {};
+  for (const row of rows) {
+    result[row.code] = money(row.balance);
+  }
+  return result;
+}
+
 async function welfareLiability(asOfDate = null) {
-  let collectedSql;
-  let collectedParams;
-  if (asOfDate) {
-    collectedSql = `
-      SELECT COALESCE(SUM(welfare_component), 0) AS total
-      FROM transactions
-      WHERE tx_type = 'receipt' AND status = 'posted' AND tx_date <= $1
-    `;
-    collectedParams = [asOfDate];
-  } else {
-    collectedSql = `
-      SELECT COALESCE(SUM(welfare_component), 0) AS total
-      FROM transactions
-      WHERE tx_type = 'receipt' AND status = 'posted'
-    `;
-    collectedParams = [];
-  }
-  const collectedRow = await dal.queryOne(collectedSql, collectedParams);
+  const dateFilter = asOfDate ? ' AND t.tx_date <= $1' : '';
+  const params = asOfDate ? [asOfDate] : [];
 
-  let paidOutSql;
-  let paidOutParams;
-  if (asOfDate) {
-    paidOutSql = `
-      SELECT COALESCE(SUM(amount), 0) AS total
-      FROM transactions
-      WHERE tx_type = 'welfare_payout' AND status = 'posted' AND tx_date <= $1
-    `;
-    paidOutParams = [asOfDate];
-  } else {
-    paidOutSql = `
-      SELECT COALESCE(SUM(amount), 0) AS total
-      FROM transactions
-      WHERE tx_type = 'welfare_payout' AND status = 'posted'
-    `;
-    paidOutParams = [];
-  }
-  const paidOutRow = await dal.queryOne(paidOutSql, paidOutParams);
+  const sql = `
+    SELECT COALESCE(SUM(
+      CASE
+        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NULL THEN -ra.amount
+        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NOT NULL THEN ra.amount
+        ELSE ra.amount
+      END
+    ), 0) AS balance
+    FROM receipt_allocations ra
+    JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted'${dateFilter}
+    JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'joint_welfare'
+  `;
 
-  return money(collectedRow.total) - money(paidOutRow.total);
+  const row = await dal.queryOne(sql, params);
+  return money(row.balance);
 }
 
 async function totalIncome(startDate = null, endDate = null) {
@@ -647,6 +626,7 @@ async function auditCountSummary(reviewId) {
 
 module.exports = {
   accountBalances,
+  computeFundBalances,
   welfareLiability,
   totalIncome,
   totalReceipts,

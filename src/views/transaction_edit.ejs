@@ -10,6 +10,10 @@
     </div>
   </section>
 
+  <% if (locals.lockedMessage) { %>
+  <div class="info-banner" role="status"><p><%= lockedMessage %></p></div>
+  <% } %>
+
   <% if (locals.errors && locals.errors.length) { %>
   <div class="error-summary" role="alert"><h2>Please fix the following</h2><ul><% locals.errors.forEach(function(err) { %><li><%= err %></li><% }) %></ul></div>
   <% } %>
@@ -24,15 +28,15 @@
           <div class="field-grid">
             <div class="form-group">
               <label for="edit-date">Date *</label>
-              <input id="edit-date" name="tx_date" type="date" required value="<%= (locals.values && locals.values.tx_date) || transaction.tx_date %>">
+              <input id="edit-date" name="tx_date" type="date" required value="<%= (locals.values && locals.values.tx_date) || transaction.tx_date %>" <%= transaction.status === 'posted' ? 'disabled' : '' %>>
             </div>
             <div class="form-group">
               <label for="edit-amount">Amount *</label>
-              <input id="edit-amount" name="amount" type="number" step="0.01" required value="<%= (locals.values && locals.values.amount) || transaction.amount %>">
+              <input id="edit-amount" name="amount" type="number" step="0.01" required value="<%= (locals.values && locals.values.amount) || transaction.amount %>" <%= transaction.status === 'posted' ? 'disabled' : '' %>>
             </div>
             <div class="form-group">
               <label for="edit-category">Category *</label>
-              <select id="edit-category" name="category" required>
+              <select id="edit-category" name="category" required <%= transaction.status === 'posted' ? 'disabled' : '' %>>
                 <% categories.forEach(function(cat) { %>
                 <option value="<%= cat.name %>" <%= ((locals.values && locals.values.category) || transaction.category) === cat.name ? 'selected' : '' %>><%= cat.name %></option>
                 <% }) %>
@@ -40,7 +44,7 @@
             </div>
             <div class="form-group">
               <label for="edit-account"><%= isIncome ? 'Received into' : 'Paid from' %> *</label>
-              <select id="edit-account" name="account_id" required>
+              <select id="edit-account" name="account_id" required <%= transaction.status === 'posted' ? 'disabled' : '' %>>
                 <% accounts.forEach(function(acc) { %>
                 <option value="<%= acc.id %>" <%= Number((locals.values && locals.values.account_id) || transaction.account_id) === acc.id ? 'selected' : '' %>><%= acc.name %></option>
                 <% }) %>
@@ -55,7 +59,7 @@
             <% if (isIncome) { %>
             <div class="form-group">
               <label for="edit-member">Member</label>
-              <select id="edit-member" name="member_id">
+              <select id="edit-member" name="member_id" <%= transaction.status === 'posted' ? 'disabled' : '' %>>
                 <option value="">— No member —</option>
                 <% members.forEach(function(m) { %>
                 <option value="<%= m.id %>" <%= Number((locals.values && locals.values.member_id) || transaction.member_id) === m.id ? 'selected' : '' %>><%= m.name %></option>
@@ -64,7 +68,7 @@
             </div>
             <div class="form-group">
               <label for="edit-welfare">Welfare portion</label>
-              <input id="edit-welfare" name="welfare_component" type="number" step="0.01" value="<%= (locals.values && locals.values.welfare_component) || transaction.welfare_component || 0 %>" placeholder="Leave blank to auto-calculate">
+              <input id="edit-welfare" name="welfare_component" type="number" step="0.01" value="<%= (locals.values && locals.values.welfare_component) || transaction.welfare_component || 0 %>" placeholder="Leave blank to auto-calculate" <%= transaction.status === 'posted' ? 'disabled' : '' %>>
               <span class="form-group__hint">Leave blank to recalculate from rules. Enter a value to override.</span>
             </div>
             <% } %>
@@ -89,9 +93,14 @@
     <div class="side-panel">
       <h2>About editing</h2>
       <ul class="guidance-list">
-        <li>Only unreconciled transactions can be edited</li>
+        <% if (transaction.status === 'posted') { %>
+        <li>Posted transactions have financial fields locked</li>
+        <li>You can only edit description, reference, and reconciliation status</li>
+        <li>To correct financial details, reverse this transaction and create a new one</li>
+        <% } else { %>
+        <li>Draft transactions can be freely edited</li>
+        <% } %>
         <li>All changes are recorded in the audit trail</li>
-        <li>Use reversal for reconciled transactions</li>
       </ul>
     </div>
   </section>

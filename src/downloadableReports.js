@@ -1,5 +1,6 @@
 const { stringify } = require('csv-stringify/sync');
 const dal = require('./dal');
+const { accountBalances, welfareLiability } = require('./services');
 
 function fmt(value) {
   return Number(value || 0).toFixed(2);
@@ -15,28 +16,31 @@ function csvFromRows(rows) {
  * and net surplus/deficit for a period.
  */
 async function incomeAndExpenditureReport(startDate, endDate, periodLabel) {
-  // Get welfare fund account to exclude from operational income
-  const welfareAcct = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
-  const welfareAcctId = welfareAcct ? welfareAcct.id : -1;
-
-  // Income (assessment income, net of welfare, excluding direct welfare account deposits)
+  // Income: SUM of allocations to mens_operating fund from receipts in period
   const income = await dal.query(`
-    SELECT category, COALESCE(SUM(amount - welfare_component), 0) AS total
-    FROM transactions
-    WHERE tx_type = 'receipt' AND status = 'posted'
-      AND tx_date >= $1 AND tx_date <= $2
-      AND (account_id != $3 OR account_id IS NULL)
-    GROUP BY category
+    SELECT t.category, COALESCE(SUM(ra.amount), 0) AS total
+    FROM receipt_allocations ra
+    JOIN transactions t ON t.id = ra.transaction_id
+      AND t.status = 'posted'
+      AND t.tx_type = 'receipt'
+      AND t.tx_date >= $1 AND t.tx_date <= $2
+    JOIN fund_classifications fc ON fc.id = ra.fund_classification_id
+      AND fc.code = 'mens_operating'
+    GROUP BY t.category
     ORDER BY total DESC
-  `, [startDate, endDate, welfareAcctId]);
+  `, [startDate, endDate]);
 
-  // Expenses
+  // Operating expenses only (exclude welfare_payout — those are Joint Welfare, not men's operating)
   const expenses = await dal.query(`
-    SELECT category, COALESCE(SUM(amount), 0) AS total
-    FROM transactions
-    WHERE tx_type IN ('expense', 'welfare_payout') AND status = 'posted'
-      AND tx_date >= $1 AND tx_date <= $2
-    GROUP BY category
+    SELECT t.category, COALESCE(SUM(ra.amount), 0) AS total
+    FROM receipt_allocations ra
+    JOIN transactions t ON t.id = ra.transaction_id
+      AND t.status = 'posted'
+      AND t.tx_type = 'expense'
+      AND t.tx_date >= $1 AND t.tx_date <= $2
+    JOIN fund_classifications fc ON fc.id = ra.fund_classification_id
+      AND fc.code = 'mens_operating'
+    GROUP BY t.category
     ORDER BY total DESC
   `, [startDate, endDate]);
 
@@ -151,79 +155,108 @@ async function receiptsAndPaymentsReport(startDate, endDate, periodLabel) {
 }
 
 /**
- * Welfare Fund Statement
- * Shows welfare collections, payouts, and liability balance.
+ * Joint Welfare Fund Statement
+ * Shows welfare collections (from fund allocations), payouts, and balance.
+ * Uses receipt_allocations + fund_classifications (code = 'joint_welfare')
+ * instead of the legacy is_welfare_fund account lookup.
  */
 async function welfareFundReport(startDate, endDate, periodLabel) {
-  // Get welfare fund account
-  const welfareAccountRow = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
-  const welfareAccountId = welfareAccountRow ? welfareAccountRow.id : -1;
-
-  // Opening welfare liability (all welfare collected before period minus payouts before period)
-  const priorCollectedRow = await dal.queryOne(`
+  // Opening welfare balance: SUM of allocations to joint_welfare before period
+  // For receipts: positive allocations (collections)
+  // For welfare_payout: positive allocations but represent outflows (subtract)
+  const openingRow = await dal.queryOne(`
     SELECT COALESCE(SUM(
-      CASE WHEN welfare_component > 0 THEN welfare_component
-           WHEN account_id = $2 THEN amount
-           ELSE 0 END
-    ), 0) AS total FROM transactions
-    WHERE tx_type = 'receipt' AND status = 'posted' AND tx_date < $1
-      AND (welfare_component > 0 OR account_id = $2)
-  `, [startDate, welfareAccountId]);
-
-  const priorPaidOutRow = await dal.queryOne(`
-    SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
-    WHERE tx_type = 'welfare_payout' AND status = 'posted' AND tx_date < $1
-  `, [startDate]);
-
-  const openingLiability = Number(priorCollectedRow.total) - Number(priorPaidOutRow.total);
-
-  // Period welfare collections (welfare_component from splits + direct receipts into welfare account)
-  const collections = await dal.query(`
-    SELECT m.name AS member, COALESCE(SUM(
-      CASE WHEN t.welfare_component > 0 THEN t.welfare_component
-           WHEN t.account_id = $3 THEN t.amount
-           ELSE 0 END
+      CASE
+        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NULL THEN -ra.amount
+        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NOT NULL THEN ra.amount
+        ELSE ra.amount
+      END
     ), 0) AS total
-    FROM transactions t
-    LEFT JOIN members m ON m.id = t.member_id
-    WHERE t.tx_type = 'receipt' AND t.status = 'posted'
+    FROM receipt_allocations ra
+    JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted' AND t.tx_date < $1
+    JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'joint_welfare'
+  `, [startDate]);
+  const openingBalance = Number(openingRow.total);
+
+  // Period welfare collections: positive allocations to joint_welfare from receipts
+  const collections = await dal.query(`
+    SELECT m.name AS member, COALESCE(SUM(ra.amount), 0) AS total
+    FROM receipt_allocations ra
+    JOIN transactions t ON t.id = ra.transaction_id
+      AND t.status = 'posted'
+      AND t.tx_type = 'receipt'
+      AND t.reverses_transaction_id IS NULL
       AND t.tx_date >= $1 AND t.tx_date <= $2
-      AND (t.welfare_component > 0 OR t.account_id = $3)
+    JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'joint_welfare'
+    LEFT JOIN members m ON m.id = t.member_id
+    WHERE ra.amount > 0
     GROUP BY t.member_id, m.name
     ORDER BY m.name
-  `, [startDate, endDate, welfareAccountId]);
+  `, [startDate, endDate]);
 
-  // Period welfare payouts (only explicit welfare_payout type)
+  // Period welfare payouts (welfare_payout transactions allocated to joint_welfare, non-reversal)
   const payouts = await dal.query(`
-    SELECT t.tx_date, t.description, t.amount
-    FROM transactions t
-    WHERE t.tx_type = 'welfare_payout' AND t.status = 'posted'
+    SELECT t.tx_date, t.description, ra.amount
+    FROM receipt_allocations ra
+    JOIN transactions t ON t.id = ra.transaction_id
+      AND t.status = 'posted'
+      AND t.tx_type = 'welfare_payout'
+      AND t.reverses_transaction_id IS NULL
       AND t.tx_date >= $1 AND t.tx_date <= $2
+    JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'joint_welfare'
     ORDER BY t.tx_date
   `, [startDate, endDate]);
 
   const totalCollected = collections.reduce((s, r) => s + Number(r.total), 0);
   const totalPaidOut = payouts.reduce((s, r) => s + Number(r.amount), 0);
-  const closingLiability = openingLiability + totalCollected - totalPaidOut;
+  const closingBalance = openingBalance + totalCollected - totalPaidOut;
+
+  // Show where welfare money is physically held (cross-reference with physical accounts)
+  const physicalHoldings = await dal.query(`
+    SELECT a.name AS account_name, COALESCE(SUM(
+      CASE
+        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NULL THEN -ra.amount
+        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NOT NULL THEN ra.amount
+        ELSE ra.amount
+      END
+    ), 0) AS balance
+    FROM receipt_allocations ra
+    JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted' AND t.tx_date <= $1
+    JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'joint_welfare'
+    JOIN accounts a ON a.id = t.account_id
+    GROUP BY a.id, a.name
+    HAVING SUM(
+      CASE
+        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NULL THEN -ra.amount
+        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NOT NULL THEN ra.amount
+        ELSE ra.amount
+      END
+    ) != 0
+    ORDER BY a.name
+  `, [endDate]);
 
   const rows = [
-    ['KSJI WELFARE FUND STATEMENT'],
+    ['KSJI JOINT WELFARE FUND STATEMENT'],
     [`Period: ${periodLabel}`],
     [`Generated: ${new Date().toISOString().slice(0, 10)}`],
     [],
-    ['Opening Welfare Liability', '', fmt(openingLiability)],
+    ['Opening Welfare Balance', '', fmt(openingBalance)],
     [],
     ['WELFARE COLLECTIONS', 'Member', 'Amount (GHS)'],
   ];
 
-  collections.forEach(r => rows.push(['', r.member || 'Unknown', fmt(r.total)]));
+  collections.forEach(r => rows.push(['', r.member || 'Women\'s Section / Other', fmt(r.total)]));
   rows.push(['', 'Total Collections', fmt(totalCollected)]);
   rows.push([]);
   rows.push(['WELFARE PAYOUTS', 'Date', 'Description', 'Amount (GHS)']);
   payouts.forEach(r => rows.push(['', r.tx_date, r.description || '', fmt(r.amount)]));
   rows.push(['', '', 'Total Payouts', fmt(totalPaidOut)]);
   rows.push([]);
-  rows.push(['Closing Welfare Liability', '', fmt(closingLiability)]);
+  rows.push(['Closing Welfare Balance', '', fmt(closingBalance)]);
+  rows.push([]);
+  rows.push(['WHERE WELFARE MONEY IS HELD', 'Account', 'Amount (GHS)']);
+  physicalHoldings.forEach(r => rows.push(['', r.account_name, fmt(r.balance)]));
+  rows.push(['', 'Total Joint Welfare Held', fmt(closingBalance)]);
 
   return csvFromRows(rows);
 }
@@ -233,44 +266,13 @@ async function welfareFundReport(startDate, endDate, periodLabel) {
  * Shows assets (account balances) and liabilities (welfare fund).
  */
 async function financialPositionReport(asOfDate, periodLabel) {
-  const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
-
-  const balances = [];
-  for (const account of accounts) {
-    const incomingRow = await dal.queryOne(`
-      SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
-      WHERE ((tx_type = 'receipt' AND account_id = $1) OR (tx_type = 'transfer' AND to_account_id = $2))
-        AND status = 'posted' AND tx_date <= $3
-    `, [account.id, account.id, asOfDate]);
-
-    const outgoingRow = await dal.queryOne(`
-      SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
-      WHERE ((tx_type IN ('expense','welfare_payout') AND account_id = $1) OR (tx_type = 'transfer' AND account_id = $2))
-        AND status = 'posted' AND tx_date <= $3
-    `, [account.id, account.id, asOfDate]);
-
-    balances.push({
-      name: account.name,
-      type: account.type,
-      balance: Number(account.opening_balance) + Number(incomingRow.total) - Number(outgoingRow.total)
-    });
-  }
-
+  // Get physical account balances (already handles reversals correctly)
+  const balances = await accountBalances(asOfDate);
   const totalAssets = balances.reduce((s, b) => s + b.balance, 0);
 
-  // Welfare liability
-  const welfareCollectedRow = await dal.queryOne(`
-    SELECT COALESCE(SUM(welfare_component), 0) AS total FROM transactions
-    WHERE tx_type = 'receipt' AND status = 'posted' AND tx_date <= $1
-  `, [asOfDate]);
-
-  const welfarePaidRow = await dal.queryOne(`
-    SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
-    WHERE tx_type = 'welfare_payout' AND status = 'posted' AND tx_date <= $1
-  `, [asOfDate]);
-
-  const welfareLiability = Number(welfareCollectedRow.total) - Number(welfarePaidRow.total);
-  const netAssets = totalAssets - welfareLiability;
+  // Welfare liability from fund allocations
+  const welfareBalance = await welfareLiability(asOfDate);
+  const netAssets = totalAssets - welfareBalance;
 
   const rows = [
     ['KSJI STATEMENT OF FINANCIAL POSITION'],
@@ -284,10 +286,10 @@ async function financialPositionReport(asOfDate, periodLabel) {
   rows.push(['', 'TOTAL ASSETS', fmt(totalAssets)]);
   rows.push([]);
   rows.push(['LIABILITIES', '', 'Amount (GHS)']);
-  rows.push(['', 'Welfare Fund Payable', fmt(welfareLiability)]);
-  rows.push(['', 'TOTAL LIABILITIES', fmt(welfareLiability)]);
+  rows.push(['', 'Joint Welfare Funds Held', fmt(welfareBalance)]);
+  rows.push(['', 'TOTAL LIABILITIES', fmt(welfareBalance)]);
   rows.push([]);
-  rows.push(['NET ASSETS (Spendable Balance)', '', fmt(netAssets)]);
+  rows.push(['NET ASSETS (Men\'s Operating Funds)', '', fmt(netAssets)]);
 
   return csvFromRows(rows);
 }

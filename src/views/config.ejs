@@ -160,7 +160,7 @@
     <h2>Accounts</h2>
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Name</th><th>Type</th><th class="num">Opening balance</th><th>Status</th><th>Welfare fund</th></tr></thead>
+        <thead><tr><th>Name</th><th>Type</th><th class="num">Opening balance</th><th>Status</th></tr></thead>
         <tbody>
           <% accounts.forEach(function(account) { %>
             <tr>
@@ -168,7 +168,6 @@
               <td><%= account.type %></td>
               <td class="num"><%= formatMoney(account.opening_balance) %></td>
               <td><span class="badge <%= account.active ? 'badge--success' : 'badge--soft' %>"><%= account.active ? 'Active' : 'Inactive' %></span></td>
-              <td><%= account.is_welfare_fund ? '✓ Welfare fund' : '' %></td>
             </tr>
           <% }) %>
         </tbody>
@@ -197,13 +196,6 @@
             <label for="acc-active-<%= account.id %>" class="check">
               <input id="acc-active-<%= account.id %>" name="active" type="checkbox" value="1" <%= account.active ? 'checked' : '' %>> Active
             </label>
-          </div>
-
-          <div class="form-group">
-            <label for="acc-welfare-<%= account.id %>" class="check">
-              <input id="acc-welfare-<%= account.id %>" name="is_welfare_fund" type="checkbox" value="1" <%= account.is_welfare_fund ? 'checked' : '' %>> Designated welfare fund account
-            </label>
-            <span class="form-group__hint">When set, income receipts with a welfare component will automatically split — welfare portion goes into this account.</span>
           </div>
         </fieldset>
         <button class="btn btn--primary btn--sm" type="submit">Save <%= account.name %></button>

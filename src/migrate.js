@@ -224,6 +224,29 @@ async function migrate() {
   console.log('[migrate]   ✓ accounts');
 
   await run(`
+    CREATE TABLE IF NOT EXISTS fund_classifications (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(50) NOT NULL UNIQUE,
+      name VARCHAR(255) NOT NULL,
+      description TEXT,
+      is_default BOOLEAN NOT NULL DEFAULT false,
+      active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await run(`
+    INSERT INTO fund_classifications (code, name, is_default)
+    VALUES ('mens_operating', 'Men''s Operating Funds', true)
+    ON CONFLICT (code) DO NOTHING
+  `);
+  await run(`
+    INSERT INTO fund_classifications (code, name, is_default)
+    VALUES ('joint_welfare', 'Joint Welfare Funds Held', false)
+    ON CONFLICT (code) DO NOTHING
+  `);
+  console.log('[migrate]   ✓ fund_classifications');
+
+  await run(`
     CREATE TABLE IF NOT EXISTS fiscal_years (
       year INTEGER PRIMARY KEY,
       status VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
@@ -357,6 +380,21 @@ async function migrate() {
     )
   `);
   console.log('[migrate]   ✓ transactions');
+
+  await run(`
+    CREATE TABLE IF NOT EXISTS receipt_allocations (
+      id SERIAL PRIMARY KEY,
+      transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE RESTRICT,
+      fund_classification_id INTEGER NOT NULL REFERENCES fund_classifications(id) ON DELETE RESTRICT,
+      amount NUMERIC(12,2) NOT NULL,
+      category VARCHAR(255),
+      description TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_receipt_allocations_tx ON receipt_allocations(transaction_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_receipt_allocations_fund ON receipt_allocations(fund_classification_id)`);
+  console.log('[migrate]   ✓ receipt_allocations');
 
   await run(`
     CREATE TABLE IF NOT EXISTS reconciliations (
@@ -615,6 +653,221 @@ async function migrate() {
   await run(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS split_group_id INTEGER`);
   await run(`CREATE INDEX IF NOT EXISTS idx_transactions_split_group ON transactions(split_group_id) WHERE split_group_id IS NOT NULL`);
   console.log('[migrate]   ✓ transactions.split_group_id column');
+
+  // ─── Transaction reversal & lifecycle columns ───
+  // Expand status check to include 'draft'
+  await run(`ALTER TABLE transactions DROP CONSTRAINT IF EXISTS transactions_status_check`);
+  await run(`ALTER TABLE transactions ADD CONSTRAINT transactions_status_check CHECK (status IN ('draft', 'posted', 'reversed'))`);
+
+  // Reversal metadata columns
+  await run(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reversal_transaction_id INTEGER REFERENCES transactions(id)`);
+  await run(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reverses_transaction_id INTEGER REFERENCES transactions(id)`);
+  await run(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMP`);
+  await run(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reversed_by_user INTEGER REFERENCES users(id)`);
+  await run(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reversal_reason TEXT`);
+
+  // Ensure reversal is a one-to-one relationship
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_reversal_unique ON transactions(reverses_transaction_id) WHERE reverses_transaction_id IS NOT NULL`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_reversed_unique ON transactions(reversal_transaction_id) WHERE reversal_transaction_id IS NOT NULL`);
+  console.log('[migrate]   ✓ transactions reversal & lifecycle columns');
+
+  // ─── Migrate existing reversal metadata ───
+  // Move data from the old reversed_by column into the new reversal_transaction_id /
+  // reverses_transaction_id columns, and fix reversal entry status to 'posted'.
+  const migrationCheck = await run(`SELECT COUNT(*) AS cnt FROM transactions WHERE reversal_transaction_id IS NOT NULL`);
+  if (migrationCheck.rows[0].cnt === '0' || parseInt(migrationCheck.rows[0].cnt) === 0) {
+    // Only run if not already migrated
+    // Step 1: For each original tx (status='reversed', reversed_by IS NOT NULL),
+    // set reversal_transaction_id = reversed_by (pointing to the reversal entry)
+    await run(`
+      UPDATE transactions
+      SET reversal_transaction_id = reversed_by
+      WHERE status = 'reversed'
+        AND reversed_by IS NOT NULL
+        AND reversal_transaction_id IS NULL
+    `);
+
+    // Step 2: For each reversal entry (pointed to by an original's reversed_by),
+    // set reverses_transaction_id = original.id and status = 'posted'
+    // so reversals participate in balance calculations
+    await run(`
+      UPDATE transactions AS rev
+      SET reverses_transaction_id = orig.id,
+          status = 'posted'
+      FROM transactions AS orig
+      WHERE orig.status = 'reversed'
+        AND orig.reversed_by IS NOT NULL
+        AND orig.reversed_by = rev.id
+        AND rev.reverses_transaction_id IS NULL
+    `);
+
+    console.log('[migrate]   ✓ reversal metadata migrated');
+  } else {
+    console.log('[migrate]   ✓ reversal metadata already migrated (skipped)');
+  }
+
+  // ─── Backfill receipt_allocations for existing transactions ───
+  const allocCheck = await run(`SELECT COUNT(*) AS cnt FROM receipt_allocations`);
+  if (parseInt(allocCheck.rows[0].cnt) === 0) {
+    // Look up fund classification IDs by code
+    const opFundRow = await run(`SELECT id FROM fund_classifications WHERE code = 'mens_operating'`);
+    const wfFundRow = await run(`SELECT id FROM fund_classifications WHERE code = 'joint_welfare'`);
+    const operatingFundId = opFundRow.rows[0].id;
+    const welfareFundId = wfFundRow.rows[0].id;
+
+    // Identify the welfare account (used for split-pair detection)
+    const welfareAcctRow = await run(`SELECT id FROM accounts WHERE is_welfare_fund = true LIMIT 1`);
+    const welfareAcctId = welfareAcctRow.rows.length > 0 ? welfareAcctRow.rows[0].id : null;
+
+    // --- Split-pair receipts (same split_group_id) ---
+    if (welfareAcctId) {
+      const splitGroups = await run(`
+        SELECT DISTINCT split_group_id
+        FROM transactions
+        WHERE split_group_id IS NOT NULL
+          AND tx_type = 'receipt'
+          AND status = 'posted'
+      `);
+
+      for (const row of splitGroups.rows) {
+        const groupId = row.split_group_id;
+        const siblings = await run(
+          `SELECT * FROM transactions WHERE split_group_id = $1 AND tx_type = 'receipt' AND status = 'posted' ORDER BY id`,
+          [groupId]
+        );
+
+        if (siblings.rows.length < 2) continue;
+
+        // Determine which is operating leg and which is welfare leg
+        const welfareLeg = siblings.rows.find(r => parseInt(r.account_id) === parseInt(welfareAcctId));
+        const operatingLeg = siblings.rows.find(r => parseInt(r.account_id) !== parseInt(welfareAcctId));
+
+        if (!welfareLeg || !operatingLeg) continue;
+
+        const operatingAmount = parseFloat(operatingLeg.amount);
+        const welfareAmount = parseFloat(welfareLeg.amount);
+        const totalAmount = operatingAmount + welfareAmount;
+
+        // Update operating leg: set amount to total, welfare_component to welfare amount
+        await run(
+          `UPDATE transactions SET amount = $1, welfare_component = $2 WHERE id = $3`,
+          [totalAmount, welfareAmount, operatingLeg.id]
+        );
+
+        // Create allocations for the operating leg
+        await run(
+          `INSERT INTO receipt_allocations (transaction_id, fund_classification_id, amount) VALUES ($1, $2, $3)`,
+          [operatingLeg.id, operatingFundId, operatingAmount]
+        );
+        await run(
+          `INSERT INTO receipt_allocations (transaction_id, fund_classification_id, amount) VALUES ($1, $2, $3)`,
+          [operatingLeg.id, welfareFundId, welfareAmount]
+        );
+
+        // Mark welfare leg as superseded
+        await run(
+          `UPDATE transactions SET status = 'reversed', description = $1 WHERE id = $2`,
+          ['MIGRATED: merged into tx #' + operatingLeg.id, welfareLeg.id]
+        );
+      }
+    }
+
+    // --- Non-split receipts with welfare_component > 0 ---
+    const welfareReceipts = await run(`
+      SELECT id, amount, welfare_component
+      FROM transactions
+      WHERE tx_type = 'receipt'
+        AND status = 'posted'
+        AND (split_group_id IS NULL)
+        AND welfare_component > 0
+        AND id NOT IN (SELECT transaction_id FROM receipt_allocations)
+    `);
+    for (const tx of welfareReceipts.rows) {
+      const total = parseFloat(tx.amount);
+      const welfare = parseFloat(tx.welfare_component);
+      const operating = total - welfare;
+
+      await run(
+        `INSERT INTO receipt_allocations (transaction_id, fund_classification_id, amount) VALUES ($1, $2, $3)`,
+        [tx.id, operatingFundId, operating]
+      );
+      await run(
+        `INSERT INTO receipt_allocations (transaction_id, fund_classification_id, amount) VALUES ($1, $2, $3)`,
+        [tx.id, welfareFundId, welfare]
+      );
+    }
+
+    // --- Non-split receipts with no welfare component ---
+    const plainReceipts = await run(`
+      SELECT id, amount
+      FROM transactions
+      WHERE tx_type = 'receipt'
+        AND status = 'posted'
+        AND (split_group_id IS NULL)
+        AND (welfare_component = 0 OR welfare_component IS NULL)
+        AND id NOT IN (SELECT transaction_id FROM receipt_allocations)
+    `);
+    for (const tx of plainReceipts.rows) {
+      await run(
+        `INSERT INTO receipt_allocations (transaction_id, fund_classification_id, amount) VALUES ($1, $2, $3)`,
+        [tx.id, operatingFundId, parseFloat(tx.amount)]
+      );
+    }
+
+    // --- Expenses → mens_operating ---
+    const expenses = await run(`
+      SELECT id, amount
+      FROM transactions
+      WHERE tx_type = 'expense'
+        AND status = 'posted'
+        AND id NOT IN (SELECT transaction_id FROM receipt_allocations)
+    `);
+    for (const tx of expenses.rows) {
+      await run(
+        `INSERT INTO receipt_allocations (transaction_id, fund_classification_id, amount) VALUES ($1, $2, $3)`,
+        [tx.id, operatingFundId, parseFloat(tx.amount)]
+      );
+    }
+
+    // --- Welfare payouts → joint_welfare ---
+    const welfarePay = await run(`
+      SELECT id, amount
+      FROM transactions
+      WHERE tx_type = 'welfare_payout'
+        AND status = 'posted'
+        AND id NOT IN (SELECT transaction_id FROM receipt_allocations)
+    `);
+    for (const tx of welfarePay.rows) {
+      await run(
+        `INSERT INTO receipt_allocations (transaction_id, fund_classification_id, amount) VALUES ($1, $2, $3)`,
+        [tx.id, welfareFundId, parseFloat(tx.amount)]
+      );
+    }
+
+    console.log('[migrate]   ✓ receipt_allocations backfilled');
+  } else {
+    console.log('[migrate]   ✓ receipt_allocations already backfilled (skipped)');
+  }
+
+  // ─── Remove is_welfare_fund column and verify migration ───
+  await run(`ALTER TABLE accounts DROP COLUMN IF EXISTS is_welfare_fund`);
+
+  const verifyResult = await run(`
+    SELECT t.id, t.amount, COALESCE(SUM(ra.amount), 0) AS alloc_total
+    FROM transactions t
+    LEFT JOIN receipt_allocations ra ON ra.transaction_id = t.id
+    WHERE t.status = 'posted' AND t.tx_type IN ('receipt', 'expense', 'welfare_payout')
+    GROUP BY t.id, t.amount
+    HAVING ABS(t.amount - COALESCE(SUM(ra.amount), 0)) > 0.01
+  `);
+  if (verifyResult.rows.length > 0) {
+    console.warn('[migrate]   ⚠ Allocation mismatch found for transactions:', verifyResult.rows.map(r => r.id).join(', '));
+  } else {
+    console.log('[migrate]   ✓ receipt_allocations verification passed');
+  }
+
+  await run(`INSERT INTO audit_log (user_id, action, entity, entity_id, details) VALUES (NULL, 'migration', 'schema', NULL, 'Phase 1 accounting model corrections: fund_classifications created, receipt_allocations backfilled, is_welfare_fund removed')`);
+  console.log('[migrate]   ✓ is_welfare_fund column removed, migration verified');
 
   // ─── Organization settings ───
   await run(`

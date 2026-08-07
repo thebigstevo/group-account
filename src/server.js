@@ -29,7 +29,8 @@ const {
   reportSummary,
   periodComparison,
   auditCountSummary,
-  welfareLiability
+  welfareLiability,
+  computeFundBalances
 } = require('./services');
 const {
   exportTransactionsCsv,
@@ -62,6 +63,9 @@ const {
   memberStatementReport
 } = require('./downloadableReports');
 const pdf = require('./pdfReports');
+const { calculateAllocations } = require('./allocationService');
+const { createReversal } = require('./reversalService');
+const { validateTransactionEdit } = require('./transactionLifecycle');
 
 const app = express();
 const publicDirectory = path.join(__dirname, 'public');
@@ -387,7 +391,8 @@ app.get('/', requireLogin, asyncHandler(async (req, res) => {
     const arrearsCount = arrearsData.filter((row) => row.balance > 0).length;
     const lastRecRow = await dal.queryOne('SELECT MAX(period_end) AS date FROM reconciliations');
     const lastReconciliation = lastRecRow ? lastRecRow.date : null;
-    res.render('dashboard', { summary, monthSummary, dashboardMonth, recent, memberCount, unreconciledCount, arrearsCount, lastReconciliation });
+    const fundBalances = await computeFundBalances();
+    res.render('dashboard', { summary, monthSummary, dashboardMonth, recent, memberCount, unreconciledCount, arrearsCount, lastReconciliation, fundBalances });
   } catch (err) {
     console.error('Dashboard data load error:', err.message);
     res.render('dashboard', {
@@ -1292,22 +1297,15 @@ app.post('/config/accounts/:id', allow('admin', 'treasurer'), asyncHandler(async
     req.session.flash = { type: 'error', message: 'Account name and opening balance must be valid.' };
     return res.redirect('/config');
   }
-  const isWelfareFund = req.body.is_welfare_fund ? true : false;
-
-  // If marking this account as welfare fund, clear the flag from any other account first
-  if (isWelfareFund) {
-    await dal.run('UPDATE accounts SET is_welfare_fund = false WHERE is_welfare_fund = true AND id != $1', [Number(req.params.id)]);
-  }
 
   await dal.run(`
     UPDATE accounts
-    SET name = $1, opening_balance = $2, active = $3, is_welfare_fund = $4
-    WHERE id = $5
+    SET name = $1, opening_balance = $2, active = $3
+    WHERE id = $4
   `, [
     name,
     openingBalance,
     req.body.active ? true : false,
-    isWelfareFund,
     Number(req.params.id)
   ]);
   await dal.audit(req.session.user.id, 'update', 'account', Number(req.params.id), name);
@@ -2086,9 +2084,12 @@ app.post('/finance/batch-income', allow('admin', 'finance_secretary', 'treasurer
     return res.status(400).render('batch_income', { members, accounts, categories, errors: [yearError] });
   }
 
-  // Check for welfare account split
-  const welfareAccount = await dal.queryOne('SELECT id, name FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
-  const welfareCategory = await dal.queryOne("SELECT name FROM transaction_categories WHERE purpose = 'welfare_income' AND active = true LIMIT 1");
+  // Get fiscal year for allocation calculation
+  const activeYear = await dal.queryOne("SELECT year FROM fiscal_years WHERE is_active = true");
+  const year = activeYear ? activeYear.year : new Date().getFullYear();
+
+  // Look up welfare fund ID once for backward-compat welfare_component field
+  const welfareFund = await dal.queryOne("SELECT id FROM fund_classifications WHERE code = 'joint_welfare'");
 
   let totalAmount = 0;
   let count = 0;
@@ -2098,37 +2099,24 @@ app.post('/finance/batch-income', allow('admin', 'finance_secretary', 'treasurer
       const amount = Number(entry.amount);
       if (!Number.isFinite(amount) || amount <= 0) continue;
 
-      const welfare = await calculateWelfareComponent({
-        memberId: entry.member_id,
-        category: req.body.category,
-        amount,
-        txDate: req.body.tx_date,
-        enteredWelfare: null
-      });
+      const allocations = await calculateAllocations(amount, req.body.category, year, entry.member_id ? Number(entry.member_id) : null);
 
-      const shouldSplit = welfare > 0 && welfareAccount && welfareAccount.id !== Number(req.body.account_id);
+      // Calculate welfare_component from allocations (for backward compat)
+      const welfareAlloc = allocations.find(a => welfareFund && a.fund_classification_id === welfareFund.id);
+      const welfare = welfareAlloc ? welfareAlloc.amount : 0;
 
-      if (shouldSplit) {
-        const operatingAmount = amount - welfare;
-        const welfareCatName = welfareCategory ? welfareCategory.name : req.body.category;
+      const result = await client.query(`
+        INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, status, reference, created_by)
+        VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, 'posted', $8, $9)
+        RETURNING id
+      `, [req.body.tx_date, entry.member_id || null, Number(req.body.account_id), req.body.category, null, amount, welfare, req.body.reference || null, req.session.user.id]);
 
-        const opResult = await client.query(`
-          INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
-          VALUES ($1, 'receipt', $2, $3, $4, $5, $6, 0, $7, $8) RETURNING id
-        `, [req.body.tx_date, entry.member_id, Number(req.body.account_id), req.body.category, null, operatingAmount, req.body.reference || null, req.session.user.id]);
-
-        const wfResult = await client.query(`
-          INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
-          VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
-        `, [req.body.tx_date, entry.member_id, welfareAccount.id, welfareCatName, 'Welfare portion', welfare, welfare, req.body.reference || null, req.session.user.id]);
-
-        const groupId = opResult.rows[0].id;
-        await client.query('UPDATE transactions SET split_group_id = $1 WHERE id IN ($2, $3)', [groupId, opResult.rows[0].id, wfResult.rows[0].id]);
-      } else {
+      const txId = result.rows[0].id;
+      for (const alloc of allocations) {
         await client.query(`
-          INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
-          VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, $8, $9)
-        `, [req.body.tx_date, entry.member_id, Number(req.body.account_id), req.body.category, null, amount, welfare, req.body.reference || null, req.session.user.id]);
+          INSERT INTO receipt_allocations (transaction_id, fund_classification_id, amount, category)
+          VALUES ($1, $2, $3, $4)
+        `, [txId, alloc.fund_classification_id, alloc.amount, req.body.category]);
       }
 
       totalAmount += amount;
@@ -2149,10 +2137,8 @@ app.get('/finance/income', requireLogin, asyncHandler(async (req, res) => {
   const month = req.query.month || '';
   const category = req.query.category || '';
   const memberId = req.query.member_id || '';
-  const welfareAcct = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
-  const welfareAcctId = welfareAcct ? welfareAcct.id : -1;
-  const transactions = await financeTransactions('income', 500, year, month, category, memberId, welfareAcctId);
-  const categories = await dal.query("SELECT DISTINCT t.category FROM transactions t WHERE t.tx_type = 'receipt' AND t.tx_date >= $1 AND t.tx_date <= $2 AND (t.account_id != $3 OR t.account_id IS NULL) ORDER BY t.category", [`${year}-01-01`, `${year}-12-31`, welfareAcctId]);
+  const transactions = await financeTransactions('income', 500, year, month, category, memberId, null);
+  const categories = await dal.query("SELECT DISTINCT t.category FROM transactions t WHERE t.tx_type = 'receipt' AND t.tx_date >= $1 AND t.tx_date <= $2 ORDER BY t.category", [`${year}-01-01`, `${year}-12-31`]);
   const members = await dal.query("SELECT id, name FROM members ORDER BY name");
   res.render('finance_list', { kind: 'income', transactions, selectedMonth: month, selectedCategory: category, selectedMember: memberId, categories: categories.map(r => r.category), members, fiscalYear: year });
 }));
@@ -2172,31 +2158,37 @@ app.get('/finance/accounts', requireLogin, asyncHandler(async (req, res) => {
   res.render('finance_accounts', { balances: await accountBalances() });
 }));
 
+app.get('/finance/fund-balances', requireLogin, asyncHandler(async (req, res) => {
+  const balances = await accountBalances();
+  const fundBalances = await computeFundBalances();
+  const totalPhysical = balances.reduce((sum, a) => sum + a.balance, 0);
+  const welfareFund = fundBalances.joint_welfare || 0;
+  const operatingFund = fundBalances.mens_operating || 0;
+
+  res.render('fund_balances', { balances, fundBalances, totalPhysical, welfareFund, operatingFund });
+}));
+
 app.get('/finance/reconciliation', allow('admin', 'treasurer', 'auditor', 'viewer'), (req, res) => res.redirect('/reconciliation'));
 app.get('/finance/reports', requireLogin, (req, res) => res.redirect('/reports'));
 
 app.get('/finance/welfare', requireLogin, asyncHandler(async (req, res) => {
   const year = selectedYear(req);
-  const welfareAcct = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
-  const welfareAcctId = welfareAcct ? welfareAcct.id : -1;
 
-  // Per-member welfare contributions for the year
+  // Per-member welfare contributions for the year (using receipt_allocations with joint_welfare fund)
   const contributions = await dal.query(`
     SELECT m.id, m.name,
-      COALESCE(SUM(
-        CASE WHEN t.welfare_component > 0 THEN t.welfare_component
-             WHEN t.account_id = $3 THEN t.amount
-             ELSE 0 END
-      ), 0) AS welfare_paid
+      COALESCE(SUM(ra.amount), 0) AS welfare_paid
     FROM members m
     LEFT JOIN transactions t ON t.member_id = m.id
       AND t.tx_type = 'receipt' AND t.status = 'posted'
       AND t.tx_date >= $1 AND t.tx_date <= $2
-      AND (t.welfare_component > 0 OR t.account_id = $3)
+    LEFT JOIN receipt_allocations ra ON ra.transaction_id = t.id
+    LEFT JOIN fund_classifications fc ON fc.id = ra.fund_classification_id
+      AND fc.code = 'joint_welfare'
     WHERE m.status = 'active'
     GROUP BY m.id, m.name
     ORDER BY m.name
-  `, [`${year}-01-01`, `${year}-12-31`, welfareAcctId]);
+  `, [`${year}-01-01`, `${year}-12-31`]);
 
   const totalCollected = contributions.reduce((s, r) => s + Number(r.welfare_paid), 0);
 
@@ -2235,57 +2227,41 @@ app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer
     return res.status(400).render('finance_form', { ...(await financeFormData('income')), errors: ['Welfare component must be between zero and the total amount received.'], values: req.body });
   }
 
-  // Check if a designated welfare account exists for auto-splitting
-  const welfareAccount = await dal.queryOne('SELECT id, name FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
-  const shouldSplit = welfare > 0 && welfareAccount && welfareAccount.id !== Number(req.body.account_id);
+  // Get active fiscal year for allocation rule lookup
+  const activeYear = await dal.queryOne("SELECT year FROM fiscal_years WHERE is_active = true");
+  const year = activeYear ? activeYear.year : new Date().getFullYear();
 
-  if (shouldSplit) {
-    // Split into two transactions: operating portion → selected account, welfare portion → welfare account
-    const operatingAmount = amount - welfare;
-    const welfareCategory = await dal.queryOne("SELECT name FROM transaction_categories WHERE purpose = 'welfare_income' AND active = true LIMIT 1");
-    const welfareCatName = welfareCategory ? welfareCategory.name : receiptCategory.name;
+  // Calculate fund allocations (replaces split-pair logic)
+  const allocations = await calculateAllocations(amount, receiptCategory.name, year, req.body.member_id ? Number(req.body.member_id) : null);
 
-    await dal.transaction(async (client) => {
-      // Transaction 1: Operating portion into selected account
-      const opResult = await client.query(`
-        INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
-        VALUES ($1, 'receipt', $2, $3, $4, $5, $6, 0, $7, $8)
-        RETURNING id
-      `, [req.body.tx_date, req.body.member_id || null, Number(req.body.account_id), receiptCategory.name, req.body.description || null, operatingAmount, req.body.reference || null, req.session.user.id]);
-
-      // Transaction 2: Welfare portion into welfare account
-      const wfResult = await client.query(`
-        INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
-        VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING id
-      `, [req.body.tx_date, req.body.member_id || null, welfareAccount.id, welfareCatName, (req.body.description ? req.body.description + ' (welfare)' : 'Welfare portion'), welfare, welfare, req.body.reference || null, req.session.user.id]);
-
-      // Link them with a split_group_id (use the operating transaction's ID)
-      const groupId = opResult.rows[0].id;
-      await client.query('UPDATE transactions SET split_group_id = $1 WHERE id IN ($2, $3)', [groupId, opResult.rows[0].id, wfResult.rows[0].id]);
-
-      await dal.audit(req.session.user.id, 'create', 'receipt', opResult.rows[0].id, `${req.body.category} ${operatingAmount} (operating split)`);
-      await dal.audit(req.session.user.id, 'create', 'receipt', wfResult.rows[0].id, `${welfareCatName} ${welfare} (welfare split)`);
-    });
-
-    req.session.flash = { type: 'success', message: `Receipt split: ${operatingAmount.toFixed(2)} operating + ${welfare.toFixed(2)} welfare (→ ${welfareAccount.name}).` };
-  } else {
-    // Standard single transaction (no split)
-    const result = await dal.run(`
-      INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, reference, created_by)
-      VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, $8, $9)
+  // Create single transaction + receipt_allocations in one atomic operation
+  await dal.transaction(async (client) => {
+    const result = await client.query(`
+      INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, status, reference, created_by)
+      VALUES ($1, 'receipt', $2, $3, $4, $5, $6, $7, 'posted', $8, $9)
       RETURNING id
     `, [req.body.tx_date, req.body.member_id || null, Number(req.body.account_id), receiptCategory.name, req.body.description || null, amount, welfare, req.body.reference || null, req.session.user.id]);
-    await dal.audit(req.session.user.id, 'create', 'receipt', result.rows[0].id, `${req.body.category} ${amount}`);
-    req.session.flash = { type: 'success', message: 'Receipt saved successfully.' };
 
-    // Auto-send payment confirmation SMS
-    if (req.body.member_id) {
-      try {
-        const sms = require('./smsService');
-        await sms.sendPaymentConfirmation(Number(req.body.member_id), amount, req.body.category, req.session.user.id);
-      } catch (smsErr) { console.error('SMS payment notify error:', smsErr.message); }
+    const txId = result.rows[0].id;
+
+    for (const alloc of allocations) {
+      await client.query(`
+        INSERT INTO receipt_allocations (transaction_id, fund_classification_id, amount, category)
+        VALUES ($1, $2, $3, $4)
+      `, [txId, alloc.fund_classification_id, alloc.amount, receiptCategory.name]);
     }
+
+    await dal.audit(req.session.user.id, 'create', 'receipt', txId, `${receiptCategory.name} ${amount}`, { client });
+  });
+
+  req.session.flash = { type: 'success', message: 'Receipt saved successfully.' };
+
+  // Auto-send payment confirmation SMS
+  if (req.body.member_id) {
+    try {
+      const sms = require('./smsService');
+      await sms.sendPaymentConfirmation(Number(req.body.member_id), amount, req.body.category, req.session.user.id);
+    } catch (smsErr) { console.error('SMS payment notify error:', smsErr.message); }
   }
 
   res.redirect('/finance/income');
@@ -2342,7 +2318,7 @@ app.get('/transactions/:id/edit', allow('admin', 'finance_secretary', 'treasurer
   const txId = Number(req.params.id);
   const transaction = await dal.queryOne('SELECT * FROM transactions WHERE id = $1', [txId]);
   if (!transaction) return res.status(404).render('error', { message: 'Transaction not found.' });
-  if (transaction.status !== 'posted') return res.status(400).render('error', { message: 'Only posted transactions can be edited.' });
+  if (transaction.status === 'reversed') return res.status(400).render('error', { message: 'Reversed transactions cannot be edited.' });
   if (transaction.reconciled) return res.status(400).render('error', { message: 'Reconciled transactions cannot be edited. Use reversal instead.' });
 
   const isIncome = transaction.tx_type === 'receipt';
@@ -2350,119 +2326,68 @@ app.get('/transactions/:id/edit', allow('admin', 'finance_secretary', 'treasurer
   const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
   const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
   const categories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind IN ($1, 'both') ORDER BY sort_order, name", [kind]);
-  res.render('transaction_edit', { transaction, members, accounts, categories });
+
+  // If posted, inform user that financial fields are locked
+  const lockedMessage = transaction.status === 'posted'
+    ? 'This transaction is posted. Only description, reference, and reconciliation status can be edited. To correct financial details, reverse it and create a new transaction.'
+    : null;
+
+  res.render('transaction_edit', { transaction, members, accounts, categories, lockedMessage });
 }));
 
 app.post('/transactions/:id/edit', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
   const txId = Number(req.params.id);
   const transaction = await dal.queryOne('SELECT * FROM transactions WHERE id = $1', [txId]);
   if (!transaction) return res.status(404).render('error', { message: 'Transaction not found.' });
-  if (transaction.status !== 'posted') return res.status(400).render('error', { message: 'Only posted transactions can be edited.' });
-  if (transaction.reconciled) return res.status(400).render('error', { message: 'Reconciled transactions cannot be edited. Use reversal instead.' });
 
   const isIncome = transaction.tx_type === 'receipt';
   const kind = isIncome ? 'income' : 'expense';
-  const errors = [];
 
-  const amount = Number(req.body.amount || 0);
-  if (!Number.isFinite(amount) || amount <= 0) errors.push('Amount must be greater than zero.');
-  if (!req.body.tx_date) errors.push('Date is required.');
-  if (!req.body.category) errors.push('Category is required.');
-  if (!req.body.account_id) errors.push('Account is required.');
-
-  // Auto-calculate welfare if the field is empty (not manually overridden)
-  let welfare = 0;
-  if (isIncome) {
-    const welfareFieldValue = req.body.welfare_component;
-    const welfareManuallySet = welfareFieldValue !== undefined && welfareFieldValue !== null && String(welfareFieldValue).trim() !== '';
-    if (welfareManuallySet) {
-      welfare = Number(welfareFieldValue);
-    } else {
-      // Recalculate from rules
-      welfare = await calculateWelfareComponent({
-        memberId: req.body.member_id || null,
-        category: req.body.category,
-        amount,
-        txDate: req.body.tx_date,
-        enteredWelfare: null
-      });
-    }
+  // Build proposed changes object from the request body — only include fields that actually changed
+  const proposedChanges = {};
+  if (req.body.amount !== undefined && Number(req.body.amount) !== Number(transaction.amount)) proposedChanges.amount = Number(req.body.amount);
+  if (req.body.tx_date !== undefined && req.body.tx_date !== transaction.tx_date) proposedChanges.tx_date = req.body.tx_date;
+  if (req.body.member_id !== undefined) {
+    const newMemberId = req.body.member_id ? Number(req.body.member_id) : null;
+    if (newMemberId !== transaction.member_id) proposedChanges.member_id = newMemberId;
   }
-  if (isIncome && (welfare < 0 || welfare > amount)) errors.push('Welfare portion must be between 0 and the total amount.');
+  if (req.body.category !== undefined && req.body.category !== transaction.category) proposedChanges.category = req.body.category;
+  if (req.body.account_id !== undefined && Number(req.body.account_id) !== transaction.account_id) proposedChanges.account_id = Number(req.body.account_id);
+  if (req.body.welfare_component !== undefined && Number(req.body.welfare_component || 0) !== Number(transaction.welfare_component)) proposedChanges.welfare_component = Number(req.body.welfare_component || 0);
+  if (req.body.description !== undefined && (req.body.description || null) !== (transaction.description || null)) proposedChanges.description = req.body.description || null;
+  if (req.body.reference !== undefined && (req.body.reference || null) !== (transaction.reference || null)) proposedChanges.reference = req.body.reference || null;
 
-  if (errors.length) {
+  // Validate the edit against lifecycle rules
+  const validation = validateTransactionEdit(transaction, proposedChanges);
+  if (!validation.allowed) {
     const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
     const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
     const categories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind IN ($1, 'both') ORDER BY sort_order, name", [kind]);
-    return res.status(400).render('transaction_edit', { transaction, members, accounts, categories, errors, values: req.body });
+    return res.status(400).render('transaction_edit', { transaction, members, accounts, categories, errors: validation.errors, values: req.body });
   }
 
-  // Store before values for audit
-  const beforeValue = {
-    tx_date: transaction.tx_date, amount: transaction.amount, category: transaction.category,
-    account_id: transaction.account_id, member_id: transaction.member_id,
-    welfare_component: transaction.welfare_component, description: transaction.description, reference: transaction.reference
-  };
+  // Only apply allowed changes (metadata fields for posted transactions)
+  if (Object.keys(proposedChanges).length > 0) {
+    const setClauses = [];
+    const params = [];
+    let paramIndex = 1;
 
-  await dal.run(`
-    UPDATE transactions
-    SET tx_date = $1, amount = $2, category = $3, account_id = $4, member_id = $5,
-        welfare_component = $6, description = $7, reference = $8, updated_at = NOW()
-    WHERE id = $9
-  `, [
-    req.body.tx_date,
-    amount,
-    req.body.category,
-    Number(req.body.account_id),
-    req.body.member_id ? Number(req.body.member_id) : null,
-    welfare,
-    req.body.description || null,
-    req.body.reference || null,
-    txId
-  ]);
-
-  const afterValue = {
-    tx_date: req.body.tx_date, amount, category: req.body.category,
-    account_id: Number(req.body.account_id), member_id: req.body.member_id ? Number(req.body.member_id) : null,
-    welfare_component: welfare, description: req.body.description || null, reference: req.body.reference || null
-  };
-
-  await dal.audit(req.session.user.id, 'update', 'transaction', txId, `Edited: ${req.body.category} ${amount}`, {
-    ip_address: getClientIp(req), user_agent: req.get('user-agent'), before_value: beforeValue, after_value: afterValue
-  });
-
-  // If this transaction is part of a split pair, update the sibling automatically
-  if (isIncome && transaction.split_group_id) {
-    const sibling = await dal.queryOne(
-      'SELECT * FROM transactions WHERE split_group_id = $1 AND id != $2 AND status = $3',
-      [transaction.split_group_id, txId, 'posted']
-    );
-    if (sibling) {
-      // Determine which one is operating and which is welfare
-      const welfareAccount = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
-      const thisIsWelfare = welfareAccount && Number(transaction.account_id) === welfareAccount.id;
-      const siblingIsWelfare = welfareAccount && Number(sibling.account_id) === welfareAccount.id;
-
-      if (siblingIsWelfare) {
-        // We edited the operating part — recalculate welfare sibling
-        const newWelfare = await calculateWelfareComponent({
-          memberId: req.body.member_id || null,
-          category: req.body.category,
-          amount: amount + Number(sibling.amount), // total original receipt = operating + welfare
-          txDate: req.body.tx_date,
-          enteredWelfare: null
-        });
-        const totalReceipt = amount + newWelfare; // not used for update, just context
-        await dal.run('UPDATE transactions SET tx_date = $1, member_id = $2, amount = $3, welfare_component = $3, description = $4, reference = $5, updated_at = NOW() WHERE id = $6',
-          [req.body.tx_date, req.body.member_id || null, newWelfare, req.body.description ? req.body.description + ' (welfare)' : sibling.description, req.body.reference || null, sibling.id]);
-        await dal.audit(req.session.user.id, 'update', 'transaction', sibling.id, `Auto-updated welfare sibling: ${newWelfare}`);
-      } else if (thisIsWelfare) {
-        // We edited the welfare part — update the operating sibling's date/member/reference
-        await dal.run('UPDATE transactions SET tx_date = $1, member_id = $2, reference = $3, updated_at = NOW() WHERE id = $4',
-          [req.body.tx_date, req.body.member_id || null, req.body.reference || null, sibling.id]);
-        await dal.audit(req.session.user.id, 'update', 'transaction', sibling.id, `Auto-updated operating sibling metadata`);
-      }
+    for (const [field, value] of Object.entries(proposedChanges)) {
+      setClauses.push(`${field} = $${paramIndex}`);
+      params.push(value);
+      paramIndex++;
     }
+    setClauses.push(`updated_at = NOW()`);
+    params.push(txId);
+
+    await dal.run(
+      `UPDATE transactions SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
+      params
+    );
+
+    await dal.audit(req.session.user.id, 'update', 'transaction', txId, `Edited metadata: ${Object.keys(proposedChanges).join(', ')}`, {
+      ip_address: getClientIp(req), user_agent: req.get('user-agent')
+    });
   }
 
   req.session.flash = { type: 'success', message: 'Transaction updated successfully.' };
@@ -2517,32 +2442,25 @@ app.post('/transactions/:id/attachments/:attId/delete', allow('admin', 'treasure
 app.post('/transactions/:id/reverse', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
   const txId = Number(req.params.id);
   const original = await dal.queryOne('SELECT * FROM transactions WHERE id = $1', [txId]);
-  if (!original || original.status !== 'posted') {
+  if (!original) {
+    return res.status(404).render('error', { message: 'Transaction not found.' });
+  }
+  if (original.status !== 'posted') {
     return res.status(400).render('error', { message: 'Cannot reverse a transaction that is not posted.' });
   }
+  if (original.reversal_transaction_id) {
+    return res.status(400).render('error', { message: 'This transaction has already been reversed.' });
+  }
+
+  const reason = (req.body.reason || req.body.reversal_reason || '').trim();
+  if (!reason) {
+    return res.status(400).render('error', { message: 'A reason is required for all reversals.' });
+  }
+
   const reversalYearError = await transactionYearError(req, original.tx_date);
   if (reversalYearError) return res.status(400).render('error', { message: reversalYearError });
 
-  const reversalResult = await dal.run(`
-    INSERT INTO transactions (tx_date, tx_type, member_id, account_id, to_account_id, category, description, amount, welfare_component, status, reversed_by, created_by)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'reversed', $10, $11)
-    RETURNING id
-  `, [
-    original.tx_date,
-    original.tx_type,
-    original.member_id,
-    original.account_id,
-    original.to_account_id,
-    original.category,
-    `REVERSAL: ${original.description || ''}`,
-    original.amount,
-    original.welfare_component,
-    txId,
-    req.session.user.id
-  ]);
-
-  await dal.run('UPDATE transactions SET status = $1, reversed_by = $2 WHERE id = $3', ['reversed', reversalResult.rows[0].id, txId]);
-  await dal.audit(req.session.user.id, 'reverse', 'transaction', txId, `Reversed by transaction ${reversalResult.rows[0].id}`);
+  const { reversalId } = await createReversal(original, reason, req.session.user.id);
   req.session.flash = { type: 'success', message: 'Transaction reversed successfully.' };
   res.redirect(original.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses');
 }));

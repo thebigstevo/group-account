@@ -1,0 +1,83 @@
+<%- include('partials/header') %>
+<% locals.title = 'Fund Balances'; %>
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <span class="eyebrow">Finance</span>
+      <h1>Fund Balances</h1>
+      <p>Physical account balances and fund ownership breakdown.</p>
+    </div>
+  </section>
+  <%- include('partials/finance-nav') %>
+
+  <!-- Physical Accounts Section -->
+  <section class="panel" style="margin-bottom:var(--space-6)">
+    <div class="section-head">
+      <div>
+        <h2>Physical Account Balances</h2>
+        <p>Where cash is actually held.</p>
+      </div>
+    </div>
+    <div class="account-list">
+      <% balances.forEach(function(account) { %>
+      <div class="account-row">
+        <span class="account-row__name"><%= account.name %> <small><%= String(account.type || '').replace('_',' ') %></small></span>
+        <strong class="account-row__value"><%= formatMoney(account.balance) %></strong>
+      </div>
+      <% }) %>
+      <div class="account-row" style="border-top:2px solid var(--border-color);padding-top:var(--space-3);margin-top:var(--space-2)">
+        <span class="account-row__name"><strong>Total Cash &amp; Bank</strong></span>
+        <strong class="account-row__value"><%= formatMoney(totalPhysical) %></strong>
+      </div>
+    </div>
+  </section>
+
+  <!-- Fund Ownership Section -->
+  <section class="panel" style="margin-bottom:var(--space-6)">
+    <div class="section-head">
+      <div>
+        <h2>Fund Ownership Breakdown</h2>
+        <p>How the physical balances are allocated across funds.</p>
+      </div>
+    </div>
+    <div class="account-list">
+      <div class="account-row">
+        <span class="account-row__name">Men's Operating Funds</span>
+        <strong class="account-row__value"><%= formatMoney(operatingFund) %></strong>
+      </div>
+      <div class="account-row">
+        <span class="account-row__name">Joint Welfare Funds Held</span>
+        <strong class="account-row__value"><%= formatMoney(welfareFund) %></strong>
+      </div>
+      <div class="account-row" style="border-top:2px solid var(--border-color);padding-top:var(--space-3);margin-top:var(--space-2)">
+        <span class="account-row__name"><strong>Total Fund Balances</strong></span>
+        <strong class="account-row__value"><%= formatMoney(operatingFund + welfareFund) %></strong>
+      </div>
+    </div>
+  </section>
+
+  <!-- Available Funds Calculation -->
+  <section class="panel">
+    <div class="section-head">
+      <div>
+        <h2>Available Funds</h2>
+        <p>Men's operating funds available after deducting welfare held in custody.</p>
+      </div>
+    </div>
+    <div class="account-list">
+      <div class="account-row">
+        <span class="account-row__name">Total Cash &amp; Bank</span>
+        <strong class="account-row__value"><%= formatMoney(totalPhysical) %></strong>
+      </div>
+      <div class="account-row">
+        <span class="account-row__name">Less: Joint Welfare held</span>
+        <strong class="account-row__value" style="color:var(--color-danger,#dc3545)">(<%= formatMoney(welfareFund) %>)</strong>
+      </div>
+      <div class="account-row" style="border-top:2px solid var(--border-color);padding-top:var(--space-3);margin-top:var(--space-2)">
+        <span class="account-row__name"><strong>Men's Available Funds</strong></span>
+        <strong class="account-row__value" style="color:var(--color-success,#28a745)"><%= formatMoney(totalPhysical - welfareFund) %></strong>
+      </div>
+    </div>
+  </section>
+</div>
+<%- include('partials/footer') %>
