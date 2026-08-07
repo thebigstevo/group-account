@@ -3569,16 +3569,29 @@ app.get('/download/financial-position', requireLogin, asyncHandler(async (req, r
 
       const doc = pdf.createDoc({ title: 'Statement of Financial Position', period: `As at ${label}`, groupName: config.groupName, org: res.locals.org });
 
-      pdf.sectionHeading(doc, 'Assets');
-      balances.forEach(a => pdf.tableRow(doc, `${a.name} (${a.type})`, pdf.fmtMoney(a.balance), { indent: 10 }));
-      pdf.tableRow(doc, 'Total Assets', pdf.fmtMoney(totalAssets), { bold: true, total: true });
+      // Split accounts into operational and welfare
+      const operationalAccounts = balances.filter(a => !a.is_welfare_fund);
+      const welfareAccounts = balances.filter(a => a.is_welfare_fund);
+      const operationalTotal = operationalAccounts.reduce((s, a) => s + a.balance, 0);
+      const welfareTotal = welfareAccounts.reduce((s, a) => s + a.balance, 0);
 
-      pdf.sectionHeading(doc, 'Liabilities');
-      pdf.tableRow(doc, 'Welfare Fund Payable', pdf.fmtMoney(welfare), { indent: 10 });
-      pdf.tableRow(doc, 'Total Liabilities', pdf.fmtMoney(welfare), { bold: true, total: true });
-
+      pdf.sectionHeading(doc, 'Operational Funds');
+      operationalAccounts.forEach(a => pdf.tableRow(doc, a.name, pdf.fmtMoney(a.balance), { indent: 15 }));
+      pdf.subtotalLine(doc);
+      pdf.tableRow(doc, 'Subtotal (available for operations)', pdf.fmtMoney(operationalTotal), { bold: true });
       doc.moveDown(0.8);
-      pdf.tableRow(doc, 'Net Assets', pdf.fmtMoney(netAssets), { bold: true, total: true });
+
+      pdf.sectionHeading(doc, 'Welfare Fund (restricted)');
+      welfareAccounts.forEach(a => pdf.tableRow(doc, a.name, pdf.fmtMoney(a.balance), { indent: 15 }));
+      if (!welfareAccounts.length) pdf.tableRow(doc, 'No welfare fund account', 'GHS 0.00', { indent: 15 });
+      pdf.subtotalLine(doc);
+      pdf.tableRow(doc, 'Welfare Fund Balance', pdf.fmtMoney(welfareTotal), { bold: true });
+      doc.moveDown(1.0);
+
+      pdf.grandTotalLine(doc);
+      pdf.tableRow(doc, 'TOTAL CASH HELD', pdf.fmtMoney(totalAssets), { bold: true });
+      pdf.grandTotalLine(doc);
+
       pdf.signatureBlock(doc, res.locals.org);
       pdf.sendPdf(res, doc, `Financial-Position-${asOfDate}.pdf`);
     } else {
