@@ -2175,6 +2175,34 @@ app.get('/finance/accounts', requireLogin, asyncHandler(async (req, res) => {
 app.get('/finance/reconciliation', allow('admin', 'treasurer', 'auditor', 'viewer'), (req, res) => res.redirect('/reconciliation'));
 app.get('/finance/reports', requireLogin, (req, res) => res.redirect('/reports'));
 
+app.get('/finance/welfare', requireLogin, asyncHandler(async (req, res) => {
+  const year = selectedYear(req);
+  const welfareAcct = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
+  const welfareAcctId = welfareAcct ? welfareAcct.id : -1;
+
+  // Per-member welfare contributions for the year
+  const contributions = await dal.query(`
+    SELECT m.id, m.name,
+      COALESCE(SUM(
+        CASE WHEN t.welfare_component > 0 THEN t.welfare_component
+             WHEN t.account_id = $3 THEN t.amount
+             ELSE 0 END
+      ), 0) AS welfare_paid
+    FROM members m
+    LEFT JOIN transactions t ON t.member_id = m.id
+      AND t.tx_type = 'receipt' AND t.status = 'posted'
+      AND t.tx_date >= $1 AND t.tx_date <= $2
+      AND (t.welfare_component > 0 OR t.account_id = $3)
+    WHERE m.status = 'active'
+    GROUP BY m.id, m.name
+    ORDER BY m.name
+  `, [`${year}-01-01`, `${year}-12-31`, welfareAcctId]);
+
+  const totalCollected = contributions.reduce((s, r) => s + Number(r.welfare_paid), 0);
+
+  res.render('finance_welfare', { contributions, year, totalCollected });
+}));
+
 app.get('/transactions', requireLogin, (req, res) => {
   res.redirect('/finance');
 });

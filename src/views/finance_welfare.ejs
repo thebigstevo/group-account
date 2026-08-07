@@ -1,0 +1,55 @@
+<%- include('partials/header') %>
+<% locals.title = 'Welfare Contributions' %>
+
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <span class="eyebrow">Finance · FY <%= year %></span>
+      <h1>Welfare Contributions</h1>
+      <p>Individual welfare payments by each member for the fiscal year.</p>
+    </div>
+  </section>
+  <%- include('partials/finance-nav') %>
+
+  <section class="panel">
+    <div class="table-toolbar">
+      <div>
+        <h2>Member Welfare Payments</h2>
+        <p><%= contributions.length %> active members. Total collected: <strong><%= formatMoney(totalCollected) %></strong></p>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table" data-datatable>
+        <thead>
+          <tr>
+            <th data-sortable="name">Member</th>
+            <th class="num" data-sortable="amount">Welfare Paid</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% contributions.forEach(function(row) { %>
+          <tr>
+            <td><a href="/members/<%= row.id %>"><%= row.name %></a></td>
+            <td class="num" data-sort-value="<%= row.welfare_paid %>">
+              <% if (Number(row.welfare_paid) > 0) { %>
+              <strong style="color: var(--success-base);"><%= formatMoney(row.welfare_paid) %></strong>
+              <% } else { %>
+              <span style="color: var(--neutral-400);">GHS 0.00</span>
+              <% } %>
+            </td>
+          </tr>
+          <% }) %>
+        </tbody>
+        <tfoot>
+          <tr class="data-table__total-row">
+            <td><strong>Total</strong></td>
+            <td class="num"><strong><%= formatMoney(totalCollected) %></strong></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+</div>
+
+<%- include('partials/footer') %>
