@@ -1979,7 +1979,7 @@ async function financeFormData(kind) {
   return { members, accounts, categories, kind };
 }
 
-async function financeTransactions(kind, limit = 100, year = null, month = '', category = '', memberId = '') {
+async function financeTransactions(kind, limit = 100, year = null, month = '', category = '', memberId = '', excludeAccountId = null) {
   const types = kind === 'income' ? ['receipt'] : ['expense', 'welfare_payout'];
   let query = `
     SELECT t.*, m.name AS member_name, a.name AS account_name, u.name AS recorded_by
@@ -1991,6 +1991,12 @@ async function financeTransactions(kind, limit = 100, year = null, month = '', c
   `;
   const params = [types];
   let paramIdx = 2;
+
+  if (excludeAccountId) {
+    query += ` AND (t.account_id != $${paramIdx} OR t.account_id IS NULL)`;
+    params.push(excludeAccountId);
+    paramIdx += 1;
+  }
 
   if (year) {
     query += ` AND t.tx_date >= $${paramIdx} AND t.tx_date <= $${paramIdx + 1}`;
@@ -2143,8 +2149,10 @@ app.get('/finance/income', requireLogin, asyncHandler(async (req, res) => {
   const month = req.query.month || '';
   const category = req.query.category || '';
   const memberId = req.query.member_id || '';
-  const transactions = await financeTransactions('income', 500, year, month, category, memberId);
-  const categories = await dal.query("SELECT DISTINCT category FROM transactions WHERE tx_type = 'receipt' AND tx_date >= $1 AND tx_date <= $2 ORDER BY category", [`${year}-01-01`, `${year}-12-31`]);
+  const welfareAcct = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
+  const welfareAcctId = welfareAcct ? welfareAcct.id : -1;
+  const transactions = await financeTransactions('income', 500, year, month, category, memberId, welfareAcctId);
+  const categories = await dal.query("SELECT DISTINCT t.category FROM transactions t WHERE t.tx_type = 'receipt' AND t.tx_date >= $1 AND t.tx_date <= $2 AND (t.account_id != $3 OR t.account_id IS NULL) ORDER BY t.category", [`${year}-01-01`, `${year}-12-31`, welfareAcctId]);
   const members = await dal.query("SELECT id, name FROM members ORDER BY name");
   res.render('finance_list', { kind: 'income', transactions, selectedMonth: month, selectedCategory: category, selectedMember: memberId, categories: categories.map(r => r.category), members, fiscalYear: year });
 }));
