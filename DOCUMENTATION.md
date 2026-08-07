@@ -360,3 +360,242 @@ src/
 - `commanderies` — commandery identity
 - `rank_definitions` — configurable ranks
 - `position_definitions` — configurable positions
+
+
+---
+
+## 16. Nuances & Edge Cases
+
+### Financial Calculations
+
+**Why "Income this year" differs from "Total on income page":**
+- The income page shows the raw `SUM(amount)` of posted operational receipts (excluding welfare fund account). This is what members actually handed over.
+- The "Income this year" on the overview uses `SUM(amount - welfare_component)` which deducts welfare portions embedded in split transactions. This is the operational income figure that matches the I&E report.
+- Both exclude receipts deposited directly into the welfare fund account.
+- **Rule of thumb:** If a number appears on a formal report (I&E, Financial Position), the dashboard matches that report.
+
+**Welfare component vs welfare fund account:**
+- `welfare_component` is a field on each transaction that records how much of that receipt was earmarked for welfare (via the auto-split mechanism).
+- The Welfare Fund account (id 4, `is_welfare_fund = true`) is the physical bank/cash account where welfare money lives.
+- A receipt can have `welfare_component > 0` AND be in a regular account (if the split creates two transactions: one operating portion to Cash, one welfare portion to Welfare Fund).
+- A receipt can be in the welfare fund account with `welfare_component = 0` (a direct deposit without using the split mechanism, like lump-sum welfare payments from external sources).
+- Both paths contribute to the welfare fund balance. The system queries both conditions when calculating welfare collections.
+
+**Split transactions (split_group_id):**
+- When a receipt auto-splits, two transaction rows are created and linked via `split_group_id`.
+- Row 1: Operating portion → regular account, `welfare_component = 0`
+- Row 2: Welfare portion → welfare fund account, `welfare_component = full amount`
+- The split_group_id equals the ID of the first row, linking them as a pair.
+- Editing one split half recalculates the other.
+
+**Opening arrears carry-forward:**
+- Each member has an `opening_arrears` field representing debt carried from before the system was deployed.
+- When viewing a member's balance: `opening_arrears + assessment_due - assessment_paid = outstanding balance`
+- This is a static value set during member import or manual entry — it doesn't auto-update at year-end (year-end carry-forward is not yet implemented).
+
+### Member Assessments
+
+**How dues are calculated:**
+1. System looks at `dues_rules` for the active fiscal year.
+2. If the member has an override in `member_dues`, that takes precedence.
+3. Otherwise, the member's age (based on DOB vs current year) is matched against age band rules.
+4. The matching rule provides `annual_assessment` (total owed) and `welfare_portion` (what split goes to welfare).
+5. If no rule matches (no DOB, no override), assessment due is 0.
+
+**Batch entry behavior:**
+- All entries share the same date, category, and receiving account.
+- Each member gets their own individual transaction record.
+- The welfare split runs independently per member (in case different members have different split rules).
+- Members with blank or zero amounts are silently skipped — no error.
+
+**Assessment vs other income categories:**
+- Categories have a `purpose` field: `assessment`, `welfare_income`, `welfare_payout`, or `standard`.
+- Only receipts with `purpose = 'assessment'` count toward a member's assessment balance.
+- Other receipts (donations, initiation fees, levies) are tracked but don't reduce the member's "owing" amount.
+- The member statement distinguishes: "Assessment payments" vs "Other payments (not against assessment)".
+
+### Transaction Lifecycle
+
+**Recording → Posting → Reversal:**
+- Transactions are created with `status = 'posted'` immediately (there's no pending/confirmation workflow in the current implementation).
+- To undo a transaction, you "reverse" it — this sets `status = 'reversed'` on the original and creates a new offsetting record.
+- Reversed transactions remain in the database forever — they're excluded from all calculations by `WHERE status = 'posted'`.
+- The income/expense pages show reversed transactions with a "Reversed" badge so you can see the history.
+
+**Edit vs Reverse:**
+- Editing a posted transaction updates it in-place (date, amount, member, category, reference).
+- If the transaction was split (welfare auto-split), editing one half recalculates the other.
+- Reversing creates a permanent record that the original was voided — useful for audit trail when the original was wrong and shouldn't have existed.
+
+**Fiscal year enforcement:**
+- The system validates that any transaction date falls within the active fiscal year's range.
+- The `<input type="date">` field has `min` and `max` attributes constraining to the year.
+- Server-side validation rejects dates outside the range even if the browser constraints are bypassed.
+- If no fiscal year is active, non-admin users see a "setup required" page and cannot access the system.
+
+### Reconciliation
+
+**How reconciliation works:**
+- Treasurer enters the statement balance from the bank for a period.
+- System calculates what the balance should be based on recorded transactions.
+- If they match: transactions in that period are marked `reconciled = true`.
+- If they don't match: a difference is recorded but transactions remain unreconciled.
+- The dashboard shows "Unreconciled items" count as a work item.
+
+### Account Balances
+
+**Balance calculation formula:**
+```
+Account balance = opening_balance
+  + SUM(receipts into this account)
+  + SUM(transfers into this account)
+  - SUM(expenses from this account)
+  - SUM(welfare_payouts from this account)
+  - SUM(transfers out of this account)
+```
+All filtered by `status = 'posted'`.
+
+**Welfare Fund account balance** includes:
+- Direct deposits (someone pays welfare directly)
+- Welfare split portions (auto-split from assessments)
+- Minus any welfare payouts made from this account
+
+### Event Attendance Scoring
+
+**Calculation:** `(events attended as 'present') / (total events where attendance was marked for that member) × 100`
+
+- If attendance hasn't been marked for an event, that event doesn't count against anyone.
+- Only active members are scored.
+- Score is year-based — reset implicitly each year as new events are created.
+- Color coding: ≥75% green, ≥50% amber, <50% red.
+
+### SMS Delivery
+
+**Phone normalization rules:**
+- `0244123456` → `233244123456` (strip leading 0, prepend 233)
+- `+233244123456` → `233244123456` (strip +)
+- `233244123456` → `233244123456` (already correct)
+- `244123456` → `233244123456` (prepend 233 for 9-digit numbers)
+
+**Error codes from mNotify:**
+- `1000` = success (legacy API)
+- `2000` = success (v2 API)
+- `1004` = invalid API key
+- `1003` = insufficient balance
+- `1005` = invalid phone number
+
+**SMS is fire-and-forget for payment confirmations:** If SMS delivery fails, the payment still records successfully. SMS errors are logged but don't block the financial operation.
+
+---
+
+## 17. Design Philosophy & Trade-offs
+
+### Why Server-Side Rendering (not SPA)
+- **Target users** are treasurers and secretaries on mobile phones with variable connectivity.
+- SSR pages load fast on slow networks — no large JS bundle to download.
+- No API versioning headaches — the view and data are always in sync.
+- Simpler deployment — one container, one process.
+- Trade-off: No real-time updates, full page reload on actions.
+
+### Why PostgreSQL (not SQLite/MySQL)
+- Needed transactional integrity for financial operations.
+- Advisory locks for migration safety.
+- Array types for flexible queries.
+- `ON CONFLICT` for upserts (member dues overrides, event types).
+- Strong type system with CHECK constraints.
+
+### Why No Client-Side Framework
+- Helmet CSP blocks inline scripts — rules out most JS frameworks that inject inline handlers.
+- EJS is simple, fast, and the templates are readable by anyone.
+- The `app.js` file handles progressive enhancement: sorting, pagination, modals, toasts.
+- Trade-off: More complex UI patterns (drag-drop, real-time) aren't feasible without relaxing CSP.
+
+### Why Welfare is Separated from Income
+- KSJI welfare is a trust fund — money collected from members for their collective benefit.
+- If the commandery reports welfare as income, the financial position looks inflated.
+- The Grand Commandery requires separate welfare reporting.
+- By separating it at the data level (not just the report level), it's impossible to accidentally spend welfare money on operations without creating a visible withdrawal from the welfare account.
+
+### Why No Pending/Approval Workflow for Transactions
+- In practice, the treasurer records payments at the time of collection. There's no separate verification step.
+- Adding a pending state would double the work without adding value for a small commandery.
+- The audit trail (who recorded it, when) serves as accountability.
+- If a mistake is made, the reversal mechanism provides correction without destroying history.
+
+### Why Minutes Were Removed from the System
+- Attempted implementation showed that the formatting requirements were too specific to automate well.
+- Minutes involve narrative text, lettered sub-sections, and organizational conventions that don't map cleanly to form fields.
+- The secretary is faster writing in Google Docs and pasting a link.
+- The system's value add is in attendance tracking and scoring — not document authoring.
+
+### Why Event Types Are Configurable (not hardcoded)
+- Different commanderies have different activities.
+- The initial hardcoded list (meeting, offertory, convention, social, funeral, community_service, other) was a starting point.
+- Admin can add types like "Drill Competition", "Parish Harvest", "Degree Conferral" without code changes.
+- Soft-delete (deactivate) ensures historical events with that type aren't broken.
+
+### Why SMS Config is in the Database (not env vars)
+- The treasurer changes every 1-2 years. New treasurer needs to update the API key.
+- Env vars require server access or a code deployment.
+- Database config means the admin updates it via the Organization Settings UI — no technical skills needed.
+- Trade-off: API key is stored in the database (encrypted at rest by PostgreSQL, but visible to anyone with DB access). Acceptable for this use case.
+
+---
+
+## 18. Known Limitations & Future Considerations
+
+### Current Limitations
+1. **No mobile app** — web only, though responsive design works on phones.
+2. **No offline mode** — requires internet connectivity.
+3. **Single commandery per deployment** — multi-commandery would need schema changes.
+4. **No automated SMS reminders** — event reminders and assessment reminders are manual button clicks, not scheduled.
+5. **No payment gateway** — all payments are recorded manually by the treasurer after physical collection.
+6. **No receipt printing from app** — receipts are implied by the transaction record and member statement PDF.
+7. **Year-end carry-forward is manual** — closing a fiscal year doesn't auto-create opening balances for the next year.
+8. **SMS provider is Ghana-specific (mNotify)** — would need abstraction for other countries.
+
+### Potential Future Features
+- Scheduled SMS reminders (cron job sending reminders X days before events)
+- Google Calendar API sync (read/write events)
+- Member self-service portal (view own statement, update contact info)
+- Online payments (Paystack/MTN MoMo integration)
+- Year-end close wizard (auto carry-forward balances)
+- Multi-commandery support (shared database, tenant isolation)
+- Budget vs actual variance alerts
+- Export to Excel (currently CSV only)
+
+---
+
+## 19. Operational Procedures
+
+### Monthly Treasurer Workflow
+1. Collect payments at meeting
+2. Go to **Income → Batch Entry** → enter all amounts → submit
+3. Record any expenses (transport, offertory, etc.) via **Expenses → Record Expense**
+4. Check the **Dashboard** — verify totals look reasonable
+5. Send assessment reminders to members with arrears: **SMS → Send Assessment Reminders**
+
+### Monthly Secretary Workflow
+1. Before meeting: Create event in **Events → New Event**
+2. Send reminder: Open event → **Send SMS Reminder**
+3. At meeting: Mark attendance → **Mark Attendance**
+4. After meeting: Write minutes in Google Docs, paste link in event edit
+
+### Year-End Workflow
+1. Ensure all transactions for the year are entered
+2. Run reconciliation for each account
+3. Download all reports (I&E, Receipts & Payments, Welfare Fund, Financial Position)
+4. Complete trustee audit review
+5. Close the fiscal year in **Fiscal Years**
+6. Open the new fiscal year
+7. Set new dues rules for the incoming year
+
+### New Member Onboarding
+1. **Members → Add Member** — enter all details
+2. Set opening arrears if they owe from a previous period
+3. Their assessment is auto-calculated based on age and dues rules
+4. They appear in batch entry and welfare tracking immediately
+
+### Data Backup
+- Admin can download a full database backup via **Admin → Download Backup**
+- The VPS also has automated daily backups via cron (configured in deploy scripts)
