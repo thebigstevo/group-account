@@ -4,7 +4,9 @@
   const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const filterMonth = locals.selectedMonth || '';
   const filterCategory = locals.selectedCategory || '';
+  const filterMember = locals.selectedMember || '';
   const filterCategories = locals.categories || [];
+  const filterMembers = locals.members || [];
   const fyear = locals.fiscalYear || new Date().getFullYear();
 %>
 <div class="page-container">
@@ -16,7 +18,7 @@
 
   <!-- Filters -->
   <section class="report-toolbar" style="margin-bottom:var(--space-4)">
-    <form method="get" action="<%= isIncome ? '/finance/income' : '/finance/expenses' %>" class="report-toolbar__fields" style="grid-template-columns:repeat(3,minmax(120px,1fr))">
+    <form method="get" action="<%= isIncome ? '/finance/income' : '/finance/expenses' %>" class="report-toolbar__fields" style="grid-template-columns:repeat(4,minmax(120px,1fr))">
       <div class="form-group">
         <label for="filter-month">Month</label>
         <select id="filter-month" name="month">
@@ -35,11 +37,20 @@
           <% }) %>
         </select>
       </div>
+      <div class="form-group">
+        <label for="filter-member"><%= isIncome ? 'Payer' : 'Member' %></label>
+        <select id="filter-member" name="member_id">
+          <option value="">All</option>
+          <% filterMembers.forEach(function(m) { %>
+          <option value="<%= m.id %>"<%= filterMember == String(m.id) ? ' selected' : '' %>><%= m.name %></option>
+          <% }) %>
+        </select>
+      </div>
       <div class="form-group" style="align-self:end">
         <button class="btn btn--secondary" type="submit">Filter</button>
       </div>
     </form>
-    <% if (filterMonth || filterCategory) { %>
+    <% if (filterMonth || filterCategory || filterMember) { %>
     <div class="report-toolbar__actions"><a class="btn btn--secondary btn--sm" href="<%= isIncome ? '/finance/income' : '/finance/expenses' %>">Clear filters</a></div>
     <% } %>
   </section>

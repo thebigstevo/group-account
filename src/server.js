@@ -1979,7 +1979,7 @@ async function financeFormData(kind) {
   return { members, accounts, categories, kind };
 }
 
-async function financeTransactions(kind, limit = 100, year = null, month = '', category = '') {
+async function financeTransactions(kind, limit = 100, year = null, month = '', category = '', memberId = '') {
   const types = kind === 'income' ? ['receipt'] : ['expense', 'welfare_payout'];
   let query = `
     SELECT t.*, m.name AS member_name, a.name AS account_name, u.name AS recorded_by
@@ -2011,6 +2011,12 @@ async function financeTransactions(kind, limit = 100, year = null, month = '', c
   if (category) {
     query += ` AND t.category = $${paramIdx}`;
     params.push(category);
+    paramIdx += 1;
+  }
+
+  if (memberId) {
+    query += ` AND t.member_id = $${paramIdx}`;
+    params.push(Number(memberId));
     paramIdx += 1;
   }
 
@@ -2136,18 +2142,22 @@ app.get('/finance/income', requireLogin, asyncHandler(async (req, res) => {
   const year = selectedYear(req);
   const month = req.query.month || '';
   const category = req.query.category || '';
-  const transactions = await financeTransactions('income', 500, year, month, category);
+  const memberId = req.query.member_id || '';
+  const transactions = await financeTransactions('income', 500, year, month, category, memberId);
   const categories = await dal.query("SELECT DISTINCT category FROM transactions WHERE tx_type = 'receipt' AND tx_date >= $1 AND tx_date <= $2 ORDER BY category", [`${year}-01-01`, `${year}-12-31`]);
-  res.render('finance_list', { kind: 'income', transactions, selectedMonth: month, selectedCategory: category, categories: categories.map(r => r.category), fiscalYear: year });
+  const members = await dal.query("SELECT id, name FROM members ORDER BY name");
+  res.render('finance_list', { kind: 'income', transactions, selectedMonth: month, selectedCategory: category, selectedMember: memberId, categories: categories.map(r => r.category), members, fiscalYear: year });
 }));
 
 app.get('/finance/expenses', requireLogin, asyncHandler(async (req, res) => {
   const year = selectedYear(req);
   const month = req.query.month || '';
   const category = req.query.category || '';
-  const transactions = await financeTransactions('expense', 500, year, month, category);
+  const memberId = req.query.member_id || '';
+  const transactions = await financeTransactions('expense', 500, year, month, category, memberId);
   const categories = await dal.query("SELECT DISTINCT category FROM transactions WHERE tx_type IN ('expense','welfare_payout') AND tx_date >= $1 AND tx_date <= $2 ORDER BY category", [`${year}-01-01`, `${year}-12-31`]);
-  res.render('finance_list', { kind: 'expense', transactions, selectedMonth: month, selectedCategory: category, categories: categories.map(r => r.category), fiscalYear: year });
+  const members = await dal.query("SELECT id, name FROM members ORDER BY name");
+  res.render('finance_list', { kind: 'expense', transactions, selectedMonth: month, selectedCategory: category, selectedMember: memberId, categories: categories.map(r => r.category), members, fiscalYear: year });
 }));
 
 app.get('/finance/accounts', requireLogin, asyncHandler(async (req, res) => {
