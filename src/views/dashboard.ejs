@@ -16,6 +16,8 @@
 
   <section class="summary-strip" aria-label="Key financial metrics">
     <div class="summary-strip__item"><span class="summary-strip__label">Current total balance</span><strong class="summary-strip__value"><%= formatMoney(summary.totalCashPosition) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Income · Full Year</span><strong class="summary-strip__value"><%= formatMoney(summary.income) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Expenses · Full Year</span><strong class="summary-strip__value"><%= formatMoney(summary.expenses) %></strong></div>
     <div class="summary-strip__item"><span class="summary-strip__label">Income · <%= dashboardMonth.label %></span><strong class="summary-strip__value"><%= formatMoney(monthSummary.income) %></strong></div>
     <div class="summary-strip__item"><span class="summary-strip__label">Expenses · <%= dashboardMonth.label %></span><strong class="summary-strip__value"><%= formatMoney(monthSummary.expenses) %></strong></div>
     <div class="summary-strip__item"><span class="summary-strip__label">Members with overdue dues</span><strong class="summary-strip__value"><%= arrearsCount %></strong></div>

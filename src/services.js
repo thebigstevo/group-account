@@ -148,11 +148,16 @@ async function welfareLiability(asOfDate = null) {
 
 async function totalIncome(startDate = null, endDate = null) {
   const period = dateClause('tx_date', startDate, endDate, 1);
+  // Exclude receipts into welfare fund account (not operational income)
+  const welfareAcct = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
+  const welfareAcctId = welfareAcct ? welfareAcct.id : -1;
+  const nextIdx = period.nextIndex;
   const row = await dal.queryOne(`
     SELECT COALESCE(SUM(amount - welfare_component), 0) AS total
     FROM transactions
     WHERE tx_type = 'receipt' AND status = 'posted'${period.sql}
-  `, period.params);
+      AND (account_id != $${nextIdx} OR account_id IS NULL)
+  `, [...period.params, welfareAcctId]);
   return money(row.total);
 }
 
