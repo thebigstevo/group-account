@@ -3285,11 +3285,15 @@ app.get('/download/income-expenditure', requireLogin, asyncHandler(async (req, r
     }
 
     if (req.query.format === 'pdf') {
-      // PDF generation — proper accounting layout
-      // Exclude receipts into welfare fund account (they're welfare collections, not operational income)
-      const welfareAcct = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
-      const welfareAcctId = welfareAcct ? welfareAcct.id : -1;
-      const income = await dal.query(`SELECT category, COALESCE(SUM(amount - welfare_component), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2 AND (account_id != $3 OR account_id IS NULL) GROUP BY category ORDER BY total DESC`, [startDate, endDate, welfareAcctId]);
+      // PDF generation — proper accounting layout using fund_classifications
+      const income = await dal.query(`
+        SELECT t.category, COALESCE(SUM(ra.amount), 0) AS total
+        FROM receipt_allocations ra
+        JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted' AND t.tx_type = 'receipt'
+          AND t.tx_date >= $1 AND t.tx_date <= $2
+        JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'mens_operating'
+        GROUP BY t.category ORDER BY total DESC
+      `, [startDate, endDate]);
       const expenses = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type IN ('expense', 'welfare_payout') AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
       const totalIncome = income.reduce((s, r) => s + Number(r.total), 0);
       const totalExpenses = expenses.reduce((s, r) => s + Number(r.total), 0);
@@ -3440,22 +3444,16 @@ app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) =>
     }
 
     if (req.query.format === 'pdf') {
-      // Welfare collections: welfare_component from splits + direct receipts into welfare fund account
-      const welfareAccountRow = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
-      const welfareAccountId = welfareAccountRow ? welfareAccountRow.id : -1;
-
+      // Welfare collections from receipt_allocations classified as joint_welfare
       const collected = await dal.query(`
-        SELECT category, COALESCE(SUM(
-          CASE WHEN welfare_component > 0 THEN welfare_component
-               WHEN account_id = $3 THEN amount
-               ELSE 0 END
-        ), 0) AS total
-        FROM transactions
-        WHERE tx_type = 'receipt' AND status = 'posted'
-          AND tx_date >= $1 AND tx_date <= $2
-          AND (welfare_component > 0 OR account_id = $3)
-        GROUP BY category ORDER BY total DESC
-      `, [startDate, endDate, welfareAccountId]);
+        SELECT t.category, COALESCE(SUM(ra.amount), 0) AS total
+        FROM receipt_allocations ra
+        JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted' AND t.tx_type = 'receipt'
+          AND t.tx_date >= $1 AND t.tx_date <= $2
+        JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'joint_welfare'
+        WHERE ra.amount > 0
+        GROUP BY t.category ORDER BY total DESC
+      `, [startDate, endDate]);
 
       const payouts = await dal.query(`
         SELECT category, COALESCE(SUM(amount), 0) AS total
@@ -3523,23 +3521,19 @@ app.get('/download/financial-position', requireLogin, asyncHandler(async (req, r
 
       const doc = pdf.createDoc({ title: 'Statement of Financial Position', period: `As at ${label}`, groupName: config.groupName, org: res.locals.org });
 
-      // Split accounts into operational and welfare
-      const operationalAccounts = balances.filter(a => !a.is_welfare_fund);
-      const welfareAccounts = balances.filter(a => a.is_welfare_fund);
-      const operationalTotal = operationalAccounts.reduce((s, a) => s + a.balance, 0);
-      const welfareTotal = welfareAccounts.reduce((s, a) => s + a.balance, 0);
+      // All physical accounts are operational in the new model; welfare is tracked via fund_classifications
+      const operationalTotal = balances.reduce((s, a) => s + a.balance, 0);
 
       pdf.sectionHeading(doc, 'Operational Funds');
-      operationalAccounts.forEach(a => pdf.tableRow(doc, a.name, pdf.fmtMoney(a.balance), { indent: 15 }));
+      balances.forEach(a => pdf.tableRow(doc, a.name, pdf.fmtMoney(a.balance), { indent: 15 }));
       pdf.subtotalLine(doc);
       pdf.tableRow(doc, 'Subtotal (available for operations)', pdf.fmtMoney(operationalTotal), { bold: true });
       doc.moveDown(0.8);
 
-      pdf.sectionHeading(doc, 'Welfare Fund (restricted)');
-      welfareAccounts.forEach(a => pdf.tableRow(doc, a.name, pdf.fmtMoney(a.balance), { indent: 15 }));
-      if (!welfareAccounts.length) pdf.tableRow(doc, 'No welfare fund account', 'GHS 0.00', { indent: 15 });
+      pdf.sectionHeading(doc, 'Less: Welfare Liability (restricted)');
+      pdf.tableRow(doc, 'Joint Welfare Funds Held', pdf.fmtMoney(welfare), { indent: 15 });
       pdf.subtotalLine(doc);
-      pdf.tableRow(doc, 'Welfare Fund Balance', pdf.fmtMoney(welfareTotal), { bold: true });
+      pdf.tableRow(doc, 'Welfare Fund Liability', pdf.fmtMoney(welfare), { bold: true });
       doc.moveDown(1.0);
 
       pdf.grandTotalLine(doc);

@@ -127,16 +127,16 @@ async function welfareLiability(asOfDate = null) {
 
 async function totalIncome(startDate = null, endDate = null) {
   const period = dateClause('tx_date', startDate, endDate, 1);
-  // Exclude receipts into welfare fund account (not operational income)
-  const welfareAcct = await dal.queryOne('SELECT id FROM accounts WHERE is_welfare_fund = true AND active = true LIMIT 1');
-  const welfareAcctId = welfareAcct ? welfareAcct.id : -1;
-  const nextIdx = period.nextIndex;
+  // Operating income = receipt allocations classified as mens_operating
   const row = await dal.queryOne(`
-    SELECT COALESCE(SUM(amount - welfare_component), 0) AS total
-    FROM transactions
-    WHERE tx_type = 'receipt' AND status = 'posted'${period.sql}
-      AND (account_id != $${nextIdx} OR account_id IS NULL)
-  `, [...period.params, welfareAcctId]);
+    SELECT COALESCE(SUM(ra.amount), 0) AS total
+    FROM receipt_allocations ra
+    JOIN transactions t ON t.id = ra.transaction_id
+      AND t.status = 'posted'
+      AND t.tx_type = 'receipt'${period.sql}
+    JOIN fund_classifications fc ON fc.id = ra.fund_classification_id
+      AND fc.code = 'mens_operating'
+  `, period.params);
   return money(row.total);
 }
 
@@ -152,10 +152,15 @@ async function totalReceipts(startDate = null, endDate = null) {
 
 async function totalWelfareCollected(startDate = null, endDate = null) {
   const period = dateClause('tx_date', startDate, endDate, 1);
+  // Welfare collected = receipt allocations classified as joint_welfare
   const row = await dal.queryOne(`
-    SELECT COALESCE(SUM(welfare_component), 0) AS total
-    FROM transactions
-    WHERE tx_type = 'receipt' AND status = 'posted'${period.sql}
+    SELECT COALESCE(SUM(ra.amount), 0) AS total
+    FROM receipt_allocations ra
+    JOIN transactions t ON t.id = ra.transaction_id
+      AND t.status = 'posted'
+      AND t.tx_type = 'receipt'${period.sql}
+    JOIN fund_classifications fc ON fc.id = ra.fund_classification_id
+      AND fc.code = 'joint_welfare'
   `, period.params);
   return money(row.total);
 }
