@@ -504,6 +504,25 @@
       bodyEl.textContent = options.body || '';
       modal.appendChild(bodyEl);
 
+      // Prompt field (optional — for collecting reason text)
+      if (options.promptField) {
+        const promptGroup = document.createElement('div');
+        promptGroup.className = 'form-group';
+        promptGroup.style.marginTop = 'var(--space-4)';
+        const promptLabel = document.createElement('label');
+        promptLabel.textContent = (options.promptLabel || 'Reason') + ' *';
+        promptLabel.setAttribute('for', 'modal-prompt-input');
+        promptGroup.appendChild(promptLabel);
+        const promptInput = document.createElement('input');
+        promptInput.type = 'text';
+        promptInput.className = 'modal__prompt-input';
+        promptInput.id = 'modal-prompt-input';
+        promptInput.placeholder = 'Enter reason...';
+        promptInput.required = true;
+        promptGroup.appendChild(promptInput);
+        modal.appendChild(promptGroup);
+      }
+
       // Actions
       const actions = document.createElement('div');
       actions.className = 'modal__actions';
@@ -519,7 +538,8 @@
       confirmBtn.textContent = options.confirmText || 'Confirm';
       confirmBtn.addEventListener('click', function () {
         if (typeof options.onConfirm === 'function') {
-          options.onConfirm();
+          var result = options.onConfirm(modal);
+          if (result === false) return; // prevent close if onConfirm returns false
         }
         close();
       });
@@ -1230,17 +1250,38 @@
     document.querySelectorAll('[data-modal-confirm]').forEach(function (btn) {
       btn.addEventListener('click', function (e) {
         e.preventDefault();
-        const title = btn.dataset.modalTitle || 'Confirm Action';
-        const body = btn.dataset.modalBody || 'Are you sure you want to proceed?';
-        const form = btn.closest('form');
-        const href = btn.dataset.modalHref || btn.getAttribute('href');
+        var title = btn.dataset.modalTitle || 'Confirm Action';
+        var body = btn.dataset.modalBody || 'Are you sure you want to proceed?';
+        var promptField = btn.dataset.modalPrompt || null; // e.g., "reason"
+        var promptLabel = btn.dataset.modalPromptLabel || 'Reason';
+        var form = btn.closest('form');
+        var href = btn.dataset.modalHref || btn.getAttribute('href');
 
         Treasurio.Modal.open({
           title: title,
           body: body,
+          promptField: promptField,
+          promptLabel: promptLabel,
           confirmText: btn.dataset.modalConfirmText || 'Confirm',
           confirmClass: btn.dataset.modalConfirmClass || 'btn--danger',
-          onConfirm: function () {
+          onConfirm: function (modalEl) {
+            if (promptField && form) {
+              var input = modalEl ? modalEl.querySelector('.modal__prompt-input') : null;
+              var value = input ? input.value.trim() : '';
+              if (!value) {
+                if (input) { input.focus(); input.classList.add('field--error'); }
+                return false; // prevent close
+              }
+              // Inject hidden field into form
+              var hidden = form.querySelector('input[name="' + promptField + '"]');
+              if (!hidden) {
+                hidden = document.createElement('input');
+                hidden.type = 'hidden';
+                hidden.name = promptField;
+                form.appendChild(hidden);
+              }
+              hidden.value = value;
+            }
             if (form) {
               form.submit();
             } else if (href) {
