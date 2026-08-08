@@ -7,6 +7,7 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const crypto = require('crypto');
 const config = require('./config');
+const { router: setupRouter, setupGuard } = require('./setup');
 const { port, sessionSecret, n8nApiToken, requireSecret, secureCookies, groupName, groupCurrency } = config;
 const dal = require('./dal');
 const { verifyPassword, hashPassword } = require('./security');
@@ -168,6 +169,10 @@ app.use((err, req, res, next) => {
   }
   next(err);
 });
+
+// Setup wizard — redirects to /setup if no users exist (first-time install)
+app.use(setupRouter);
+app.use(setupGuard);
 
 function generateCsrfToken(session) {
   if (!session._csrf) session._csrf = crypto.randomBytes(24).toString('hex');

@@ -110,16 +110,24 @@ git push origin master                        # deploys prod
 # 4. Wait for GitHub Actions to complete (2-3 minutes)
 #    Monitor at: https://github.com/thebigstevo/group-account/actions
 
-# 5. Seed admin user on VPS
-ssh root@84.54.23.37
-cd /opt/treasurio/deploy
-docker compose exec app-dev node src/seed.js
-docker compose exec app-prod node src/seed.js
-# Login: admin@example.com / ChangeMe123!
+# 5. Open the app in your browser
+#    Visit: https://dev-groupledger.tilcsaas.com
+#    The setup wizard will appear automatically (no SSH needed!)
+#    Create your admin account, set organization name, and you're done.
 
 # 6. Enable HTTPS
+ssh root@84.54.23.37
 certbot --nginx -d dev-groupledger.tilcsaas.com -d prod-groupledger.tilcsaas.com
 ```
+
+### Setup Wizard
+
+On first visit after deployment, the app detects no users exist and shows a setup wizard where you:
+1. Create the admin account (name, email, password)
+2. Set your organization name and currency
+3. Set the opening fiscal year
+
+After completing setup, the wizard locks itself permanently. No SSH or command-line access needed.
 
 ---
 
@@ -225,12 +233,14 @@ docker compose exec -T app-dev node src/migrate.js
 docker compose exec -T app-prod node src/migrate.js
 ```
 
-### Seed admin user
+### Seed admin user (only if wizard wasn't used)
 
 ```bash
 docker compose exec app-dev node src/seed.js
 docker compose exec app-prod node src/seed.js
 ```
+
+Note: The setup wizard is the preferred way to create the first admin. The seed script is a fallback for headless/automated deployments.
 
 ### Check table row counts
 
@@ -587,7 +597,7 @@ No code changes needed — the app is fully white-labeled via `GROUP_NAME` and `
 | Backup prod | `docker compose exec -T postgres pg_dump -U treasurio -d treasurio_prod --clean \| gzip > backup.sql.gz` |
 | Restore prod | `gunzip -c backup.sql.gz \| docker compose exec -T postgres psql -U treasurio -d treasurio_prod` |
 | Run migration | `docker compose exec -T app-prod node src/migrate.js` |
-| Seed admin | `docker compose exec app-prod node src/seed.js` |
+| Seed admin | `docker compose exec app-prod node src/seed.js` (or use web wizard) |
 | Check health | `curl http://127.0.0.1:3200/health` |
 | Access DB | `docker compose exec postgres psql -U treasurio -d treasurio_prod` |
 | Full reset | `docker compose down -v && rm -rf /opt/treasurio` |
