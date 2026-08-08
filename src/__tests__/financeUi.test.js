@@ -56,7 +56,7 @@ describe('separated finance workflows', () => {
     expect(html).toContain('class="action-bar"');
     expect(html).not.toContain('Related member');
     expect(cssSource).toMatch(/--content-form-max:\s*1080px/);
-    expect(cssSource).toMatch(/@media \(max-width: 767px\)[\s\S]*\.field-grid\s*\{\s*grid-template-columns:minmax\(0,1fr\)/);
+    expect(cssSource).toMatch(/@media \(max-width: 767px\)[\s\S]*\.field-grid\s*\{\s*grid-template-columns:\s*minmax\(0,1fr\)/);
   });
 
   test('server declares separate routes with their existing role permissions', () => {
@@ -141,8 +141,8 @@ describe('finance and dashboard template rendering', () => {
     expect(cssSource).toMatch(/\.metric-card\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?overflow:\s*hidden;/);
     expect(cssSource).toMatch(/\.metric-card__label\s*\{[\s\S]*?display:\s*block;[\s\S]*?overflow-wrap:\s*anywhere;/);
     expect(cssSource).toMatch(/\.metric-card__value\s*\{[\s\S]*?display:\s*block;[\s\S]*?max-width:\s*100%;[\s\S]*?overflow-wrap:\s*anywhere;/);
-    expect(cssSource).toMatch(/@media \(max-width: 767px\)[\s\S]*?\.metric-card\s*\{\s*display:grid;\s*grid-template-columns:minmax\(0,1fr\);/);
-    expect(cssSource).toMatch(/@media \(max-width: 767px\)[\s\S]*?\.metric-card__value\s*\{[\s\S]*?font-size:clamp\(1\.35rem,7vw,1\.65rem\);/);
+    expect(cssSource).toMatch(/@media \(max-width: 767px\)[\s\S]*?\.metric-card\s*\{\s*display:\s*flex;\s*flex-direction:\s*column;/);
+    expect(cssSource).toMatch(/@media \(max-width: 767px\)[\s\S]*?\.metric-card__value\s*\{[\s\S]*?font-size:\s*clamp\(1\.15rem,\s*5\.5vw,\s*1\.4rem\);/);
   });
 });
 
@@ -156,8 +156,8 @@ describe('role-aware navigation', () => {
 
   test('treasurer sees both entry workflows but not user administration', async () => {
     const html = await sidebar('treasurer');
-    expect(html).toContain('href="/finance/income/new"');
-    expect(html).toContain('href="/finance/expenses/new"');
+    expect(html).toContain('href="/finance/income"');
+    expect(html).toContain('href="/finance/expenses"');
     expect(html).not.toContain('href="/users"');
     expect((html.match(/sidebar__link[^\"]* active/g) || [])).toHaveLength(1);
   });
@@ -175,7 +175,7 @@ describe('role-aware navigation', () => {
 describe('responsive dashboard contracts', () => {
   test('dashboard includes compact account, attention, empty, and error states', () => {
     const dashboard = fs.readFileSync(path.join(views, 'dashboard.ejs'), 'utf8');
-    expect(dashboard).toContain('Total available balance');
+    expect(dashboard).toContain('Current total balance');
     expect(dashboard).toContain('class="account-list"');
     expect(dashboard).toContain('Work requiring attention');
     expect(dashboard).toContain('class="mobile-list"');

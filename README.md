@@ -140,13 +140,14 @@ The app connects to PostgreSQL using either:
 
 ## Deployment
 
-For production VPS deployment, see the `apps/treasurio/` directory which contains:
+For the full deployment guide (CI/CD with GitHub Actions, VPS setup, fresh deploy steps, backup/restore, troubleshooting), see **[DEPLOYMENT.md](./DEPLOYMENT.md)**.
 
-- `deploy-treasurio.sh` — Interactive setup script (generates .env, outputs nginx config)
-- `backup.sh` — Automated PostgreSQL backup (retains last 7)
-- `restore.sh` — Restore from a backup file
-- `remove-treasurio.sh` — Clean removal (with optional `--purge` for data)
-- `README.md` — Detailed deployment documentation
+Quick summary:
+1. Add GitHub Secrets (VPS credentials, DB password, session secrets)
+2. Push to `develop` → deploys dev
+3. Push to `master` → deploys prod
+4. SSH in and run `node src/seed.js` to create admin user
+5. Run `certbot` for HTTPS
 
 ### Production Checklist
 
