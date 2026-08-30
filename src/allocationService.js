@@ -7,10 +7,11 @@ const { getDefaultFund, getFundByCode } = require('./fundClassifications');
  * Allocation Service
  *
  * Determines how a receipt amount should be split across fund classifications
- * (e.g. Men's Operating vs Joint Welfare) based on payment_splits rules.
+ * (e.g. Men's Operating vs Joint Welfare) using the welfare amount already
+ * calculated from the effective member, dues, or category rule.
  *
  * Key invariant: SUM(allocations[].amount) === input amount (no rounding loss).
- * Uses ROUND_DOWN for welfare portion; remainder goes to operating.
+ * The remainder goes to operating.
  */
 
 /**
@@ -30,27 +31,41 @@ async function getSplitRule(category, year) {
  * Calculate fund allocations for a receipt amount.
  *
  * Algorithm:
- * 1. Look up payment_splits rule for (category, year)
- * 2. If no rule or zero total → allocate 100% to default fund
- * 3. Otherwise compute welfare ratio, ROUND_DOWN welfare, remainder to operating
+ * 1. Prefer the supplied welfare component calculated by the receipt workflow
+ * 2. For backward compatibility, otherwise look up payment_splits
+ * 3. Allocate the welfare amount exactly and send the remainder to operating
  * 4. Guarantees SUM(allocations) === amount (no rounding loss)
  *
  * @param {number} amount - Positive receipt amount
  * @param {string} category - Transaction category
  * @param {number} year - Fiscal year
- * @param {number|null} [memberId=null] - Optional member ID (reserved for future per-member rules)
+ * @param {number|null} [memberId=null] - Optional member ID (retained for API compatibility)
+ * @param {number|null} [welfareComponent=null] - Effective welfare amount for this receipt
  * @returns {Promise<Array<{fund_classification_id: number, amount: number}>>}
  * @throws {Error} If amount is not positive
  */
-async function calculateAllocations(amount, category, year, memberId = null) {
+async function calculateAllocations(amount, category, year, memberId = null, welfareComponent = null) {
   if (!amount || amount <= 0) {
     throw new Error('Amount must be positive');
   }
 
-  const splitRule = await getSplitRule(category, year);
+  let welfareAllocation;
+  if (welfareComponent !== null && welfareComponent !== undefined) {
+    welfareAllocation = Math.round(Number(welfareComponent) * 100) / 100;
+    if (!Number.isFinite(welfareAllocation) || welfareAllocation < 0 || welfareAllocation > amount) {
+      throw new Error('Welfare component must be between zero and the receipt amount');
+    }
+  } else {
+    const splitRule = await getSplitRule(category, year);
+    const assessmentAmount = splitRule ? Number(splitRule.assessment_amount) || 0 : 0;
+    const welfareAmount = splitRule ? Number(splitRule.welfare_amount) || 0 : 0;
+    // assessment_amount is the full receipt amount, inclusive of welfare.
+    welfareAllocation = assessmentAmount > 0
+      ? Math.round((amount * welfareAmount / assessmentAmount) * 100) / 100
+      : 0;
+  }
 
-  // No rule → allocate everything to the default fund
-  if (!splitRule) {
+  if (welfareAllocation === 0) {
     const defaultFund = await getDefaultFund();
     if (!defaultFund) {
       throw new Error('No default fund classification configured');
@@ -58,22 +73,6 @@ async function calculateAllocations(amount, category, year, memberId = null) {
     return [{ fund_classification_id: defaultFund.id, amount }];
   }
 
-  const assessmentAmount = Number(splitRule.assessment_amount) || 0;
-  const welfareAmount = Number(splitRule.welfare_amount) || 0;
-  const totalRuleAmount = assessmentAmount + welfareAmount;
-
-  // Zero total in rule → treat as no rule (all to default)
-  if (totalRuleAmount === 0) {
-    const defaultFund = await getDefaultFund();
-    if (!defaultFund) {
-      throw new Error('No default fund classification configured');
-    }
-    return [{ fund_classification_id: defaultFund.id, amount }];
-  }
-
-  // Calculate proportional welfare allocation using ROUND_DOWN
-  const welfareRatio = welfareAmount / totalRuleAmount;
-  const welfareAllocation = Math.floor(amount * welfareRatio * 100) / 100;
   const operatingAllocation = Math.round((amount - welfareAllocation) * 100) / 100;
 
   // Fetch fund classification IDs

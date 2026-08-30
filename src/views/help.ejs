@@ -1,0 +1,45 @@
+<%- include('partials/header') %>
+<% locals.title = 'Help & User Guide'; %>
+<div class="page-container help-centre">
+  <section class="page-title help-title">
+    <div><span class="eyebrow">Help centre</span><h1>Help &amp; User Guide</h1><p>Simple instructions for your <strong><%= guide.roleLabel %></strong> role.</p></div>
+    <div class="page-title__meta no-print"><button class="btn btn--secondary" type="button" data-print>Print or save as PDF</button></div>
+  </section>
+
+  <div class="info-box help-introduction"><strong>Where should I begin?</strong> <%= guide.startMessage %><% if (guide.role === 'admin') { %><br>The administrator setup topics appear only to administrators.<% } %></div>
+
+  <form action="/help" method="get" class="help-search no-print" role="search">
+    <label for="help-query">Search this guide</label>
+    <div class="help-search__controls">
+      <input id="help-query" name="q" type="search" value="<%= guide.query %>" placeholder="For example: income, member, audit, password">
+      <button class="btn btn--primary" type="submit">Search</button>
+      <% if (guide.query) { %><a class="btn btn--secondary" href="/help">Clear</a><% } %>
+    </div>
+  </form>
+
+  <% if (!guide.topics.length) { %>
+    <section class="panel empty-state" role="status"><h2>No matching instructions</h2><p>Try a shorter word, or <a href="/help">show all topics for your role</a>.</p></section>
+  <% } else { %>
+    <nav class="help-topic-nav no-print" aria-label="Guide topics">
+      <strong><%= guide.query ? guide.topics.length + ' search result' + (guide.topics.length === 1 ? '' : 's') : 'Topics for your role' %></strong>
+      <div><% guide.topics.forEach(function(topic) { %><a href="#<%= topic.id %>"><%= topic.title %></a><% }) %></div>
+    </nav>
+
+    <div class="help-topic-list">
+      <% guide.topics.forEach(function(topic, topicIndex) { %>
+      <article class="panel help-topic" id="<%= topic.id %>">
+        <header class="help-topic__header"><span class="help-topic__number" aria-hidden="true"><%= topicIndex + 1 %></span><div><h2><%= topic.title %></h2><p><%= topic.summary %></p></div></header>
+        <ol class="help-steps">
+          <% topic.steps.forEach(function(step) { %><li><span><%= step.text %></span><% if (step.href) { %><a class="help-step-link no-print" href="<%= step.href %>"><%= step.label || 'Open page' %> <span aria-hidden="true">→</span></a><% } %></li><% }) %>
+        </ol>
+        <% if (topic.note) { %><div class="info-box help-callout"><strong>Good practice:</strong> <%= topic.note %></div><% } %>
+        <% if (topic.warning) { %><div class="warning-box help-callout"><strong>Important:</strong> <%= topic.warning %></div><% } %>
+        <a class="help-back-link no-print" href="#main-content">Back to the top</a>
+      </article>
+      <% }) %>
+    </div>
+  <% } %>
+
+  <section class="panel help-contact"><h2>Still need help?</h2><p>Write down the page name, what you were trying to do, and the exact message shown. Give these details to your system administrator. Do not send your password.</p></section>
+</div>
+<%- include('partials/footer') %>

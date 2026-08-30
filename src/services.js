@@ -67,7 +67,7 @@ async function accountBalances(asOfDate = null) {
         END
       ), 0) AS net_movement
       FROM transactions
-      WHERE status = 'posted'${dateFilter}
+      WHERE status = 'posted' AND reverses_transaction_id IS NULL${dateFilter}
     `;
 
     const row = await dal.queryOne(sql, params);
@@ -90,7 +90,12 @@ async function computeFundBalances(asOfDate = null) {
       COALESCE(SUM(ra.amount), 0) AS balance
     FROM fund_classifications fc
     LEFT JOIN receipt_allocations ra ON ra.fund_classification_id = fc.id
-    LEFT JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted'${dateFilter}
+      AND EXISTS (
+        SELECT 1 FROM transactions t
+        WHERE t.id = ra.transaction_id
+          AND t.status = 'posted'
+          AND t.reverses_transaction_id IS NULL${dateFilter}
+      )
     WHERE fc.active = true
     GROUP BY fc.id, fc.code, fc.name
     ORDER BY fc.id
@@ -111,13 +116,12 @@ async function welfareLiability(asOfDate = null) {
   const sql = `
     SELECT COALESCE(SUM(
       CASE
-        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NULL THEN -ra.amount
-        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NOT NULL THEN ra.amount
+        WHEN t.tx_type = 'welfare_payout' THEN -ra.amount
         ELSE ra.amount
       END
     ), 0) AS balance
     FROM receipt_allocations ra
-    JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted'${dateFilter}
+    JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted' AND t.reverses_transaction_id IS NULL${dateFilter}
     JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'joint_welfare'
   `;
 
@@ -133,6 +137,7 @@ async function totalIncome(startDate = null, endDate = null) {
     FROM receipt_allocations ra
     JOIN transactions t ON t.id = ra.transaction_id
       AND t.status = 'posted'
+      AND t.reverses_transaction_id IS NULL
       AND t.tx_type = 'receipt'${period.sql}
     JOIN fund_classifications fc ON fc.id = ra.fund_classification_id
       AND fc.code = 'mens_operating'
@@ -145,7 +150,7 @@ async function totalReceipts(startDate = null, endDate = null) {
   const row = await dal.queryOne(`
     SELECT COALESCE(SUM(amount), 0) AS total
     FROM transactions
-    WHERE tx_type = 'receipt' AND status = 'posted'${period.sql}
+    WHERE tx_type = 'receipt' AND status = 'posted' AND reverses_transaction_id IS NULL${period.sql}
   `, period.params);
   return money(row.total);
 }
@@ -158,6 +163,7 @@ async function totalWelfareCollected(startDate = null, endDate = null) {
     FROM receipt_allocations ra
     JOIN transactions t ON t.id = ra.transaction_id
       AND t.status = 'posted'
+      AND t.reverses_transaction_id IS NULL
       AND t.tx_type = 'receipt'${period.sql}
     JOIN fund_classifications fc ON fc.id = ra.fund_classification_id
       AND fc.code = 'joint_welfare'
@@ -170,7 +176,7 @@ async function totalExpenses(startDate = null, endDate = null) {
   const row = await dal.queryOne(`
     SELECT COALESCE(SUM(amount), 0) AS total
     FROM transactions
-    WHERE tx_type = 'expense' AND status = 'posted'${period.sql}
+    WHERE tx_type = 'expense' AND status = 'posted' AND reverses_transaction_id IS NULL${period.sql}
   `, period.params);
   return money(row.total);
 }
@@ -185,6 +191,7 @@ async function memberPaid(memberId, year) {
       AND c.purpose = 'assessment'
       AND SUBSTRING(t.tx_date FROM 1 FOR 4) = $2
       AND t.status = 'posted'
+      AND t.reverses_transaction_id IS NULL
   `, [memberId, String(year)]);
   return money(row.total);
 }
@@ -327,7 +334,7 @@ async function runningBalanceRows(startDate, endDate) {
     LEFT JOIN members m ON m.id = t.member_id
     LEFT JOIN accounts a ON a.id = t.account_id
     LEFT JOIN accounts ta ON ta.id = t.to_account_id
-    WHERE t.tx_date >= $1 AND t.tx_date <= $2 AND t.status = 'posted'
+    WHERE t.tx_date >= $1 AND t.tx_date <= $2 AND t.status = 'posted' AND t.reverses_transaction_id IS NULL
     ORDER BY t.tx_date ASC, t.id ASC
   `, [startDate, endDate]);
 
@@ -373,6 +380,7 @@ async function budgetVsActual(year) {
         COALESCE(SUM(amount), 0) AS actual
       FROM transactions
       WHERE status = 'posted'
+        AND reverses_transaction_id IS NULL
         AND tx_type IN ('receipt','expense','welfare_payout')
         AND tx_date >= $1 AND tx_date <= $2
       GROUP BY category, CASE WHEN tx_type = 'receipt' THEN 'income' ELSE 'expense' END
@@ -504,6 +512,7 @@ async function periodComparison(currentYearParam) {
         COALESCE(SUM(amount) FILTER (WHERE tx_type IN ('expense', 'welfare_payout')), 0) AS expense
       FROM transactions
       WHERE status = 'posted'
+        AND reverses_transaction_id IS NULL
         AND tx_type IN ('receipt', 'expense', 'welfare_payout')
         AND tx_date >= $1 AND tx_date <= $2
       GROUP BY category
@@ -515,6 +524,7 @@ async function periodComparison(currentYearParam) {
         COALESCE(SUM(amount) FILTER (WHERE tx_type IN ('expense', 'welfare_payout')), 0) AS expense
       FROM transactions
       WHERE status = 'posted'
+        AND reverses_transaction_id IS NULL
         AND tx_type IN ('receipt', 'expense', 'welfare_payout')
         AND tx_date >= $1 AND tx_date <= $2
       GROUP BY category
