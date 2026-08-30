@@ -4,10 +4,8 @@ on:
   pull_request:
   push:
     branches:
-      - feature/treasurio-overhaul
-      - develop
+      - dev
       - master
-      - main
 
 permissions:
   contents: read

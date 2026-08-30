@@ -57,8 +57,8 @@
 | Branch | Workflow | Deploys |
 |---|---|---|
 | Pull requests and protected branches | CI | Tests, dependency audit, syntax/config validation, production-image build |
-| Manual `Deploy Dev` dispatch | Deploy Dev | Selected committed branch to `app-dev` (port 3100) |
-| Manual `Deploy Prod` dispatch from `master` | Deploy Prod | Reviewed `master` commit to `app-prod` (port 3200) |
+| Push/merge to protected `dev` | Deploy Dev | Reviewed `dev` commit to `app-dev` (port 3100) |
+| Push/merge to protected `master` | Deploy Prod | Promoted `master` commit to `app-prod` (port 3200) |
 
 ### What Each Deploy Does
 
@@ -110,9 +110,9 @@ Required repository variables: `PROJECT_NAME`, `DEV_DOMAIN`, `PROD_DOMAIN`, and 
 # 2. Add the GitHub Secrets and repository variables listed above
 
 # 3. Open a pull request, wait for CI, and merge the reviewed commit
-# 4. Dispatch Deploy Dev or Deploy Prod from GitHub Actions
+# 4. Merge to dev for development, then promote dev to master for production
 
-# 4. Wait for GitHub Actions to complete (2-3 minutes)
+# 5. Wait for GitHub Actions to complete (2-3 minutes)
 #    Monitor at: https://github.com/thebigstevo/group-account/actions
 
 # 5. Open the app in your browser
@@ -572,8 +572,8 @@ No code changes needed — the app is fully white-labeled via `GROUP_NAME` and `
 
 | Task | Command |
 |---|---|
-| Deploy dev | Dispatch `Deploy Dev` for the committed development branch |
-| Deploy prod | Dispatch `Deploy Prod` from reviewed `master` |
+| Deploy dev | Merge reviewed changes into protected `dev`; `Deploy Dev` runs automatically |
+| Deploy prod | Promote `dev` through a pull request into protected `master`; `Deploy Prod` runs automatically |
 | View dev logs | `cd /opt/treasurio/deploy && docker compose logs -f app-dev` |
 | View prod logs | `cd /opt/treasurio/deploy && docker compose logs -f app-prod` |
 | Restart dev | `cd /opt/treasurio/deploy && docker compose restart app-dev` |
