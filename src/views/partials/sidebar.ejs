@@ -189,6 +189,10 @@
     </div>
     <% } %>
     <div class="sidebar__footer-actions">
+      <a href="/help" class="sidebar__footer-link<%= navActive('/help') ? ' active' : '' %>" <%- navActive('/help') ? 'aria-current="page"' : '' %>>
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-4a3 3 0 00-2.83 2 1 1 0 101.886.667A1 1 0 1110 10a1 1 0 00-1 1v1a1 1 0 102 0v-.17A3.001 3.001 0 0010 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
+        <span>Help &amp; Guide</span>
+      </a>
       <a href="/change-password" class="sidebar__footer-link">
         <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
         <span>Account</span>

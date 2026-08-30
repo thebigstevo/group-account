@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 jest.mock('../config', () => ({ groupName: 'Test Commandery' }));
 jest.mock('../dal', () => ({
   transaction: jest.fn(),
@@ -72,6 +75,10 @@ describe('Phase 1 migration contract', () => {
     // Phase 1 migration: drop is_welfare_fund and verify allocations
     expect(sql).toContain('ALTER TABLE accounts DROP COLUMN IF EXISTS is_welfare_fund');
     expect(sql).toContain('HAVING ABS(t.amount');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS migration_history');
+    const params = client.query.mock.calls.flatMap(call => call[1] || []);
+    expect(params).toContain('2026-08-effective-welfare-allocations-v1');
+    expect(fs.readFileSync(path.join(__dirname, '..', 'migrate.js'), 'utf8')).toContain('Effective dues welfare repair');
     expect(sql).toContain("'migration', 'schema'");
   });
 });

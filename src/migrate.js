@@ -866,6 +866,107 @@ async function migrate() {
     console.log('[migrate]   ✓ receipt_allocations verification passed');
   }
 
+  // ─── Repair welfare allocations created before effective dues rules were
+  //     connected to the fund-allocation model. A history marker prevents
+  //     later dues changes from rewriting historical transactions.
+  await run(`
+    CREATE TABLE IF NOT EXISTS migration_history (
+      key VARCHAR(120) PRIMARY KEY,
+      applied_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      details JSONB NOT NULL DEFAULT '{}'::jsonb
+    )
+  `);
+  const welfareRepairKey = '2026-08-effective-welfare-allocations-v1';
+  const welfareRepairDone = await run('SELECT key FROM migration_history WHERE key = $1', [welfareRepairKey]);
+  if (welfareRepairDone.rows.length === 0) {
+    const opFund = await run("SELECT id FROM fund_classifications WHERE code = 'mens_operating' AND active = true");
+    const wfFund = await run("SELECT id FROM fund_classifications WHERE code = 'joint_welfare' AND active = true");
+    if (!opFund.rows[0] || !wfFund.rows[0]) throw new Error('Required fund classifications are missing');
+
+    const candidates = await run(`
+      SELECT
+        t.id, t.amount, t.category, t.reverses_transaction_id,
+        tc.purpose,
+        COALESCE(md.assessment_due, dr.annual_assessment, 0) AS assessment_due,
+        COALESCE(md.welfare_portion, dr.welfare_portion, 0) AS dues_welfare,
+        COALESCE(ps.assessment_amount, 0) AS split_assessment,
+        COALESCE(ps.welfare_amount, 0) AS split_welfare,
+        COALESCE(t.welfare_component, 0) AS current_welfare,
+        COALESCE((
+          SELECT SUM(ra.amount)
+          FROM receipt_allocations ra
+          WHERE ra.transaction_id = t.id
+            AND ra.fund_classification_id = $1
+        ), 0) AS current_welfare_allocation
+      FROM transactions t
+      JOIN transaction_categories tc ON tc.name = t.category
+      LEFT JOIN members m ON m.id = t.member_id
+      LEFT JOIN member_dues md
+        ON md.member_id = t.member_id
+        AND md.year = SUBSTRING(t.tx_date FROM 1 FOR 4)::int
+      LEFT JOIN LATERAL (
+        SELECT annual_assessment, welfare_portion
+        FROM dues_rules rule
+        WHERE rule.year = SUBSTRING(t.tx_date FROM 1 FOR 4)::int
+          AND rule.active = true
+          AND (
+            rule.min_age IS NULL OR m.dob IS NULL OR m.dob !~ '^[0-9]{4}' OR
+            SUBSTRING(t.tx_date FROM 1 FOR 4)::int - SUBSTRING(m.dob FROM 1 FOR 4)::int >= rule.min_age
+          )
+          AND (
+            rule.max_age IS NULL OR m.dob IS NULL OR m.dob !~ '^[0-9]{4}' OR
+            SUBSTRING(t.tx_date FROM 1 FOR 4)::int - SUBSTRING(m.dob FROM 1 FOR 4)::int <= rule.max_age
+          )
+        ORDER BY rule.min_age DESC NULLS LAST
+        LIMIT 1
+      ) dr ON true
+      LEFT JOIN payment_splits ps
+        ON ps.year = SUBSTRING(t.tx_date FROM 1 FOR 4)::int
+        AND ps.category = t.category
+        AND ps.active = true
+      WHERE t.tx_type = 'receipt'
+        AND t.status IN ('posted', 'reversed')
+        AND (tc.purpose IN ('assessment', 'welfare_income') OR ps.id IS NOT NULL)
+      ORDER BY t.id
+    `, [wfFund.rows[0].id]);
+
+    let repaired = 0;
+    for (const tx of candidates.rows) {
+      const amount = Number(tx.amount);
+      let welfare = 0;
+      if (tx.purpose === 'welfare_income') {
+        welfare = amount;
+      } else if (Number(tx.assessment_due) > 0 && Number(tx.dues_welfare) > 0) {
+        welfare = Math.round((amount * Number(tx.dues_welfare) / Number(tx.assessment_due)) * 100) / 100;
+      } else if (Number(tx.split_assessment) > 0 && Number(tx.split_welfare) > 0) {
+        welfare = Math.round((amount * Number(tx.split_welfare) / Number(tx.split_assessment)) * 100) / 100;
+      }
+      const direction = tx.reverses_transaction_id == null ? 1 : -1;
+      const expectedWelfareAllocation = direction * welfare;
+      if (Math.abs(Number(tx.current_welfare) - welfare) < 0.005
+          && Math.abs(Number(tx.current_welfare_allocation) - expectedWelfareAllocation) < 0.005) continue;
+
+      await run('UPDATE transactions SET welfare_component = $1 WHERE id = $2', [welfare, tx.id]);
+      await run('DELETE FROM receipt_allocations WHERE transaction_id = $1', [tx.id]);
+      const operating = Math.round((amount - welfare) * 100) / 100;
+      if (operating > 0) {
+        await run(`INSERT INTO receipt_allocations (transaction_id, fund_classification_id, amount, category, description)
+          VALUES ($1, $2, $3, $4, $5)`, [tx.id, opFund.rows[0].id, direction * operating, tx.category, 'Effective dues welfare repair']);
+      }
+      if (welfare > 0) {
+        await run(`INSERT INTO receipt_allocations (transaction_id, fund_classification_id, amount, category, description)
+          VALUES ($1, $2, $3, $4, $5)`, [tx.id, wfFund.rows[0].id, expectedWelfareAllocation, tx.category, 'Effective dues welfare repair']);
+      }
+      repaired++;
+    }
+    await run('INSERT INTO migration_history (key, details) VALUES ($1, $2::jsonb)', [
+      welfareRepairKey, JSON.stringify({ repairedTransactions: repaired })
+    ]);
+    console.log(`[migrate]   ✓ effective welfare allocations repaired (${repaired} transactions)`);
+  } else {
+    console.log('[migrate]   ✓ effective welfare allocation repair already applied (skipped)');
+  }
+
   await run(`INSERT INTO audit_log (user_id, action, entity, entity_id, details) VALUES (NULL, 'migration', 'schema', NULL, 'Phase 1 accounting model corrections: fund_classifications created, receipt_allocations backfilled, is_welfare_fund removed')`);
   console.log('[migrate]   ✓ is_welfare_fund column removed, migration verified');
 

@@ -3,6 +3,7 @@
 <% locals.title = isIncome ? 'Record Income' : 'Record Expense'; %>
 <% const activeYear = Number(activeFiscalYear.year); const today = new Date().toISOString().slice(0,10); const defaultDate = Number(today.slice(0,4)) === activeYear ? today : activeYear + '-01-01'; %>
 <div class="page-container page-container--form">
+  <p class="context-help no-print">Need help with this entry? <a href="/help#record-<%= kind %>">Read the step-by-step guide</a>.</p>
   <section class="page-title"><div><span class="eyebrow">Finance · <%= isIncome ? 'Income' : 'Expenses' %></span><h1><%= isIncome ? 'Record Income' : 'Record Expense' %></h1><p><%= isIncome ? 'Record money received into a commandery account.' : 'Record money paid out from a commandery account.' %></p></div></section>
   <%- include('partials/finance-nav') %>
   <% if (locals.errors && locals.errors.length) { %><div class="error-summary" role="alert" aria-live="assertive"><h2>Check the information entered</h2><ul><% locals.errors.forEach(function(error) { %><li><%= error %></li><% }) %></ul></div><% } %>
