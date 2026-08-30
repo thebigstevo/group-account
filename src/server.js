@@ -299,6 +299,7 @@ async function duesRulesAreLocked(year) {
     FROM transactions t
     JOIN transaction_categories c ON c.name = t.category
     WHERE c.purpose = 'assessment' AND t.status = 'posted'
+      AND t.reverses_transaction_id IS NULL
       AND SUBSTRING(t.tx_date FROM 1 FOR 4) = $1
   `, [String(year)]);
   return Number(usage.count) > 0;
@@ -309,6 +310,7 @@ async function paymentSplitIsLocked(year, category) {
     SELECT COUNT(*)::int AS count
     FROM transactions
     WHERE category = $1 AND status = 'posted'
+      AND reverses_transaction_id IS NULL
       AND SUBSTRING(tx_date FROM 1 FOR 4) = $2
   `, [category, String(year)]);
   return Number(usage.count) > 0;
@@ -640,6 +642,7 @@ app.get('/members/:id', requireLogin, asyncHandler(async (req, res) => {
     FROM transactions t
     JOIN transaction_categories c ON c.name = t.category
     WHERE t.member_id = $1 AND t.tx_type = 'receipt' AND t.status = 'posted'
+      AND t.reverses_transaction_id IS NULL
     GROUP BY EXTRACT(YEAR FROM tx_date::date) ORDER BY year
   `, [member.id]);
 
@@ -1999,6 +2002,7 @@ async function financeTransactions(kind, limit = 100, year = null, month = '', c
     LEFT JOIN accounts a ON a.id = t.account_id
     LEFT JOIN users u ON u.id = t.created_by
     WHERE t.tx_type = ANY($1::varchar[])
+      AND t.reverses_transaction_id IS NULL
   `;
   const params = [types];
   let paramIdx = 2;
@@ -2049,8 +2053,8 @@ app.get('/finance', requireLogin, asyncHandler(async (req, res) => {
   const yearEnd = `${year}-12-31`;
   const [summary, recent, unreconciledRow, arrearsData, lastRecRow] = await Promise.all([
     reportSummary(yearStart, yearEnd),
-    dal.query(`SELECT t.*, a.name AS account_name FROM transactions t LEFT JOIN accounts a ON a.id = t.account_id WHERE t.status = 'posted' AND t.tx_date >= $1 AND t.tx_date <= $2 ORDER BY t.tx_date DESC, t.id DESC LIMIT 8`, [yearStart, yearEnd]),
-    dal.queryOne("SELECT COUNT(*) AS count FROM transactions WHERE status = 'posted' AND reconciled = false AND tx_date >= $1 AND tx_date <= $2", [yearStart, yearEnd]),
+    dal.query(`SELECT t.*, a.name AS account_name FROM transactions t LEFT JOIN accounts a ON a.id = t.account_id WHERE t.status = 'posted' AND t.reverses_transaction_id IS NULL AND t.tx_date >= $1 AND t.tx_date <= $2 ORDER BY t.tx_date DESC, t.id DESC LIMIT 8`, [yearStart, yearEnd]),
+    dal.queryOne("SELECT COUNT(*) AS count FROM transactions WHERE status = 'posted' AND reverses_transaction_id IS NULL AND reconciled = false AND tx_date >= $1 AND tx_date <= $2", [yearStart, yearEnd]),
     arrearsReport(year),
     dal.queryOne('SELECT MAX(period_end) AS date FROM reconciliations')
   ]);
@@ -2563,6 +2567,7 @@ app.post('/reconciliation', allow('admin', 'treasurer'), asyncHandler(async (req
       SET reconciled = true, updated_at = NOW()
       WHERE account_id = $1
         AND status = 'posted'
+        AND reverses_transaction_id IS NULL
         AND reconciled = false
         AND tx_date >= $2
         AND tx_date <= $3
@@ -2835,7 +2840,8 @@ app.get('/trustee-dashboard', allow('admin', 'trustee', 'auditor'), asyncHandler
       COALESCE(SUM(amount) FILTER (WHERE tx_type = 'receipt'), 0) AS receipts,
       COALESCE(SUM(amount) FILTER (WHERE tx_type IN ('expense', 'welfare_payout')), 0) AS outflows
     FROM transactions
-    WHERE status = 'posted' AND tx_date >= $1 AND tx_date <= $2
+    WHERE status = 'posted' AND reverses_transaction_id IS NULL
+      AND tx_date >= $1 AND tx_date <= $2
   `, [yearStart, yearEnd]);
 
   const grossReceipts = Number(summaryRow.receipts || 0);
@@ -2845,7 +2851,8 @@ app.get('/trustee-dashboard', allow('admin', 'trustee', 'auditor'), asyncHandler
   const unreconciledRow = await dal.queryOne(`
     SELECT COUNT(*)::int AS count
     FROM transactions
-    WHERE status = 'posted' AND tx_type <> 'transfer' AND reconciled = false
+    WHERE status = 'posted' AND reverses_transaction_id IS NULL
+      AND tx_type <> 'transfer' AND reconciled = false
       AND tx_date >= $1 AND tx_date <= $2
   `, [yearStart, yearEnd]);
   const unreconciledCount = Number(unreconciledRow.count || 0);
@@ -3337,12 +3344,13 @@ app.get('/download/income-expenditure', requireLogin, asyncHandler(async (req, r
       const income = await dal.query(`
         SELECT t.category, COALESCE(SUM(ra.amount), 0) AS total
         FROM receipt_allocations ra
-        JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted' AND t.tx_type = 'receipt'
+        JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted'
+          AND t.reverses_transaction_id IS NULL AND t.tx_type = 'receipt'
           AND t.tx_date >= $1 AND t.tx_date <= $2
         JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'mens_operating'
         GROUP BY t.category ORDER BY total DESC
       `, [startDate, endDate]);
-      const expenses = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type IN ('expense', 'welfare_payout') AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
+      const expenses = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type IN ('expense', 'welfare_payout') AND status = 'posted' AND reverses_transaction_id IS NULL AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
       const totalIncome = income.reduce((s, r) => s + Number(r.total), 0);
       const totalExpenses = expenses.reduce((s, r) => s + Number(r.total), 0);
       const surplus = totalIncome - totalExpenses;
@@ -3408,8 +3416,8 @@ app.get('/download/receipts-payments', requireLogin, asyncHandler(async (req, re
       let grandOpening = 0, grandReceipts = 0, grandPayments = 0, grandClosing = 0;
 
       for (const account of accounts) {
-        const receipts = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND status = 'posted' AND account_id = $1 AND tx_date >= $2 AND tx_date <= $3 GROUP BY category ORDER BY total DESC`, [account.id, startDate, endDate]);
-        const payments = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type IN ('expense','welfare_payout') AND status = 'posted' AND account_id = $1 AND tx_date >= $2 AND tx_date <= $3 GROUP BY category ORDER BY total DESC`, [account.id, startDate, endDate]);
+        const receipts = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND status = 'posted' AND reverses_transaction_id IS NULL AND account_id = $1 AND tx_date >= $2 AND tx_date <= $3 GROUP BY category ORDER BY total DESC`, [account.id, startDate, endDate]);
+        const payments = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type IN ('expense','welfare_payout') AND status = 'posted' AND reverses_transaction_id IS NULL AND account_id = $1 AND tx_date >= $2 AND tx_date <= $3 GROUP BY category ORDER BY total DESC`, [account.id, startDate, endDate]);
         const openingBalance = Number(account.opening_balance);
         const totalReceipts = receipts.reduce((s, r) => s + Number(r.total), 0);
         const totalPayments = payments.reduce((s, r) => s + Number(r.total), 0);
@@ -3496,7 +3504,8 @@ app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) =>
       const collected = await dal.query(`
         SELECT t.category, COALESCE(SUM(ra.amount), 0) AS total
         FROM receipt_allocations ra
-        JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted' AND t.tx_type = 'receipt'
+        JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted'
+          AND t.reverses_transaction_id IS NULL AND t.tx_type = 'receipt'
           AND t.tx_date >= $1 AND t.tx_date <= $2
         JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'joint_welfare'
         WHERE ra.amount > 0
@@ -3507,6 +3516,7 @@ app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) =>
         SELECT category, COALESCE(SUM(amount), 0) AS total
         FROM transactions
         WHERE tx_type = 'welfare_payout' AND status = 'posted'
+          AND reverses_transaction_id IS NULL
           AND tx_date >= $1 AND tx_date <= $2
         GROUP BY category ORDER BY total DESC
       `, [startDate, endDate]);
@@ -3615,7 +3625,7 @@ app.get('/download/member-statement', requireLogin, asyncHandler(async (req, res
 
     if (req.query.format === 'pdf') {
       const due = await memberDue(member, year);
-      const allTransactions = await dal.query(`SELECT t.*, a.name AS account_name, tc.purpose AS category_purpose FROM transactions t LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN transaction_categories tc ON tc.name = t.category WHERE t.member_id = $1 AND t.tx_date >= $2 AND t.tx_date <= $3 AND t.status = 'posted' ORDER BY t.tx_date, t.id`, [memberId, `${year}-01-01`, `${year}-12-31`]);
+      const allTransactions = await dal.query(`SELECT t.*, a.name AS account_name, tc.purpose AS category_purpose FROM transactions t LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN transaction_categories tc ON tc.name = t.category WHERE t.member_id = $1 AND t.tx_date >= $2 AND t.tx_date <= $3 AND t.status = 'posted' AND t.reverses_transaction_id IS NULL ORDER BY t.tx_date, t.id`, [memberId, `${year}-01-01`, `${year}-12-31`]);
       // Only assessment-category receipts count toward the balance
       const assessmentTxns = allTransactions.filter(t => t.tx_type === 'receipt' && t.category_purpose === 'assessment');
       const otherTxns = allTransactions.filter(t => !(t.tx_type === 'receipt' && t.category_purpose === 'assessment'));

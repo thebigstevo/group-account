@@ -14,6 +14,14 @@ const {
   validateTransferRecord,
 } = require('../memberDomain');
 
+function localDateString(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-');
+}
+
 describe('member domain', () => {
   test('normalizes Ghanaian local and international phone numbers', () => {
     expect(normalizePhone('024 123 4567')).toBe('+233241234567');
@@ -91,7 +99,7 @@ describe('member domain', () => {
     test('returns error when date_conferred is in the future', () => {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
-      const input = { rank_title: 'Knight', date_conferred: tomorrow.toISOString().slice(0, 10) };
+      const input = { rank_title: 'Knight', date_conferred: localDateString(tomorrow) };
       const errors = validateRankEntry(input);
       expect(errors).toContain('Date conferred must not be in the future.');
     });
@@ -170,7 +178,7 @@ describe('member domain', () => {
     test('returns error when start_date is in the future', () => {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
-      const input = { position_title: 'Secretary', start_date: tomorrow.toISOString().slice(0, 10) };
+      const input = { position_title: 'Secretary', start_date: localDateString(tomorrow) };
       const errors = validatePositionEntry(input);
       expect(errors).toContain('Start date must not be in the future.');
     });
@@ -240,7 +248,7 @@ describe('member domain', () => {
     test('returns error when transfer_date is in the future', () => {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
-      const input = { origin_commandery_name: 'Accra Commandery', transfer_date: tomorrow.toISOString().slice(0, 10) };
+      const input = { origin_commandery_name: 'Accra Commandery', transfer_date: localDateString(tomorrow) };
       const errors = validateTransferRecord(input, '2030-01-01');
       expect(errors).toContain('Transfer date must not be in the future.');
     });
