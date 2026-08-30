@@ -144,10 +144,10 @@ For the full deployment guide (CI/CD with GitHub Actions, VPS setup, fresh deplo
 
 Quick summary:
 1. Add GitHub Secrets (VPS credentials, DB password, session secrets)
-2. Push to `develop` → deploys dev
-3. Push to `master` → deploys prod
-4. SSH in and run `node src/seed.js` to create admin user
-5. Run `certbot` for HTTPS
+2. Merge reviewed changes into `dev` → automatically deploys development
+3. Promote `dev` to `master` through a pull request → automatically deploys production
+4. Complete the first-run setup wizard when deploying a fresh database
+5. TLS and health verification are handled by the deployment workflow
 
 ### Production Checklist
 
