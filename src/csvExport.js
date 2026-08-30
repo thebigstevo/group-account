@@ -72,7 +72,7 @@ async function exportTransactionsCsv(filters = {}) {
   }
 
   if (!includeReversed) {
-    query += ` AND t.status = 'posted'`;
+    query += ` AND t.status = 'posted' AND t.reverses_transaction_id IS NULL`;
   }
 
   query += ` ORDER BY t.tx_date DESC, t.id DESC`;
@@ -119,6 +119,7 @@ async function exportArrearsCsv(year) {
           AND c.purpose = 'assessment'
           AND SUBSTRING(t.tx_date FROM 1 FOR 4) = $1
           AND t.status = 'posted'
+          AND t.reverses_transaction_id IS NULL
       ), 0) as paid,
       m.opening_arrears + COALESCE(md.assessment_due, dr.annual_assessment, 0) - COALESCE((
         SELECT SUM(amount)
@@ -129,6 +130,7 @@ async function exportArrearsCsv(year) {
           AND c.purpose = 'assessment'
           AND SUBSTRING(t.tx_date FROM 1 FOR 4) = $2
           AND t.status = 'posted'
+          AND t.reverses_transaction_id IS NULL
       ), 0) as balance
     FROM members m
     LEFT JOIN member_dues md ON md.member_id = m.id AND md.year = $3
@@ -204,6 +206,7 @@ async function exportReportCsv(startDate, endDate) {
     SELECT category, COALESCE(SUM(amount - welfare_component), 0) AS total
     FROM transactions
     WHERE tx_type = 'receipt' AND status = 'posted'
+      AND reverses_transaction_id IS NULL
       AND tx_date >= $1
       AND tx_date <= $2
     GROUP BY category
@@ -214,6 +217,7 @@ async function exportReportCsv(startDate, endDate) {
     SELECT category, COALESCE(SUM(amount), 0) AS total
     FROM transactions
     WHERE tx_type = 'expense' AND status = 'posted'
+      AND reverses_transaction_id IS NULL
       AND tx_date >= $1
       AND tx_date <= $2
     GROUP BY category

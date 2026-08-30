@@ -137,6 +137,24 @@ describe('finance and dashboard template rendering', () => {
     expect(html).toContain('No expenses recorded for this month.');
   });
 
+  test('income register excludes posted reversal audit entries from desktop and mobile totals', async () => {
+    const html = await ejs.renderFile(path.join(views, 'finance_list.ejs'), {
+      ...baseLocals,
+      currentPath: '/finance/income',
+      kind: 'income',
+      transactions: [
+        { ...transaction, id: 100, amount: 500, status: 'reversed', reversal_transaction_id: 109 },
+        { ...transaction, id: 109, amount: 500, status: 'posted', reverses_transaction_id: 100 },
+        { ...transaction, id: 110, amount: 3100, status: 'posted', reverses_transaction_id: null }
+      ]
+    });
+
+    expect(html).toContain('Reversal');
+    expect(html).not.toContain('GHS 3600.00');
+    expect((html.match(/GHS 3100\.00/g) || [])).toHaveLength(4); // active row and total in both responsive layouts
+    expect(serverSource).toMatch(/WHERE t\.tx_type = ANY\(\$1::varchar\[\]\)[\s\S]*?AND t\.reverses_transaction_id IS NULL/);
+  });
+
   test('legacy metric cards contain long financial values during a rolling deployment', () => {
     expect(cssSource).toMatch(/\.metric-card\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?overflow:\s*hidden;/);
     expect(cssSource).toMatch(/\.metric-card__label\s*\{[\s\S]*?display:\s*block;[\s\S]*?overflow-wrap:\s*anywhere;/);
