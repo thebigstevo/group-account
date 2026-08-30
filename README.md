@@ -142,6 +142,8 @@ The app connects to PostgreSQL using either:
 
 For the full deployment guide (CI/CD with GitHub Actions, VPS setup, fresh deploy steps, backup/restore, troubleshooting), see **[DEPLOYMENT.md](./DEPLOYMENT.md)**.
 
+For administrator setup, executive handover, daily finance work, secretary duties, trustee audits, and role-specific instructions, see the **[Operational Manual](./docs/OPERATIONAL_MANUAL.md)**.
+
 Quick summary:
 1. Add GitHub Secrets (VPS credentials, DB password, session secrets)
 2. Merge reviewed changes into `dev` → automatically deploys development
