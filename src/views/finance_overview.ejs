@@ -1,0 +1,44 @@
+<%- include('partials/header') %>
+<% locals.title = 'Finance Overview'; %>
+<% const financeTotal = summary.balances.reduce((sum, account) => sum + Number(account.balance || 0), 0); %>
+<div class="page-container">
+  <section class="page-title">
+    <div><span class="eyebrow">Finance</span><h1>Finance overview</h1><p>Balances, activity, and work requiring attention for fiscal year <%= activeFiscalYear.year %>.</p></div>
+    <div class="page-title__meta"><span class="badge badge--success">Open FY <%= activeFiscalYear.year %></span></div>
+  </section>
+  <%- include('partials/finance-nav') %>
+
+  <section class="quick-actions" aria-label="Finance actions">
+    <% if (['admin','finance_secretary','treasurer'].includes(user.role)) { %><a class="btn btn--primary" href="/finance/income/new">Add income</a><% } %>
+    <% if (['admin','treasurer'].includes(user.role)) { %><a class="btn btn--primary" href="/finance/expenses/new">Add expense</a><% } %>
+    <% if (['admin','treasurer','auditor','viewer'].includes(user.role)) { %><a class="btn btn--secondary" href="/finance/reconciliation">Reconcile</a><% } %>
+    <a class="btn btn--secondary" href="/finance/reports">Reports</a>
+  </section>
+
+  <section class="summary-strip" aria-label="Financial summary">
+    <div class="summary-strip__item"><span class="summary-strip__label">Total available balance</span><strong class="summary-strip__value"><%= formatMoney(financeTotal) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Income this year</span><strong class="summary-strip__value"><%= formatMoney(summary.income) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Expenses this year</span><strong class="summary-strip__value"><%= formatMoney(summary.expenses) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Unreconciled items</span><strong class="summary-strip__value"><%= unreconciledCount %></strong></div>
+  </section>
+
+  <section class="dashboard-layout">
+    <div class="dashboard-stack">
+      <div class="dashboard-section">
+        <div class="section-head"><div><h2>Account balances</h2><p>Available funds by account.</p></div><a href="/finance/accounts">View accounts</a></div>
+        <% if (!summary.balances.length) { %><div class="empty-state"><p>No active accounts are configured.</p></div><% } else { %>
+        <div class="account-list"><% summary.balances.forEach(function(account) { %><div class="account-row"><span class="account-row__name"><%= account.name %></span><strong class="account-row__value"><%= formatMoney(account.balance) %></strong></div><% }) %></div><% } %>
+      </div>
+      <div class="dashboard-section">
+        <div class="section-head"><div><h2>Recent transactions</h2><p>Latest posted financial activity.</p></div></div>
+        <% if (!recent.length) { %><div class="empty-state"><p>No transactions have been recorded.</p></div><% } else { %>
+        <div class="mobile-list" style="display:block"><% recent.forEach(function(row) { %><a class="transaction-card" href="<%= row.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses' %>"><div class="transaction-card__top"><strong><%= row.category %></strong><span class="transaction-card__amount"><%= formatMoney(row.amount) %></span></div><div class="transaction-card__meta"><span><%= formatDate(row.tx_date) %></span><span><%= row.account_name || 'No account' %></span><span class="badge status-badge <%= row.reconciled ? 'badge--success' : 'badge--warning' %>"><%= row.reconciled ? 'Reconciled' : 'Unreconciled' %></span></div></a><% }) %></div><% } %>
+      </div>
+    </div>
+    <aside class="dashboard-stack">
+      <div class="dashboard-section"><div class="section-head"><div><h2>Work requiring attention</h2><p>Items to review next.</p></div></div><div class="work-queue"><a href="/finance/income" class="work-queue__item"><strong class="work-queue__count"><%= unreconciledCount %></strong><span class="work-queue__label">Unreconciled transactions</span></a><a href="/reports" class="work-queue__item"><strong class="work-queue__count"><%= arrearsCount %></strong><span class="work-queue__label">Members with overdue dues</span></a><a href="/finance/reconciliation" class="work-queue__item"><strong class="work-queue__count"><%= lastReconciliation ? formatDate(lastReconciliation) : '—' %></strong><span class="work-queue__label">Latest reconciliation</span></a></div></div>
+      <div class="dashboard-section"><h2>Reporting and controls</h2><ul class="guidance-list"><li>Review unreconciled entries before period close.</li><li>Use reports for the combined income and expense view.</li><li>Account setup is controlled by authorised roles.</li></ul></div>
+    </aside>
+  </section>
+</div>
+<%- include('partials/footer') %>

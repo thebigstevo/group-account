@@ -1,7 +1,10 @@
+'use strict';
+
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-const { db, audit } = require('./db');
+const dal = require('./dal');
+const { importMembers } = require('./importMembers');
 
 const workbookPath = process.env.WORKBOOK_PATH || process.argv[2];
 if (!workbookPath) {
@@ -119,32 +122,19 @@ function readSheetRows(entries, sheetName) {
   });
 }
 
-const entries = unzipEntries(workbookPath);
-const rows = readSheetRows(entries, 'Members');
-const dataRows = rows.slice(1).filter((row) => row[0]);
+async function importWorkbook() {
+  const active = await dal.queryOne(
+    "SELECT year FROM fiscal_years WHERE status = 'open' AND is_active = true LIMIT 1"
+  );
+  if (!active) throw new Error('Select an active fiscal year in Treasurio before importing members.');
+  const result = await importMembers(
+    fs.readFileSync(workbookPath), path.basename(workbookPath), null, Number(active.year)
+  );
+  console.log(`Imported or updated ${result.imported} members for fiscal year ${active.year}; ${result.skipped} rows skipped.`);
+  await dal.shutdown();
+}
 
-const upsert = db.prepare(`
-  INSERT INTO members (name, opening_arrears, phone, dob, status)
-  VALUES (?, ?, ?, ?, 'active')
-  ON CONFLICT(name) DO UPDATE SET
-    opening_arrears = excluded.opening_arrears,
-    phone = excluded.phone,
-    dob = excluded.dob
-`);
-
-let imported = 0;
-const importMany = db.transaction(() => {
-  for (const row of dataRows) {
-    upsert.run(
-      String(row[0] || '').trim(),
-      Number(row[1] || 0),
-      row[2] ? String(row[2]).trim() : null,
-      row[3] ? excelDate(row[3]) : null
-    );
-    imported += 1;
-  }
+importWorkbook().catch((err) => {
+  console.error('Import failed:', err.message);
+  process.exit(1);
 });
-
-importMany();
-audit(null, 'import', 'workbook', null, `${imported} members from ${workbookPath}`);
-console.log(`Imported or updated ${imported} members.`);

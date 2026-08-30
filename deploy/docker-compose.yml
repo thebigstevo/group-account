@@ -1,0 +1,85 @@
+# Treasurio — Multi-Environment Deployment
+# Shared PostgreSQL + Dev & Prod app containers
+# Dev: port 3100, database treasurio_dev
+# Prod: port 3200, database treasurio_prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+    environment:
+      POSTGRES_USER: treasurio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: treasurio_prod
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U treasurio"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - treasurio-net
+    restart: unless-stopped
+
+  app-dev:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:3100:3000"
+    volumes:
+      - uploads-dev:/app/uploads
+    environment:
+      NODE_ENV: development
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: treasurio_dev
+      PGUSER: treasurio_dev
+      PGPASSWORD: ${DEV_DB_PASSWORD:-unused}
+      SESSION_SECRET: ${DEV_SESSION_SECRET}
+      N8N_API_TOKEN: ${DEV_N8N_API_TOKEN:-dev-token}
+      GROUP_NAME: ${DEV_GROUP_NAME:-KSJI Dev}
+      GROUP_CURRENCY: ${GROUP_CURRENCY:-GHS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - treasurio-net
+    restart: unless-stopped
+
+  app-prod:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:3200:3000"
+    volumes:
+      - uploads-prod:/app/uploads
+    environment:
+      NODE_ENV: production
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: treasurio_prod
+      PGUSER: treasurio_prod
+      PGPASSWORD: ${PROD_DB_PASSWORD:-unused}
+      SESSION_SECRET: ${PROD_SESSION_SECRET}
+      N8N_API_TOKEN: ${PROD_N8N_API_TOKEN:-prod-token}
+      GROUP_NAME: ${PROD_GROUP_NAME:-KSJI}
+      GROUP_CURRENCY: ${GROUP_CURRENCY:-GHS}
+      SECURE_COOKIES: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - treasurio-net
+    restart: unless-stopped
+
+networks:
+  treasurio-net:
+
+volumes:
+  pgdata:
+  uploads-dev:
+  uploads-prod:

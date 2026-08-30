@@ -1,0 +1,76 @@
+<%- include('../partials/header') %>
+<% locals.title = event ? 'Edit Event' : 'New Event' %>
+<% const v = locals.values || event || {} %>
+
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <h1><%= event ? 'Edit Event' : 'New Event' %></h1>
+    </div>
+  </section>
+
+  <% if (errors && errors.length) { %>
+  <div class="alert alert--error" role="alert">
+    <ul><% errors.forEach(function(e) { %><li><%= e %></li><% }) %></ul>
+  </div>
+  <% } %>
+
+  <section class="panel narrow">
+    <form method="post" action="<%= event ? '/secretary/meetings/events/' + event.id : '/secretary/meetings/events' %>">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <div class="form-group">
+        <label for="title">Event Name</label>
+        <input type="text" id="title" name="title" value="<%= v.title || '' %>" required placeholder="e.g. May Regular Meeting, Grand Convention 2026">
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="event_date">Date</label>
+          <input type="date" id="event_date" name="event_date" value="<%= v.event_date || v.meeting_date || '' %>" required>
+        </div>
+        <div class="form-group">
+          <label for="start_time">Time (optional)</label>
+          <input type="time" id="start_time" name="start_time" value="<%= v.start_time || '' %>">
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="event_level">Level</label>
+          <select id="event_level" name="event_level" required>
+            <% EVENT_LEVELS.forEach(function(l) { %>
+            <option value="<%= l %>" <%= (v.event_level || 'local') === l ? 'selected' : '' %>><%= EVENT_LEVEL_LABELS[l] %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="event_type">Type</label>
+          <select id="event_type" name="event_type" required>
+            <% eventTypes.forEach(function(t) { %>
+            <option value="<%= t.slug %>" <%= (v.event_type || 'meeting') === t.slug ? 'selected' : '' %>><%= t.name %></option>
+            <% }) %>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="location">Location</label>
+        <input type="text" id="location" name="location" value="<%= v.location || '' %>" placeholder="e.g. Parish Hall, Accra Convention Centre">
+      </div>
+
+      <div class="form-group">
+        <label for="minutes_url">Minutes Link (optional)</label>
+        <input type="url" id="minutes_url" name="minutes_url" value="<%= v.minutes_url || '' %>" placeholder="https://drive.google.com/...">
+        <span class="form-group__hint">Link to meeting minutes on Google Drive.</span>
+      </div>
+
+      <div class="form-actions">
+        <a class="btn btn--secondary" href="/secretary/meetings/events">Cancel</a>
+        <button class="btn btn--primary" type="submit"><%= event ? 'Save' : 'Create Event' %></button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<%- include('../partials/footer') %>

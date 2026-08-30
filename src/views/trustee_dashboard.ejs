@@ -1,0 +1,50 @@
+<%- include('partials/header') %>
+<% locals.title = 'Trustee Financial Overview'; %>
+<div class="page-container">
+  <section class="page-title">
+    <div><span class="eyebrow">Governance · Financial overview</span><h1>Trustee Financial Overview</h1><p>Read-only summary of the commandery's financial position.</p></div>
+    <div class="page-actions"><a class="btn btn--primary" href="/trustee-audit">Perform Audit</a></div>
+  </section>
+
+  <% if (noActiveFiscalYear) { %>
+  <section class="panel">
+    <div class="error-state" role="alert" aria-live="polite">
+      <h2>No active fiscal year</h2>
+      <p>There is no fiscal year currently open. Receipts, outflows, and unreconciled transaction data are unavailable until a fiscal year is activated.</p>
+    </div>
+  </section>
+  <% } else { %>
+  <section class="summary-strip" aria-label="Fiscal year financial metrics">
+    <div class="summary-strip__item"><span class="summary-strip__label">Gross receipts</span><strong class="summary-strip__value"><%= formatMoney(grossReceipts) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Total outflows</span><strong class="summary-strip__value"><%= formatMoney(totalOutflows) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Unreconciled transactions</span><strong class="summary-strip__value"><%= unreconciledCount %></strong></div>
+  </section>
+  <% } %>
+
+  <section class="panel">
+    <div class="section-head"><div><h2>Account Balances</h2><p>Current balances for all active commandery accounts.</p></div></div>
+    <div class="account-list" aria-label="Account balances">
+      <% if (!balances || !balances.length) { %>
+      <div class="empty-state"><p>No active accounts are configured.</p></div>
+      <% } else { %>
+      <% balances.forEach(function(account) { %>
+      <div class="account-row"><span class="account-row__name"><%= account.name %></span><strong class="account-row__value"><%= formatMoney(account.balance) %></strong></div>
+      <% }) %>
+      <% } %>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head"><div><h2>Most Recent Audit</h2><p>Summary of the latest completed accounting audit.</p></div></div>
+    <% if (latestAudit) { %>
+    <dl class="report-notes">
+      <div><dt>Date</dt><dd><%= latestAudit.date %></dd></div>
+      <div><dt>Conclusion</dt><dd><%= latestAudit.conclusion %></dd></div>
+      <div><dt>Performed by</dt><dd><%= latestAudit.trusteeName %></dd></div>
+    </dl>
+    <% } else { %>
+    <div class="empty-state"><p>No audit performed</p></div>
+    <% } %>
+  </section>
+</div>
+<%- include('partials/footer') %>

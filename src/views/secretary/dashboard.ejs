@@ -1,0 +1,82 @@
+<%- include('../partials/header') %>
+<% locals.title = 'Secretary Dashboard' %>
+
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <h1>Secretary Dashboard</h1>
+      <p>Events and attendance overview for <%= year %>.</p>
+    </div>
+    <div class="hero-actions">
+      <a class="btn btn--primary" href="/secretary/meetings/events/new">New Event</a>
+      <a class="btn btn--secondary" href="/secretary/meetings/events">All Events</a>
+      <a class="btn btn--secondary" href="/secretary/meetings/event-types">Event Types</a>
+    </div>
+  </section>
+
+  <!-- Stats cards -->
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-5);">
+    <div class="panel" style="text-align:center;">
+      <div style="font-size: 1.75rem; font-weight: 700; color: var(--primary-600);"><%= totalEvents %></div>
+      <div style="font-size: 0.75rem; color: var(--neutral-500); text-transform: uppercase;">Total Events</div>
+    </div>
+    <div class="panel" style="text-align:center;">
+      <div style="font-size: 1.75rem; font-weight: 700; color: var(--success-base);"><%= avgAttendance %>%</div>
+      <div style="font-size: 0.75rem; color: var(--neutral-500); text-transform: uppercase;">Avg Attendance</div>
+    </div>
+    <% EVENT_LEVEL_LABELS && Object.entries(byLevel).forEach(function([level, count]) { %>
+    <div class="panel" style="text-align:center;">
+      <div style="font-size: 1.75rem; font-weight: 700;"><%= count %></div>
+      <div style="font-size: 0.75rem; color: var(--neutral-500); text-transform: uppercase;"><%= EVENT_LEVEL_LABELS[level] || level %></div>
+    </div>
+    <% }) %>
+  </div>
+
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap: var(--space-4);">
+    <!-- Upcoming events -->
+    <section class="panel">
+      <h2>Upcoming Events</h2>
+      <% if (upcoming.length) { %>
+      <ul style="list-style:none; margin-top: var(--space-3);">
+        <% upcoming.forEach(function(e) { %>
+        <li style="padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border); font-size: 0.85rem;">
+          <a href="/secretary/meetings/events/<%= e.id %>"><strong><%= e.title || EVENT_TYPE_LABELS[e.event_type] || 'Event' %></strong></a>
+          <span style="color: var(--neutral-500); margin-left: var(--space-2);"><%= formatDate(e.meeting_date) %></span>
+          <span class="badge" style="margin-left: var(--space-2);"><%= EVENT_LEVEL_LABELS[e.event_level] || e.event_level %></span>
+        </li>
+        <% }) %>
+      </ul>
+      <% } else { %>
+      <p class="text-muted">No upcoming events.</p>
+      <% } %>
+    </section>
+
+    <!-- Member attendance scores -->
+    <section class="panel">
+      <h2>Member Attendance Scores</h2>
+      <% if (memberScores.length) { %>
+      <div class="table-wrap" style="margin-top: var(--space-3);">
+        <table class="data-table">
+          <thead><tr><th>Member</th><th style="text-align:center">Events</th><th style="text-align:center">Present</th><th style="text-align:center">Score</th></tr></thead>
+          <tbody>
+            <% memberScores.forEach(function(m) { %>
+            <tr>
+              <td><a href="/members/<%= m.id %>"><%= m.name %></a></td>
+              <td style="text-align:center"><%= m.events_tracked %></td>
+              <td style="text-align:center"><%= m.present_count %></td>
+              <td style="text-align:center">
+                <span style="font-weight:600; color: <%= m.score >= 75 ? 'var(--success-base)' : m.score >= 50 ? 'var(--warning-base)' : 'var(--danger-base)' %>;"><%= m.score %>%</span>
+              </td>
+            </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+      <% } else { %>
+      <p class="text-muted">No attendance data yet.</p>
+      <% } %>
+    </section>
+  </div>
+</div>
+
+<%- include('../partials/footer') %>

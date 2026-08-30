@@ -1,0 +1,58 @@
+<%- include('../partials/header') %>
+<% locals.title = 'Mark Attendance' %>
+
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <h1>Mark Attendance</h1>
+      <p><%= meeting.title || 'Event' %> — <%= formatDate(meeting.meeting_date) %></p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <form method="post" action="/secretary/meetings/events/<%= meeting.id %>/attendance">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+      <p style="margin-bottom: var(--space-3); font-size: 0.875rem; color: var(--neutral-600);">
+        Mark each member as Present, Permission, or Absent.
+      </p>
+
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Member</th>
+              <th style="text-align:center">Present</th>
+              <th style="text-align:center">Permission</th>
+              <th style="text-align:center">Absent</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% members.forEach(function(m) { %>
+            <% const current = attendanceMap[m.id] || 'absent'; %>
+            <tr>
+              <td><%= m.name %></td>
+              <td style="text-align:center">
+                <input type="radio" name="member_<%= m.id %>" value="present" <%= current === 'present' ? 'checked' : '' %>>
+              </td>
+              <td style="text-align:center">
+                <input type="radio" name="member_<%= m.id %>" value="excuse" <%= current === 'excuse' ? 'checked' : '' %>>
+              </td>
+              <td style="text-align:center">
+                <input type="radio" name="member_<%= m.id %>" value="absent" <%= current === 'absent' ? 'checked' : '' %>>
+              </td>
+            </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="form-actions" style="margin-top: var(--space-4);">
+        <a class="btn btn--secondary" href="/secretary/meetings/events/<%= meeting.id %>">Cancel</a>
+        <button class="btn btn--primary" type="submit">Save Attendance</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<%- include('../partials/footer') %>

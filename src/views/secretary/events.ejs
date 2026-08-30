@@ -1,0 +1,63 @@
+<%- include('../partials/header') %>
+<% locals.title = 'Events' %>
+
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <h1>Events</h1>
+      <p>All events in the annual program.</p>
+    </div>
+    <div class="hero-actions">
+      <% if (['admin','secretary'].includes(user.role)) { %>
+      <a class="btn btn--primary" href="/secretary/meetings/events/new">New Event</a>
+      <% } %>
+    </div>
+  </section>
+
+  <section class="panel">
+    <% if (!events.length) { %>
+    <div class="empty-state">
+      <p>No events recorded yet.</p>
+    </div>
+    <% } else { %>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Event</th>
+            <th>Level</th>
+            <th>Type</th>
+            <th>Location</th>
+            <th style="text-align:center">Present</th>
+            <th style="text-align:center">Permission</th>
+            <th style="text-align:center">Absent</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% events.forEach(function(e) { %>
+          <tr>
+            <td><%= formatDate(e.meeting_date) %></td>
+            <td><a href="/secretary/meetings/events/<%= e.id %>"><%= e.title || EVENT_TYPE_LABELS[e.event_type] || '—' %></a></td>
+            <td><span class="badge"><%= EVENT_LEVEL_LABELS[e.event_level] || e.event_level %></span></td>
+            <td><%= EVENT_TYPE_LABELS[e.event_type] || e.event_type %></td>
+            <td><%= e.location || '—' %></td>
+            <td style="text-align:center"><%= e.present_count %></td>
+            <td style="text-align:center"><%= e.excuse_count %></td>
+            <td style="text-align:center"><%= e.absent_count %></td>
+            <td>
+              <% if (['admin','secretary'].includes(user.role)) { %>
+              <a class="btn btn--secondary btn--sm" href="/secretary/meetings/events/<%= e.id %>/attendance">Attendance</a>
+              <% } %>
+            </td>
+          </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+    <% } %>
+  </section>
+</div>
+
+<%- include('../partials/footer') %>

@@ -1,0 +1,203 @@
+<%- include('partials/header') %>
+<% locals.title = 'Organization Settings'; %>
+<div class="page-container page-container--form">
+  <section class="page-title">
+    <div>
+      <span class="eyebrow">Administration</span>
+      <h1>Organization Profile</h1>
+      <p>Configure your group's identity. These details appear on reports, PDFs, statements, and the login page.</p>
+    </div>
+  </section>
+
+  <% if (locals.errors && locals.errors.length) { %>
+  <div class="error-summary" role="alert"><h2>Please fix the following</h2><ul><% locals.errors.forEach(function(err) { %><li><%= err %></li><% }) %></ul></div>
+  <% } %>
+
+  <section class="form-layout">
+    <form method="post" action="/organization" class="form-card" data-validate>
+      <%- include('partials/csrf') %>
+
+      <div class="form-section">
+        <div class="form-section__heading"><h2>Identity</h2><p>The official name and branding of your organization.</p></div>
+        <div class="field-grid">
+          <div class="form-group field-grid__full">
+            <label for="org-name">Organization name *</label>
+            <input id="org-name" name="name" required value="<%= org.name %>">
+          </div>
+          <div class="form-group">
+            <label for="org-short">Short name / Abbreviation</label>
+            <input id="org-short" name="short_name" value="<%= org.short_name || '' %>" placeholder="e.g., KSJI">
+          </div>
+          <div class="form-group">
+            <label for="org-reg">Registration number</label>
+            <input id="org-reg" name="registration_number" value="<%= org.registration_number || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-founded">Year founded</label>
+            <input id="org-founded" name="founded_year" type="number" value="<%= org.founded_year || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-currency">Currency code *</label>
+            <input id="org-currency" name="currency" required value="<%= org.currency %>" placeholder="GHS">
+            <span class="form-group__hint">ISO 4217 code (GHS, USD, GBP, NGN, etc.)</span>
+          </div>
+          <div class="form-group field-grid__full">
+            <label for="org-motto">Motto / Tagline</label>
+            <input id="org-motto" name="motto" value="<%= org.motto || '' %>">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section__heading"><h2>Contact & Address</h2><p>Used on letterheads and official documents.</p></div>
+        <div class="field-grid">
+          <div class="form-group field-grid__full">
+            <label for="org-address">Address</label>
+            <textarea id="org-address" name="address" rows="2"><%= org.address || '' %></textarea>
+          </div>
+          <div class="form-group">
+            <label for="org-city">City / Town</label>
+            <input id="org-city" name="city" value="<%= org.city || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-region">Region / State</label>
+            <input id="org-region" name="region" value="<%= org.region || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-country">Country</label>
+            <input id="org-country" name="country" value="<%= org.country || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-phone">Phone</label>
+            <input id="org-phone" name="phone" inputmode="tel" value="<%= org.phone || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-email">Email</label>
+            <input id="org-email" name="email" type="email" value="<%= org.email || '' %>">
+          </div>
+          <div class="form-group">
+            <label for="org-website">Website</label>
+            <input id="org-website" name="website" value="<%= org.website || '' %>">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section__heading"><h2>Letterhead</h2><p>Up to 3 lines displayed on PDF report headers.</p></div>
+        <div class="field-grid">
+          <div class="form-group field-grid__full">
+            <label for="org-lh1">Letterhead line 1</label>
+            <input id="org-lh1" name="letterhead_line1" value="<%= org.letterhead_line1 || '' %>" placeholder="e.g., Knights of St. John International">
+          </div>
+          <div class="form-group field-grid__full">
+            <label for="org-lh2">Letterhead line 2</label>
+            <input id="org-lh2" name="letterhead_line2" value="<%= org.letterhead_line2 || '' %>" placeholder="e.g., Accra Commandery No. 33">
+          </div>
+          <div class="form-group field-grid__full">
+            <label for="org-lh3">Letterhead line 3</label>
+            <input id="org-lh3" name="letterhead_line3" value="<%= org.letterhead_line3 || '' %>" placeholder="e.g., P.O. Box 12345, Accra, Ghana">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section__heading"><h2>Report Signatories</h2><p>Names and titles that appear on the signature lines of PDF reports.</p></div>
+        <div class="field-grid">
+          <div class="form-group">
+            <label for="org-sig1-title">Signatory 1 — Title</label>
+            <input id="org-sig1-title" name="signatory1_title" value="<%= org.signatory1_title || '' %>" placeholder="e.g., Treasurer">
+          </div>
+          <div class="form-group">
+            <label for="org-sig1-name">Signatory 1 — Name</label>
+            <input id="org-sig1-name" name="signatory1_name" value="<%= org.signatory1_name || '' %>" placeholder="e.g., Sir John Mensah">
+          </div>
+          <div class="form-group">
+            <label for="org-sig2-title">Signatory 2 — Title</label>
+            <input id="org-sig2-title" name="signatory2_title" value="<%= org.signatory2_title || '' %>" placeholder="e.g., President">
+          </div>
+          <div class="form-group">
+            <label for="org-sig2-name">Signatory 2 — Name</label>
+            <input id="org-sig2-name" name="signatory2_name" value="<%= org.signatory2_name || '' %>" placeholder="e.g., Sir Kwame Asante">
+          </div>
+          <div class="form-group">
+            <label for="org-sig3-title">Signatory 3 — Title (optional)</label>
+            <input id="org-sig3-title" name="signatory3_title" value="<%= org.signatory3_title || '' %>" placeholder="e.g., Auditor">
+          </div>
+          <div class="form-group">
+            <label for="org-sig3-name">Signatory 3 — Name (optional)</label>
+            <input id="org-sig3-name" name="signatory3_name" value="<%= org.signatory3_name || '' %>" placeholder="e.g., Sir Kofi Owusu">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <div class="form-section__heading"><h2>SMS Notifications (mNotify)</h2><p>Configure SMS messaging to send event reminders, payment confirmations, and assessment reminders to members.</p></div>
+        <div class="field-grid">
+          <div class="form-group field-grid__full">
+            <label for="org-sms-key">mNotify API Key</label>
+            <input id="org-sms-key" name="sms_api_key" type="password" value="" placeholder="<%= org.sms_api_key ? 'Configured — leave blank to keep the current key' : 'Paste your mNotify API key here' %>" autocomplete="new-password">
+            <span class="form-group__hint">Get this from your <a href="https://apps.mnotify.net" target="_blank" rel="noopener">mNotify dashboard</a> → Settings → API Keys.</span>
+          </div>
+          <div class="form-group">
+            <label for="org-sms-sender">Sender ID</label>
+            <input id="org-sms-sender" name="sms_sender_id" value="<%= org.sms_sender_id || 'KSJI' %>" maxlength="11" placeholder="KSJI">
+            <span class="form-group__hint">Max 11 characters. Must be registered with mNotify.</span>
+          </div>
+          <div class="form-group">
+            <label for="org-sms-enabled">SMS Enabled</label>
+            <select id="org-sms-enabled" name="sms_enabled">
+              <option value="true" <%= org.sms_enabled ? 'selected' : '' %>>Yes — send messages</option>
+              <option value="false" <%= !org.sms_enabled ? 'selected' : '' %>>No — disabled</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="org-sms-reminder-days">Event Reminder (days before)</label>
+            <input id="org-sms-reminder-days" name="sms_event_reminder_days" type="number" min="1" max="14" value="<%= org.sms_event_reminder_days || 2 %>">
+          </div>
+          <div class="form-group">
+            <label for="org-sms-payment">Auto-notify on Payment</label>
+            <select id="org-sms-payment" name="sms_payment_notify">
+              <option value="true" <%= org.sms_payment_notify !== false ? 'selected' : '' %>>Yes — send confirmation when payment is posted</option>
+              <option value="false" <%= org.sms_payment_notify === false ? 'selected' : '' %>>No</option>
+            </select>
+          </div>
+        </div>
+
+        <h3 style="margin-top: var(--space-5);">Message Templates</h3>
+        <p style="font-size: 0.8rem; color: var(--neutral-500); margin-bottom: var(--space-3);">
+          Use placeholders: <code>{name}</code> = member first name, <code>{event}</code> = event title, <code>{date}</code> = event date, <code>{time}</code> = event time, <code>{location}</code> = venue, <code>{amount}</code> = payment amount, <code>{category}</code> = payment category, <code>{balance}</code> = outstanding balance, <code>{year}</code> = fiscal year.
+        </p>
+        <div class="field-grid">
+          <div class="form-group field-grid__full">
+            <label for="org-sms-tpl-event">Event Reminder Template</label>
+            <textarea id="org-sms-tpl-event" name="sms_tpl_event_reminder" rows="2"><%= org.sms_tpl_event_reminder || 'Dear {name}, reminder: {event} on {date} at {time} at {location}. Attendance is expected. - KSJI' %></textarea>
+          </div>
+          <div class="form-group field-grid__full">
+            <label for="org-sms-tpl-payment">Payment Confirmation Template</label>
+            <textarea id="org-sms-tpl-payment" name="sms_tpl_payment" rows="2"><%= org.sms_tpl_payment || 'Dear {name}, your payment of GHS {amount} for {category} has been received. Thank you. - KSJI' %></textarea>
+          </div>
+          <div class="form-group field-grid__full">
+            <label for="org-sms-tpl-assessment">Assessment Reminder Template</label>
+            <textarea id="org-sms-tpl-assessment" name="sms_tpl_assessment" rows="2"><%= org.sms_tpl_assessment || 'Dear {name}, your outstanding balance for {year} is GHS {balance}. Kindly make payment. - KSJI' %></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="action-bar">
+        <a class="btn btn--secondary" href="/config">Cancel</a>
+        <button class="btn btn--primary" type="submit">Save Organization Profile</button>
+      </div>
+    </form>
+
+    <aside class="side-panel">
+      <h2>About this page</h2>
+      <ul class="guidance-list">
+        <li>The organization name appears in the sidebar, login page, and all reports</li>
+        <li>Letterhead lines appear at the top of PDF downloads</li>
+        <li>Currency code affects how amounts are formatted throughout the app</li>
+        <li>Contact details appear on member statements and formal reports</li>
+      </ul>
+    </aside>
+  </section>
+</div>
+<%- include('partials/footer') %>

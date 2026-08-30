@@ -1,0 +1,517 @@
+<%- include('partials/header') %>
+<% locals.title = 'Trustee Audit' %>
+<div class="page-container">
+  <section class="page-title">
+    <div><span class="eyebrow">Governance · Independent review</span><h1>Trustee audit workspace</h1><p>Review the account books, supporting records, reconciliations, budget performance, and system trail for <%= year %>.</p></div>
+    <div class="page-actions">
+      <a class="btn btn--primary" href="/auto-audit?year=<%= year %>">Run Auto Audit</a>
+      <a class="btn btn--secondary" href="/trustee-audit/report/<%= year %>">Download Report</a>
+      <a class="btn btn--secondary" href="/export/transactions?startDate=<%= evidence.startDate %>&endDate=<%= evidence.endDate %>">Transactions CSV</a>
+      <% if (['admin','auditor','trustee'].includes(user.role)) { %><a class="btn btn--secondary" href="/export/audit-log?days=400">Audit trail CSV</a><% } %>
+    </div>
+  </section>
+
+  <form method="get" action="/trustee-audit" class="report-toolbar" aria-label="Audit year"><div class="report-toolbar__fields"><div class="form-group"><label for="audit-year">Fiscal year</label><select id="audit-year" name="year"><% years.forEach(function(item) { %><option value="<%= item.year %>" <%= Number(item.year) === Number(year) ? 'selected' : '' %>><%= item.year %> · <%= item.status %></option><% }) %></select></div></div><div class="report-toolbar__actions"><button class="btn btn--primary" type="submit">View audit year</button></div></form>
+
+  <!-- Audit Count Summary -->
+  <section class="summary-strip" aria-label="Audit count summary" id="audit-count-summary">
+    <div class="summary-strip__item"><span class="summary-strip__label">Gross receipts</span><strong class="summary-strip__value"><%= formatMoney(evidence.summary.receipts) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Cash outflows</span><strong class="summary-strip__value"><%= formatMoney(evidence.summary.outflows) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Unreconciled</span><strong class="summary-strip__value" id="unreconciled-count"><%= evidence.summary.unreconciledCount %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Missing references</span><strong class="summary-strip__value"><%= evidence.summary.missingReferenceCount %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Flagged</span><strong class="summary-strip__value" id="flagged-count">0</strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Checklist progress</span><strong class="summary-strip__value" id="checklist-progress">0 / <%= checklist.length %></strong></div>
+  </section>
+
+  <section class="grid two audit-overview">
+    <div class="panel"><div class="section-head"><div><h2>Review status</h2><p>A signed checklist preserves who reviewed each control and when.</p></div><span class="badge <%= review && review.status === 'completed' ? 'badge--success' : 'badge--soft' %>"><%= review ? review.status.replace('_',' ') : 'not started' %></span></div>
+      <% if (!review && canReview) { %><form method="post" action="/trustee-audit/start"><%- include('partials/csrf') %><input type="hidden" name="year" value="<%= year %>"><button class="btn btn--primary" type="submit">Start annual audit</button></form><% } %>
+      <% if (review) { %><dl class="report-notes"><div><dt>Scope</dt><dd><%= review.scope_start %> to <%= review.scope_end %></dd></div><div><dt>Started by</dt><dd><%= review.started_by_name || 'System' %></dd></div><div><dt>Started</dt><dd><%= formatDateTime(review.started_at) %></dd></div><% if (review.completed_at) { %><div><dt>Completed by</dt><dd><%= review.completed_by_name || 'Trustee' %></dd></div><div><dt>Completed</dt><dd><%= formatDateTime(review.completed_at) %></dd></div><div><dt>Conclusion</dt><dd><%= review.overall_notes || '' %></dd></div><% } %></dl><% } %>
+    </div>
+    <div class="panel"><h2>Items requiring attention</h2><div class="work-queue"><div class="work-queue__item"><strong><%= evidence.summary.unreconciledCount %></strong><span>Unreconciled transactions</span></div><div class="work-queue__item"><strong><%= evidence.summary.missingReferenceCount %></strong><span>Transactions without references</span></div><div class="work-queue__item"><strong><%= evidence.summary.missingDescriptionCount %></strong><span>Transactions without descriptions</span></div><div class="work-queue__item"><strong><%= evidence.summary.reversedCount %></strong><span>Reversed entries</span></div></div></div>
+  </section>
+
+  <!-- Trustee Checklist -->
+  <section class="panel"><div class="section-head"><div><h2>Trustee checklist</h2><p>Mark exceptions explicitly; exception notes become part of the permanent review record.</p></div></div>
+    <div class="audit-checklist"><% checklist.forEach(function(definition) { const item = itemByKey[definition.key]; %><article class="audit-checklist__item"><div><h3><%= definition.label %></h3><p><%= definition.help %></p><% if (item && item.reviewed_by_name) { %><small>Last reviewed by <%= item.reviewed_by_name %><% if (item.reviewed_at) { %> · <%= formatDateTime(item.reviewed_at) %><% } %></small><% } %></div>
+      <% if (review && review.status === 'in_progress' && canReview) { %><form method="post" action="/trustee-audit/items/<%= definition.key %>" class="audit-checklist__form"><%- include('partials/csrf') %><input type="hidden" name="year" value="<%= year %>"><div class="form-group"><label for="status-<%= definition.key %>">Outcome</label><select id="status-<%= definition.key %>" name="status"><option value="pending" <%= !item || item.status === 'pending' ? 'selected' : '' %>>Pending</option><option value="pass" <%= item && item.status === 'pass' ? 'selected' : '' %>>Pass</option><option value="exception" <%= item && item.status === 'exception' ? 'selected' : '' %>>Exception</option><option value="not_applicable" <%= item && item.status === 'not_applicable' ? 'selected' : '' %>>Not applicable</option></select></div><div class="form-group"><label for="notes-<%= definition.key %>">Notes</label><textarea id="notes-<%= definition.key %>" name="notes" rows="2" maxlength="2000"><%= item && item.notes || '' %></textarea></div><button class="btn btn--secondary btn--sm" type="submit">Save review</button></form><% } else { %><div><span class="badge <%= item && item.status === 'pass' ? 'badge--success' : (item && item.status === 'exception' ? 'badge--warning' : 'badge--soft') %>"><%= item ? item.status.replace('_',' ') : 'pending' %></span><p><%= item && item.notes || '' %></p></div><% } %>
+    </article><% }) %></div>
+
+    <!-- Audit Completion Form -->
+    <% if (review && review.status === 'in_progress' && canReview) { %>
+    <div class="audit-complete" id="audit-completion-section">
+      <form method="post" action="/trustee-audit/complete" id="audit-complete-form">
+        <%- include('partials/csrf') %>
+        <input type="hidden" name="year" value="<%= year %>">
+        <div class="form-group">
+          <label for="overall-notes">Overall audit conclusion</label>
+          <textarea id="overall-notes" name="overall_notes" rows="4" required maxlength="5000" placeholder="Provide your overall audit conclusion (max 5000 characters)..."></textarea>
+          <small class="form-help">Required. Maximum 5000 characters.</small>
+        </div>
+        <button class="btn btn--primary" type="submit" id="complete-audit-btn">Complete and sign audit</button>
+        <p class="form-help" id="completion-gate-msg" style="display:none; color: var(--color-warning, #d97706);">All checklist items must be reviewed before completing the audit.</p>
+      </form>
+    </div>
+    <% } %>
+  </section>
+
+  <!-- Transaction Flagging -->
+  <% if (review && review.status === 'in_progress' && canReview) { %>
+  <section class="panel" id="flag-transaction-section">
+    <div class="section-head"><div><h2>Flag transaction</h2><p>Flag a transaction for investigation. Provide the transaction ID and a reason.</p></div></div>
+    <form method="post" action="/trustee-audit/flag-transaction" class="audit-flag-form">
+      <%- include('partials/csrf') %>
+      <input type="hidden" name="year" value="<%= year %>">
+      <div class="grid two">
+        <div class="form-group">
+          <label for="flag-transaction-id">Transaction ID</label>
+          <input type="number" id="flag-transaction-id" name="transaction_id" required min="1" placeholder="Enter transaction ID">
+        </div>
+        <div class="form-group">
+          <label for="flag-reason">Reason for flag</label>
+          <textarea id="flag-reason" name="reason" rows="2" required maxlength="1000" placeholder="Describe why this transaction needs investigation (max 1000 chars)..."></textarea>
+        </div>
+      </div>
+      <button class="btn btn--secondary" type="submit">Flag transaction</button>
+    </form>
+  </section>
+  <% } %>
+
+  <!-- Flagged Transactions View -->
+  <section class="panel" id="flagged-transactions-section">
+    <div class="section-head"><div><h2>Flagged transactions</h2><p>Transactions flagged for investigation, grouped by reason.</p></div></div>
+    <div id="flagged-transactions-content">
+      <p class="text-muted">Loading flagged transactions...</p>
+    </div>
+  </section>
+
+  <!-- Transaction Investigation -->
+  <section class="panel" id="transaction-investigation-section">
+    <div class="section-head"><div><h2>Transaction investigation</h2><p>Search and filter transactions for detailed review.</p></div></div>
+    <div class="report-toolbar" aria-label="Transaction filters">
+      <div class="report-toolbar__fields">
+        <div class="form-group">
+          <label for="filter-tx-type">Type</label>
+          <select id="filter-tx-type">
+            <option value="">All types</option>
+            <option value="receipt">Receipt</option>
+            <option value="payment">Payment</option>
+            <option value="transfer">Transfer</option>
+            <option value="journal">Journal</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="filter-account">Account</label>
+          <select id="filter-account">
+            <option value="">All accounts</option>
+            <% evidence.balances.forEach(function(account) { %>
+            <option value="<%= account.id %>"><%= account.name %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="filter-reconciled">Reconciliation status</label>
+          <select id="filter-reconciled">
+            <option value="">All</option>
+            <option value="true">Reconciled</option>
+            <option value="false">Unreconciled</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="filter-date-start">Date from</label>
+          <input type="date" id="filter-date-start">
+        </div>
+        <div class="form-group">
+          <label for="filter-date-end">Date to</label>
+          <input type="date" id="filter-date-end">
+        </div>
+      </div>
+      <div class="report-toolbar__actions">
+        <button class="btn btn--primary" type="button" id="search-transactions-btn">Search</button>
+      </div>
+    </div>
+    <div id="transaction-results">
+      <p class="text-muted">Use the filters above to search transactions.</p>
+    </div>
+  </section>
+
+  <!-- Transaction Detail Modal (populated via JS) -->
+  <div id="transaction-detail-modal" class="modal-backdrop" style="display:none;" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tx-detail-title">
+      <div class="section-head">
+        <h2 id="tx-detail-title">Transaction detail</h2>
+        <button class="btn btn--secondary btn--sm" id="close-tx-detail" aria-label="Close transaction detail">&times;</button>
+      </div>
+      <div id="tx-detail-content">
+        <dl class="report-notes" id="tx-detail-fields"></dl>
+      </div>
+      <!-- Transaction Note Form -->
+      <div id="tx-note-section">
+        <h3>Investigation notes</h3>
+        <div id="tx-notes-list"></div>
+        <% if (review && review.status === 'in_progress' && canReview) { %>
+        <form id="tx-note-form" class="audit-note-form">
+          <input type="hidden" id="tx-note-transaction-id" name="transaction_id" value="">
+          <div class="form-group">
+            <label for="tx-note-text">Add note</label>
+            <textarea id="tx-note-text" name="note" rows="2" maxlength="1000" required placeholder="Add an investigation note (max 1000 chars)..."></textarea>
+          </div>
+          <button class="btn btn--secondary btn--sm" type="submit">Save note</button>
+          <span id="tx-note-error" class="field-error" role="alert" style="display:none;"></span>
+        </form>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+  <!-- Period Comparison -->
+  <section class="panel" id="period-comparison-section">
+    <div class="section-head"><div><h2>Period comparison</h2><p>Income and expense by category: current year (<%= year %>) vs previous year (<%= Number(year) - 1 %>). Categories with variance exceeding 20% are highlighted.</p></div></div>
+    <div id="period-comparison-content">
+      <p class="text-muted">Loading period comparison...</p>
+    </div>
+  </section>
+
+  <section class="panel"><div class="section-head"><div><h2>Budget variance evidence</h2><p>Approved plan compared with posted receipts and outflows.</p></div><a href="/budgets?year=<%= year %>">Open full budget</a></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Direction</th><th>Category</th><th class="num">Budget</th><th class="num">Actual</th><th class="num">Variance</th></tr></thead><tbody><% budget.lines.forEach(function(line) { %><tr><td><%= line.kind %></td><td><%= line.category %></td><td class="num"><%= formatMoney(line.budget) %></td><td class="num"><%= formatMoney(line.actual) %></td><td class="num"><%= formatMoney(line.variance) %></td></tr><% }) %><% if (!budget.lines.length) { %><tr><td colspan="5">No budget or actual activity for this year.</td></tr><% } %></tbody></table></div></section>
+
+  <section class="grid two"><div class="panel"><h2>Account book balances</h2><div class="account-list"><% evidence.balances.forEach(function(account) { %><div class="report-account-row"><div><strong><%= account.name %></strong><span><%= account.type.replace('_',' ') %></span></div><div><strong><%= formatMoney(account.balance) %></strong></div></div><% }) %></div></div><div class="panel"><h2>Latest reconciliations</h2><div class="account-list"><% evidence.reconciliations.forEach(function(item) { %><div class="report-account-row"><div><strong><%= item.account_name %></strong><span><%= item.period_end ? 'To ' + item.period_end : 'Not reconciled' %></span></div><div><strong><%= item.difference == null ? '—' : formatMoney(item.difference) %></strong><span>Difference</span></div></div><% }) %></div></div></section>
+
+  <section class="panel"><div class="section-head"><div><h2>Transaction evidence</h2><p>Latest 250 entries in the audit scope, including references and reconciliation state.</p></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Account</th><th>Reference</th><th>Description</th><th>Recorded by</th><th>Status</th><th class="num">Amount</th></tr></thead><tbody><% evidence.transactions.forEach(function(tx) { %><tr><td><%= tx.tx_date %></td><td><%= tx.tx_type %></td><td><%= tx.category %></td><td><%= tx.tx_type === 'transfer' ? (tx.account_name + ' → ' + tx.to_account_name) : tx.account_name %></td><td><%= tx.reference || 'Missing' %></td><td><%= tx.description || 'Missing' %></td><td><%= tx.recorded_by || '' %></td><td><span class="badge <%= tx.status === 'posted' && tx.reconciled ? 'badge--success' : 'badge--soft' %>"><%= tx.status === 'posted' ? (tx.reconciled ? 'reconciled' : 'unreconciled') : tx.status %></span></td><td class="num"><%= formatMoney(tx.amount) %></td></tr><% }) %></tbody></table></div></section>
+</div>
+
+<style>
+  .variance-highlight { background-color: #fef3c7; }
+  .variance-highlight td { font-weight: 600; }
+  .audit-flag-form .grid { gap: 1rem; }
+  .flagged-group { margin-bottom: 1.5rem; }
+  .flagged-group h4 { margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--color-text-muted, #6b7280); }
+  .flagged-group .flagged-item { padding: 0.5rem 0; border-bottom: 1px solid var(--color-border, #e5e7eb); display: flex; justify-content: space-between; }
+  .flagged-group .flagged-item:last-child { border-bottom: none; }
+  #transaction-detail-modal .modal { max-width: 700px; max-height: 80vh; overflow-y: auto; padding: 1.5rem; }
+  #transaction-detail-modal .section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+  .tx-result-row { cursor: pointer; }
+  .tx-result-row:hover { background-color: var(--color-bg-hover, #f9fafb); }
+  .no-results-msg { padding: 1rem; text-align: center; color: var(--color-text-muted, #6b7280); }
+  .audit-note-form { margin-top: 1rem; }
+  #tx-notes-list .note-item { padding: 0.5rem 0; border-bottom: 1px solid var(--color-border, #e5e7eb); }
+  #tx-notes-list .note-item:last-child { border-bottom: none; }
+  .note-meta { font-size: 0.8rem; color: var(--color-text-muted, #6b7280); }
+</style>
+
+<script>
+(function() {
+  'use strict';
+  var currentYear = <%= JSON.stringify(Number(year)) %>;
+
+  // --- Audit Count Summary ---
+  function updateChecklistProgress() {
+    var selects = document.querySelectorAll('.audit-checklist__form select[name="status"]');
+    var total = selects.length;
+    var completed = 0;
+    selects.forEach(function(sel) {
+      if (sel.value !== 'pending') completed++;
+    });
+    // Also count items that are display-only (already reviewed)
+    var readonlyBadges = document.querySelectorAll('.audit-checklist__item .badge');
+    readonlyBadges.forEach(function(badge) {
+      var text = badge.textContent.trim();
+      if (text !== 'pending') {
+        // Only count if not already part of editable forms
+        var parent = badge.closest('.audit-checklist__item');
+        if (!parent.querySelector('.audit-checklist__form')) {
+          total++;
+          completed++;
+        }
+      }
+    });
+    var el = document.getElementById('checklist-progress');
+    if (el) el.textContent = completed + ' / ' + total;
+
+    // Completion gate validation
+    var gateMsg = document.getElementById('completion-gate-msg');
+    var completeBtn = document.getElementById('complete-audit-btn');
+    if (gateMsg && completeBtn) {
+      if (completed < total) {
+        gateMsg.style.display = 'block';
+      } else {
+        gateMsg.style.display = 'none';
+      }
+    }
+  }
+  updateChecklistProgress();
+
+  // --- Load Flagged Transactions ---
+  function loadFlaggedTransactions() {
+    fetch('/trustee-audit/flagged?year=' + currentYear)
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        var container = document.getElementById('flagged-transactions-content');
+        if (!data.flags || data.flags.length === 0) {
+          container.innerHTML = '<p class="text-muted">No transactions have been flagged for this audit year.</p>';
+          var countEl = document.getElementById('flagged-count');
+          if (countEl) countEl.textContent = '0';
+          return;
+        }
+        // Update flagged count
+        var countEl = document.getElementById('flagged-count');
+        if (countEl) countEl.textContent = data.flags.length;
+
+        // Group by reason
+        var groups = {};
+        data.flags.forEach(function(flag) {
+          var reason = flag.reason || 'Unspecified';
+          if (!groups[reason]) groups[reason] = [];
+          groups[reason].push(flag);
+        });
+
+        var html = '';
+        Object.keys(groups).forEach(function(reason) {
+          html += '<div class="flagged-group"><h4>' + escapeHtml(reason) + '</h4>';
+          groups[reason].forEach(function(flag) {
+            html += '<div class="flagged-item"><span>Transaction #' + flag.transaction_id + '</span>';
+            if (flag.amount !== undefined) {
+              html += '<span>' + escapeHtml(String(flag.amount)) + '</span>';
+            }
+            html += '</div>';
+          });
+          html += '</div>';
+        });
+        container.innerHTML = html;
+      })
+      .catch(function() {
+        document.getElementById('flagged-transactions-content').innerHTML = '<p class="text-muted">Failed to load flagged transactions.</p>';
+      });
+  }
+  loadFlaggedTransactions();
+
+  // --- Transaction Investigation ---
+  var searchBtn = document.getElementById('search-transactions-btn');
+  if (searchBtn) {
+    searchBtn.addEventListener('click', function() {
+      var txType = document.getElementById('filter-tx-type').value;
+      var accountId = document.getElementById('filter-account').value;
+      var reconciled = document.getElementById('filter-reconciled').value;
+      var dateStart = document.getElementById('filter-date-start').value;
+      var dateEnd = document.getElementById('filter-date-end').value;
+
+      var params = new URLSearchParams();
+      if (txType) params.append('tx_type', txType);
+      if (accountId) params.append('account_id', accountId);
+      if (reconciled) params.append('reconciled', reconciled);
+      if (dateStart) params.append('date_start', dateStart);
+      if (dateEnd) params.append('date_end', dateEnd);
+
+      var resultsContainer = document.getElementById('transaction-results');
+      resultsContainer.innerHTML = '<p class="text-muted">Searching...</p>';
+
+      fetch('/trustee-audit/transactions?' + params.toString())
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (!data.transactions || data.transactions.length === 0) {
+            resultsContainer.innerHTML = '<p class="no-results-msg">No transactions match the selected criteria.</p>';
+            return;
+          }
+          var html = '<div class="table-wrap"><table class="data-table"><thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Account</th><th>Reference</th><th class="num">Amount</th><th>Status</th></tr></thead><tbody>';
+          data.transactions.forEach(function(tx) {
+            var statusLabel = tx.status === 'posted' ? (tx.reconciled ? 'reconciled' : 'unreconciled') : tx.status;
+            var badgeClass = tx.status === 'posted' && tx.reconciled ? 'badge--success' : 'badge--soft';
+            html += '<tr class="tx-result-row" data-tx-id="' + tx.id + '">';
+            html += '<td>' + escapeHtml(tx.tx_date || '') + '</td>';
+            html += '<td>' + escapeHtml(tx.tx_type || '') + '</td>';
+            html += '<td>' + escapeHtml(tx.category || '') + '</td>';
+            html += '<td>' + escapeHtml(tx.account_name || '') + '</td>';
+            html += '<td>' + escapeHtml(tx.reference || 'Missing') + '</td>';
+            html += '<td class="num">' + escapeHtml(String(tx.amount || 0)) + '</td>';
+            html += '<td><span class="badge ' + badgeClass + '">' + statusLabel + '</span></td>';
+            html += '</tr>';
+          });
+          html += '</tbody></table></div>';
+          html += '<p class="text-muted">' + data.count + ' transactions found. Click a row to view details.</p>';
+          resultsContainer.innerHTML = html;
+
+          // Attach click handlers for transaction detail
+          resultsContainer.querySelectorAll('.tx-result-row').forEach(function(row) {
+            row.addEventListener('click', function() {
+              openTransactionDetail(row.dataset.txId);
+            });
+          });
+        })
+        .catch(function() {
+          resultsContainer.innerHTML = '<p class="text-muted">Error loading transactions. Please try again.</p>';
+        });
+    });
+  }
+
+  // --- Transaction Detail Modal ---
+  function openTransactionDetail(txId) {
+    fetch('/trustee-audit/transaction/' + txId)
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        if (data.error) {
+          alert(data.error);
+          return;
+        }
+        var tx = data.transaction;
+        var fields = document.getElementById('tx-detail-fields');
+        fields.innerHTML = '';
+        var details = [
+          ['Date', tx.tx_date || ''],
+          ['Type', tx.tx_type || ''],
+          ['Category', tx.category || ''],
+          ['Account', tx.account_name || ''],
+          ['Reference', tx.reference || 'None'],
+          ['Description', tx.description || 'None'],
+          ['Amount', String(tx.amount || 0)],
+          ['Recorded by', tx.recorded_by_name || ''],
+          ['Reconciliation status', tx.reconciled ? 'Reconciled' : 'Unreconciled']
+        ];
+        details.forEach(function(pair) {
+          fields.innerHTML += '<div><dt>' + escapeHtml(pair[0]) + '</dt><dd>' + escapeHtml(pair[1]) + '</dd></div>';
+        });
+
+        // Show existing notes
+        var notesList = document.getElementById('tx-notes-list');
+        notesList.innerHTML = '';
+        if (data.notes && data.notes.length > 0) {
+          data.notes.forEach(function(note) {
+            notesList.innerHTML += '<div class="note-item"><p>' + escapeHtml(note.note) + '</p><p class="note-meta">By ' + escapeHtml(note.created_by_name || 'Unknown') + ' · ' + escapeHtml(note.created_at || '') + '</p></div>';
+          });
+        } else {
+          notesList.innerHTML = '<p class="text-muted">No investigation notes yet.</p>';
+        }
+
+        // Set transaction ID for note form
+        var noteIdInput = document.getElementById('tx-note-transaction-id');
+        if (noteIdInput) noteIdInput.value = txId;
+
+        // Show modal
+        var modal = document.getElementById('transaction-detail-modal');
+        modal.style.display = '';
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+      })
+      .catch(function() {
+        alert('Failed to load transaction details.');
+      });
+  }
+
+  // Close transaction detail modal
+  var closeDetailBtn = document.getElementById('close-tx-detail');
+  if (closeDetailBtn) {
+    closeDetailBtn.addEventListener('click', closeTransactionDetail);
+  }
+  var detailBackdrop = document.getElementById('transaction-detail-modal');
+  if (detailBackdrop) {
+    detailBackdrop.addEventListener('click', function(e) {
+      if (e.target === detailBackdrop) closeTransactionDetail();
+    });
+  }
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      var modal = document.getElementById('transaction-detail-modal');
+      if (modal && modal.style.display !== 'none') closeTransactionDetail();
+    }
+  });
+  function closeTransactionDetail() {
+    var modal = document.getElementById('transaction-detail-modal');
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('modal-open');
+  }
+
+  // --- Transaction Note Form ---
+  var noteForm = document.getElementById('tx-note-form');
+  if (noteForm) {
+    noteForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var txId = document.getElementById('tx-note-transaction-id').value;
+      var noteText = document.getElementById('tx-note-text').value.trim();
+      var errorEl = document.getElementById('tx-note-error');
+
+      if (!noteText || noteText.length > 1000) {
+        errorEl.textContent = 'Note must be between 1 and 1000 characters.';
+        errorEl.style.display = 'inline';
+        return;
+      }
+      errorEl.style.display = 'none';
+
+      fetch('/trustee-audit/transaction/' + txId + '/note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ note: noteText })
+      })
+        .then(function(res) { return res.json().then(function(d) { return { ok: res.ok, data: d }; }); })
+        .then(function(result) {
+          if (!result.ok) {
+            errorEl.textContent = (result.data.errors || [result.data.error || 'Failed to save note']).join(' ');
+            errorEl.style.display = 'inline';
+            return;
+          }
+          // Add note to list
+          var notesList = document.getElementById('tx-notes-list');
+          var noNotesMsg = notesList.querySelector('.text-muted');
+          if (noNotesMsg) noNotesMsg.remove();
+          var noteDiv = document.createElement('div');
+          noteDiv.className = 'note-item';
+          noteDiv.innerHTML = '<p>' + escapeHtml(noteText) + '</p><p class="note-meta">Just now</p>';
+          notesList.appendChild(noteDiv);
+          document.getElementById('tx-note-text').value = '';
+        })
+        .catch(function() {
+          errorEl.textContent = 'Network error. Please try again.';
+          errorEl.style.display = 'inline';
+        });
+    });
+  }
+
+  // --- Period Comparison ---
+  function loadPeriodComparison() {
+    fetch('/trustee-audit/period-comparison?year=' + currentYear)
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        var container = document.getElementById('period-comparison-content');
+        if (!data.comparison || data.comparison.length === 0) {
+          container.innerHTML = '<p class="text-muted">No period comparison data available.</p>';
+          return;
+        }
+        var html = '<div class="table-wrap"><table class="data-table"><thead><tr><th>Category</th><th class="num">Current year income</th><th class="num">Previous year income</th><th class="num">Current year expense</th><th class="num">Previous year expense</th><th class="num">Variance %</th></tr></thead><tbody>';
+        data.comparison.forEach(function(row) {
+          var varianceAbs = Math.abs(row.variancePercent || 0);
+          var rowClass = varianceAbs > 20 ? ' class="variance-highlight"' : '';
+          html += '<tr' + rowClass + '>';
+          html += '<td>' + escapeHtml(row.name || row.category || '') + '</td>';
+          html += '<td class="num">' + formatNumber(row.currentIncome) + '</td>';
+          html += '<td class="num">' + formatNumber(row.previousIncome) + '</td>';
+          html += '<td class="num">' + formatNumber(row.currentExpense) + '</td>';
+          html += '<td class="num">' + formatNumber(row.previousExpense) + '</td>';
+          html += '<td class="num">' + (row.variancePercent != null ? row.variancePercent.toFixed(1) + '%' : 'N/A') + '</td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+      })
+      .catch(function() {
+        document.getElementById('period-comparison-content').innerHTML = '<p class="text-muted">Failed to load period comparison.</p>';
+      });
+  }
+  loadPeriodComparison();
+
+  // --- Utility functions ---
+  function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+  }
+
+  function formatNumber(val) {
+    if (val == null) return '0.00';
+    return Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // --- Listen for checklist status changes to update progress ---
+  document.querySelectorAll('.audit-checklist__form select[name="status"]').forEach(function(sel) {
+    sel.addEventListener('change', updateChecklistProgress);
+  });
+})();
+</script>
+<%- include('partials/footer') %>

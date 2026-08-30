@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Treasurio — Initial Setup</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .setup-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--color-bg);
+      padding: var(--space-4);
+    }
+    .setup-card {
+      width: 100%;
+      max-width: 520px;
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      padding: var(--space-8);
+    }
+    .setup-header {
+      text-align: center;
+      margin-bottom: var(--space-6);
+    }
+    .setup-header h1 {
+      font-size: var(--font-size-h2);
+      margin-bottom: var(--space-2);
+    }
+    .setup-header p {
+      color: var(--color-text-muted);
+      margin-bottom: 0;
+    }
+    .setup-steps {
+      display: flex;
+      gap: var(--space-2);
+      justify-content: center;
+      margin-bottom: var(--space-6);
+    }
+    .setup-step {
+      width: 32px;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--primary-200);
+    }
+    .setup-step.active {
+      background: var(--primary-600);
+    }
+    .setup-section {
+      margin-bottom: var(--space-6);
+      padding-bottom: var(--space-6);
+      border-bottom: 1px solid var(--color-border);
+    }
+    .setup-section:last-of-type {
+      border-bottom: none;
+      margin-bottom: var(--space-4);
+    }
+    .setup-section h2 {
+      font-size: var(--font-size-h4);
+      margin-bottom: var(--space-4);
+      color: var(--color-text);
+    }
+    .error-banner {
+      background: var(--danger-light);
+      color: var(--danger-dark);
+      padding: var(--space-3) var(--space-4);
+      border-radius: var(--radius-md);
+      margin-bottom: var(--space-4);
+      font-size: var(--font-size-label);
+    }
+  </style>
+</head>
+<body>
+  <div class="setup-page">
+    <div class="setup-card">
+      <div class="setup-header">
+        <h1>Welcome to Treasurio</h1>
+        <p>Let's set up your organization's financial system.</p>
+      </div>
+
+      <div class="setup-steps">
+        <div class="setup-step active"></div>
+        <div class="setup-step active"></div>
+        <div class="setup-step active"></div>
+      </div>
+
+      <% if (error) { %>
+      <div class="error-banner" role="alert"><%= error %></div>
+      <% } %>
+
+      <form method="POST" action="/setup" data-validate>
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <!-- Section 1: Admin Account -->
+        <div class="setup-section">
+          <h2>1. Admin Account</h2>
+
+          <div class="form-group">
+            <label for="admin_name">Full Name *</label>
+            <input type="text" id="admin_name" name="admin_name" required
+                   value="<%= (values && values.admin_name) || '' %>"
+                   placeholder="e.g., Stephen Owusu">
+          </div>
+
+          <div class="form-group">
+            <label for="admin_email">Email Address *</label>
+            <input type="email" id="admin_email" name="admin_email" required
+                   value="<%= (values && values.admin_email) || '' %>"
+                   placeholder="e.g., admin@example.com">
+          </div>
+
+          <div class="form-group">
+            <label for="admin_password">Password * <small>(min 8 characters)</small></label>
+            <input type="password" id="admin_password" name="admin_password" required
+                   minlength="8" placeholder="Strong password">
+          </div>
+
+          <div class="form-group">
+            <label for="confirm_password">Confirm Password *</label>
+            <input type="password" id="confirm_password" name="confirm_password" required
+                   minlength="8" placeholder="Repeat password">
+          </div>
+        </div>
+
+        <!-- Section 2: Organization -->
+        <div class="setup-section">
+          <h2>2. Organization</h2>
+
+          <div class="form-group">
+            <label for="group_name">Organization Name</label>
+            <input type="text" id="group_name" name="group_name"
+                   value="<%= (values && values.group_name) || 'KSJI' %>"
+                   placeholder="e.g., KSJI Brotherhood">
+            <small class="field-hint">Displayed in headers and reports. It can be changed later in Organization settings.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="currency">Currency Code</label>
+            <select id="currency" name="currency">
+              <option value="GHS" <%= (values && values.currency) === 'GHS' ? 'selected' : '' %>>GHS — Ghana Cedi</option>
+              <option value="USD" <%= (values && values.currency) === 'USD' ? 'selected' : '' %>>USD — US Dollar</option>
+              <option value="EUR" <%= (values && values.currency) === 'EUR' ? 'selected' : '' %>>EUR — Euro</option>
+              <option value="GBP" <%= (values && values.currency) === 'GBP' ? 'selected' : '' %>>GBP — British Pound</option>
+              <option value="NGN" <%= (values && values.currency) === 'NGN' ? 'selected' : '' %>>NGN — Nigerian Naira</option>
+              <option value="KES" <%= (values && values.currency) === 'KES' ? 'selected' : '' %>>KES — Kenyan Shilling</option>
+              <option value="ZAR" <%= (values && values.currency) === 'ZAR' ? 'selected' : '' %>>ZAR — South African Rand</option>
+            </select>
+            <small class="field-hint">Used for formatting monetary values throughout the app.</small>
+          </div>
+        </div>
+
+        <!-- Section 3: Fiscal Year -->
+        <div class="setup-section">
+          <h2>3. First Fiscal Year</h2>
+
+          <div class="form-group">
+            <label for="fiscal_year">Opening Year</label>
+            <input type="number" id="fiscal_year" name="fiscal_year"
+                   value="<%= (values && values.fiscal_year) || new Date().getFullYear() %>"
+                   min="2000" max="2100">
+            <small class="field-hint">The year to start recording transactions. You can add previous years later.</small>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn--primary" style="width:100%;padding:var(--space-3);">
+          Complete Setup & Log In
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

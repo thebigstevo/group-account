@@ -1,0 +1,61 @@
+<%- include('partials/header') %>
+<% const isIncome = kind === 'income'; %>
+<% locals.title = isIncome ? 'Record Income' : 'Record Expense'; %>
+<% const activeYear = Number(activeFiscalYear.year); const today = new Date().toISOString().slice(0,10); const defaultDate = Number(today.slice(0,4)) === activeYear ? today : activeYear + '-01-01'; %>
+<div class="page-container page-container--form">
+  <section class="page-title"><div><span class="eyebrow">Finance · <%= isIncome ? 'Income' : 'Expenses' %></span><h1><%= isIncome ? 'Record Income' : 'Record Expense' %></h1><p><%= isIncome ? 'Record money received into a commandery account.' : 'Record money paid out from a commandery account.' %></p></div></section>
+  <%- include('partials/finance-nav') %>
+  <% if (locals.errors && locals.errors.length) { %><div class="error-summary" role="alert" aria-live="assertive"><h2>Check the information entered</h2><ul><% locals.errors.forEach(function(error) { %><li><%= error %></li><% }) %></ul></div><% } %>
+  <div class="form-layout">
+    <form method="post" action="<%= isIncome ? '/transactions/receipt' : '/transactions/expense' %>" class="form-card" data-validate>
+      <%- include('partials/csrf') %>
+      <section class="form-section" aria-labelledby="transaction-details-heading">
+        <div class="form-section__heading"><h2 id="transaction-details-heading">Transaction details</h2><p>Required fields are marked with an asterisk.</p></div>
+        <div class="field-grid">
+          <div class="form-group"><label for="finance-tx-date">Date <span class="form-required" aria-hidden="true">*</span></label><input id="finance-tx-date" name="tx_date" type="date" min="<%= activeYear %>-01-01" max="<%= activeYear %>-12-31" required value="<%= (locals.values && locals.values.tx_date) || defaultDate %>"></div>
+          <div class="form-group"><label for="finance-account"><%= isIncome ? 'Received into' : 'Paid from' %> <span class="form-required" aria-hidden="true">*</span></label><select id="finance-account" name="account_id" required><option value="">Select an account</option><% accounts.forEach(function(account) { %><option value="<%= account.id %>" <%= locals.values && locals.values.account_id == account.id ? 'selected' : '' %>><%= account.name %></option><% }) %></select></div>
+          <div class="form-group"><label for="finance-category"><%= isIncome ? 'Income category' : 'Category' %> <span class="form-required" aria-hidden="true">*</span></label><select id="finance-category" name="category" required><option value="">Select a category</option><% categories.forEach(function(category) { %><option value="<%= category.name %>" data-purpose="<%= category.purpose %>" <%= locals.values && locals.values.category === category.name ? 'selected' : '' %>><%= category.name %></option><% }) %></select></div>
+          <div class="form-group"><label for="finance-amount">Amount <span class="form-required" aria-hidden="true">*</span></label><div class="amount-input"><span class="amount-input__currency"><%= groupCurrency %></span><input id="finance-amount" name="amount" type="number" inputmode="decimal" min="0.01" step="0.01" required value="<%= (locals.values && locals.values.amount) || '' %>"></div></div>
+          <% if (isIncome) { %><div class="form-group"><label for="finance-member">Related member</label><select id="finance-member" name="member_id"><option value="">No related member</option><% members.forEach(function(member) { %><option value="<%= member.id %>" <%= locals.values && locals.values.member_id == member.id ? 'selected' : '' %>><%= member.name %></option><% }) %></select></div><% } %>
+          <div class="form-group"><label for="finance-reference"><%= isIncome ? 'Receipt or reference number' : 'Voucher or reference number' %></label><input id="finance-reference" name="reference" maxlength="255" value="<%= (locals.values && locals.values.reference) || '' %>" autocomplete="off"></div>
+          <div class="form-group field-grid__full"><label for="finance-description">Description</label><textarea id="finance-description" name="description" rows="4"><%= (locals.values && locals.values.description) || '' %></textarea></div>
+        </div>
+      </section>
+      <div class="action-bar"><a class="btn btn--secondary" href="<%= isIncome ? '/finance/income' : '/finance/expenses' %>">Cancel</a><button class="btn btn--primary" type="submit"><%= isIncome ? 'Save Income' : 'Save Expense' %></button></div>
+    </form>
+    <aside class="side-panel" aria-labelledby="entry-guidance-heading"><h2 id="entry-guidance-heading">Before you save</h2><ul class="guidance-list"><li>Confirm the transaction belongs to fiscal year <%= activeYear %>.</li><li>Select the account where the money <%= isIncome ? 'was received' : 'was paid from' %>.</li><li>Add a reference when one appears on the receipt or voucher.</li><li>The entry is added to the audit trail automatically.</li></ul></aside>
+  </div>
+</div>
+<%- include('partials/footer') %>
+<% if (isIncome) { %>
+<script>
+(function() {
+  var categorySelect = document.getElementById('finance-category');
+  var memberSelect = document.getElementById('finance-member');
+  if (!categorySelect || !memberSelect) return;
+
+  function enforceMemberRequired() {
+    var selected = categorySelect.options[categorySelect.selectedIndex];
+    var purpose = selected ? selected.dataset.purpose : '';
+    var requiresMember = (purpose === 'assessment');
+    memberSelect.required = requiresMember;
+    var label = memberSelect.closest('.form-group').querySelector('label');
+    if (label) {
+      var asterisk = label.querySelector('.form-required');
+      if (requiresMember && !asterisk) {
+        var span = document.createElement('span');
+        span.className = 'form-required';
+        span.setAttribute('aria-hidden', 'true');
+        span.textContent = ' *';
+        label.appendChild(span);
+      } else if (!requiresMember && asterisk) {
+        asterisk.remove();
+      }
+    }
+  }
+
+  categorySelect.addEventListener('change', enforceMemberRequired);
+  enforceMemberRequired();
+})();
+</script>
+<% } %>

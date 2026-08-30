@@ -1,0 +1,7 @@
+<header class="topbar-mobile">
+  <button type="button" class="topbar-mobile__hamburger" data-sidebar-toggle aria-label="Open navigation" aria-controls="app-navigation" aria-expanded="false">
+    <span class="hamburger-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+  </button>
+  <span class="topbar-mobile__brand">Treasurio</span>
+  <% if (locals.activeFiscalYear) { %><span class="topbar-mobile__period">FY <%= locals.activeFiscalYear.year %></span><% } %>
+</header>

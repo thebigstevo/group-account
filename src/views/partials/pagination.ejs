@@ -1,0 +1,11 @@
+<!-- Pagination is managed dynamically by Treasurio.DataTable -->
+<!-- This partial provides a no-JS fallback structure -->
+<% if (typeof totalPages !== 'undefined' && totalPages > 1) { %>
+<nav class="data-table-pagination" aria-label="Table pagination">
+  <button class="btn btn--secondary btn--sm" <%= currentPage <= 1 ? 'disabled' : '' %>>← Prev</button>
+  <% for (let p = Math.max(1, currentPage - 2); p <= Math.min(totalPages, currentPage + 2); p++) { %>
+    <button class="btn btn--sm <%= p === currentPage ? 'btn--primary' : 'btn--secondary' %>" aria-current="<%= p === currentPage ? 'page' : 'false' %>"><%= p %></button>
+  <% } %>
+  <button class="btn btn--secondary btn--sm" <%= currentPage >= totalPages ? 'disabled' : '' %>>Next →</button>
+</nav>
+<% } %>

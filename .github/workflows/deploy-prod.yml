@@ -1,0 +1,122 @@
+name: Deploy Prod
+
+permissions:
+  contents: read
+
+concurrency:
+  group: treasurio-vps
+  cancel-in-progress: false
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: Project directory name under /opt
+        required: true
+        default: treasurio
+        type: string
+      domain_name:
+        description: Production domain already pointed at the VPS
+        required: true
+        default: ksji825.tilcsaas.com
+        type: string
+
+env:
+  PROJECT_NAME: ${{ inputs.project_name || vars.PROJECT_NAME || 'treasurio' }}
+  DOMAIN_NAME: ${{ inputs.domain_name || vars.PROD_DOMAIN || 'ksji825.tilcsaas.com' }}
+
+jobs:
+  deploy-prod:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify release candidate
+        run: |
+          npm ci
+          npm test -- --runInBand
+          npm audit --omit=dev --audit-level=high
+          docker compose -f deploy/docker-compose.yml config --quiet
+
+      - name: Deploy to VPS (Prod)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: PROJECT_NAME,DOMAIN_NAME,POSTGRES_PASSWORD,PROD_DB_PASSWORD,PROD_SESSION_SECRET,PROD_N8N_API_TOKEN,PROD_GROUP_NAME,BACKUP_S3_BUCKET
+          script: |
+            set -eu
+            APP_DIR="/opt/${PROJECT_NAME}"
+            BRANCH="${{ github.ref_name }}"
+            if [ -d "$APP_DIR/.git" ]; then
+              cd "$APP_DIR"
+              git fetch origin
+              git checkout "$BRANCH"
+              git reset --hard "origin/$BRANCH"
+            else
+              rm -rf "$APP_DIR"
+              git clone -b "$BRANCH" https://github.com/thebigstevo/group-account.git "$APP_DIR"
+            fi
+            cd "$APP_DIR/deploy"
+            [ -n "$BACKUP_S3_BUCKET" ] || { echo "BACKUP_S3_BUCKET is required" >&2; exit 1; }
+            [ ${#POSTGRES_PASSWORD} -ge 24 ] || { echo "POSTGRES_PASSWORD must be at least 24 characters" >&2; exit 1; }
+            [ ${#PROD_DB_PASSWORD} -ge 24 ] || { echo "PROD_DB_PASSWORD must be at least 24 characters" >&2; exit 1; }
+            [ ${#PROD_SESSION_SECRET} -ge 32 ] || { echo "PROD_SESSION_SECRET must be at least 32 characters" >&2; exit 1; }
+            [ ${#PROD_N8N_API_TOKEN} -ge 32 ] || { echo "PROD_N8N_API_TOKEN must be at least 32 characters" >&2; exit 1; }
+            umask 077
+            printf 'POSTGRES_PASSWORD=%s\nPROD_DB_PASSWORD=%s\nPROD_SESSION_SECRET=%s\nPROD_N8N_API_TOKEN=%s\nPROD_GROUP_NAME=%s\nGROUP_CURRENCY=GHS\n' "$POSTGRES_PASSWORD" "$PROD_DB_PASSWORD" "$PROD_SESSION_SECRET" "$PROD_N8N_API_TOKEN" "$PROD_GROUP_NAME" > .env.prod
+            install -m 644 cloudflare-real-ip.conf /etc/nginx/snippets/cloudflare-real-ip.conf
+            NGINX_AVAILABLE="/etc/nginx/sites-available/${DOMAIN_NAME}"
+            NGINX_ENABLED="/etc/nginx/sites-enabled/${DOMAIN_NAME}.conf"
+            if [ ! -e "$NGINX_ENABLED" ]; then
+              printf 'server {\n    listen 80;\n    server_name %s;\n    include /etc/nginx/snippets/cloudflare-real-ip.conf;\n    client_max_body_size 5M;\n    location / {\n        proxy_pass http://127.0.0.1:3200;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $remote_addr;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n        proxy_connect_timeout 300s;\n        proxy_send_timeout 300s;\n        proxy_read_timeout 300s;\n    }\n}\n' "$DOMAIN_NAME" > "$NGINX_AVAILABLE"
+              ln -sfn "$NGINX_AVAILABLE" "$NGINX_ENABLED"
+              nginx -t && systemctl reload nginx
+              echo "Nginx config added for ${DOMAIN_NAME}"
+            fi
+            docker compose --env-file .env.prod up -d postgres
+            PROD_DB_PASSWORD="$PROD_DB_PASSWORD" ./provision-app-role.sh prod
+            S3_BUCKET="$BACKUP_S3_BUCKET" RETAIN_COUNT=30 ./backup.sh
+            if docker image inspect deploy-app-prod:latest >/dev/null 2>&1; then
+              docker image tag deploy-app-prod:latest deploy-app-prod:rollback
+            fi
+            docker compose --env-file .env.prod build app-prod
+            docker compose --env-file .env.prod run --rm --no-deps -e PGUSER=treasurio -e PGPASSWORD="$POSTGRES_PASSWORD" app-prod node src/migrate.js
+            docker compose --env-file .env.prod up -d app-prod
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent --show-error http://127.0.0.1:3200/health >/dev/null; then
+                break
+              fi
+              if [ "$attempt" -eq 30 ]; then
+                docker compose --env-file .env.prod logs --tail=100 app-prod
+                if docker image inspect deploy-app-prod:rollback >/dev/null 2>&1; then
+                  docker image tag deploy-app-prod:rollback deploy-app-prod:latest
+                  docker compose --env-file .env.prod up -d --no-build --force-recreate app-prod
+                  echo "Application image rolled back. Database backup is in S3; review migration compatibility before retrying." >&2
+                fi
+                exit 1
+              fi
+              sleep 2
+            done
+            if [ ! -d "/etc/letsencrypt/live/${DOMAIN_NAME}" ]; then
+              certbot --nginx -d "$DOMAIN_NAME" --non-interactive --agree-tos --redirect
+            fi
+            S3_BUCKET="$BACKUP_S3_BUCKET" RETAIN_COUNT=30 ./backup.sh
+            echo "Prod deployed successfully: https://${DOMAIN_NAME}"
+        env:
+          PROJECT_NAME: ${{ env.PROJECT_NAME }}
+          DOMAIN_NAME: ${{ env.DOMAIN_NAME }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          PROD_SESSION_SECRET: ${{ secrets.PROD_SESSION_SECRET }}
+          PROD_N8N_API_TOKEN: ${{ secrets.PROD_N8N_API_TOKEN }}
+          PROD_GROUP_NAME: ${{ secrets.PROD_GROUP_NAME }}
+          BACKUP_S3_BUCKET: ${{ vars.BACKUP_S3_BUCKET }}

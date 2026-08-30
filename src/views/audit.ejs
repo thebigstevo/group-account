@@ -1,22 +1,33 @@
 <%- include('partials/header') %>
-<section class="panel">
-  <h1>Audit log</h1>
-  <table>
-    <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Entity</th><th>Details</th></tr></thead>
-    <tbody>
-      <% rows.forEach((row) => { %>
-        <tr>
-          <td><%= row.created_at %></td>
-          <td><%= row.user_name || '' %></td>
-          <td><%= row.action %></td>
-          <td><%= row.entity %> #<%= row.entity_id || '' %></td>
-          <td><%= row.details || '' %></td>
-        </tr>
-      <% }) %>
-    </tbody>
-  </table>
+<% locals.title = 'Audit Log' %>
+
+<section class="page-title">
+  <div>
+    <h1>Audit log</h1>
+    <p>All system actions are logged for accountability and review.</p>
+  </div>
+  <div class="page-actions"><a class="btn btn--secondary btn--sm" href="/trustee-audit">Trustee audit workspace</a><a class="btn btn--secondary btn--sm" href="/export/audit-log?days=90">Export Audit Log (90d) CSV</a></div>
 </section>
-<section style="text-align: right; padding: 20px;">
-  <a href="/export/audit-log?days=90" style="background: #4CAF50; color: white; padding: 8px 12px; border-radius: 4px; text-decoration: none; font-size: 0.9em;">Export Audit Log (90d) CSV</a>
+
+<section class="panel">
+  <div aria-live="polite" aria-atomic="false">
+    <div class="table-wrap">
+      <table class="data-table" id="audit-table">
+        <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Entity</th><th>Details</th><th>Change evidence</th></tr></thead>
+        <tbody>
+          <% rows.forEach(function(row) { %>
+            <tr>
+              <td><%= formatDateTime(row.created_at) %></td>
+              <td><%= row.user_name || '' %></td>
+              <td><%= row.action %></td>
+              <td><%= row.entity %> #<%= row.entity_id || '' %></td>
+              <td><%= row.details || '' %></td>
+              <td><% if (row.before_value || row.after_value || row.reason) { %><details><summary>Review change</summary><% if (row.reason) { %><p><strong>Reason:</strong> <%= row.reason %></p><% } %><% if (row.before_value) { %><p><strong>Before:</strong> <code><%= row.before_value %></code></p><% } %><% if (row.after_value) { %><p><strong>After:</strong> <code><%= row.after_value %></code></p><% } %></details><% } else { %>—<% } %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
 </section>
 <%- include('partials/footer') %>

@@ -1,10 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-const { db, audit } = require('./db');
+const dal = require('./dal');
+const { normalizePhone } = require('./memberDomain');
 
 // --- Column header aliases (case-insensitive, partial match) ---
 const COLUMN_MAP = {
+  membership_number: ['membership number', 'membership no', 'member number', 'member no'],
   name: ['name', 'full name', 'member name', 'member'],
   phone: ['phone', 'telephone', 'mobile', 'contact', 'phone number'],
   dob: ['dob', 'date of birth', 'birth date', 'birthday', 'born'],
@@ -173,7 +175,52 @@ function parseXlsx(buffer, sheetName) {
 }
 
 // --- Import logic ---
-function importMembers(buffer, filename, userId) {
+function memberSnapshot(member) {
+  return {
+    name: member.name,
+    opening_arrears: Number(member.opening_arrears || 0).toFixed(2),
+    phone: member.phone || null,
+    dob: member.dob || null,
+    status: member.status
+  };
+}
+
+function sameSnapshot(member, snapshot, includeIdentity = false) {
+  if (!member || !snapshot) return false;
+  const current = memberSnapshot(member);
+  const fields = includeIdentity
+    ? ['name', 'opening_arrears', 'phone', 'dob', 'status']
+    : ['opening_arrears', 'phone', 'dob'];
+  return fields.every(field => current[field] === snapshot[field]);
+}
+
+function summarizeBalances(values) {
+  return values.reduce((summary, value) => {
+    const amount = Number(value) || 0;
+    if (amount > 0) summary.positive++;
+    else if (amount < 0) summary.negative++;
+    else summary.zero++;
+    summary.total += amount;
+    return summary;
+  }, { positive: 0, negative: 0, zero: 0, total: 0 });
+}
+
+function parseOpeningBalance(value) {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw) return 0;
+  const parenthesized = /^\(.*\)$/.test(raw);
+  const cleaned = raw.replace(/[(),\s]/g, '').replace(/[^0-9.\-]/g, '');
+  if (!/^-?\d+(?:\.\d+)?$/.test(cleaned)) return null;
+  const amount = Number(cleaned);
+  if (!Number.isFinite(amount)) return null;
+  return parenthesized ? -Math.abs(amount) : amount;
+}
+
+async function importMembers(buffer, filename, userId, fiscalYear) {
+  if (!Number.isInteger(Number(fiscalYear))) {
+    throw new Error('Select an active fiscal year before importing member balances.');
+  }
+  const safeFilename = path.basename(filename || 'member-import').slice(0, 255);
   const ext = path.extname(filename || '').toLowerCase();
   let rows;
 
@@ -194,30 +241,55 @@ function importMembers(buffer, filename, userId) {
     return { imported: 0, skipped: 0, errors: ['Could not find a "Name" column. Expected headers: Name, Phone, DOB, Opening Arrears.'] };
   }
 
-  const upsert = db.prepare(`
-    INSERT INTO members (name, opening_arrears, phone, dob, status)
-    VALUES (?, ?, ?, ?, 'active')
-    ON CONFLICT(name) DO UPDATE SET
-      opening_arrears = CASE WHEN excluded.opening_arrears != 0 THEN excluded.opening_arrears ELSE members.opening_arrears END,
-      phone = CASE WHEN excluded.phone IS NOT NULL THEN excluded.phone ELSE members.phone END,
-      dob = CASE WHEN excluded.dob IS NOT NULL THEN excluded.dob ELSE members.dob END
-  `);
-
   let imported = 0;
   let skipped = 0;
   const errors = [];
+  const importedBalances = [];
+  const processedMemberIds = new Set();
+  let batchId;
 
-  const run = db.transaction(() => {
+  await dal.transaction(async (client) => {
+    const activeYear = await client.query(
+      "SELECT year FROM fiscal_years WHERE year = $1 AND status = 'open' AND is_active = true FOR SHARE",
+      [Number(fiscalYear)]
+    );
+    if (activeYear.rows.length !== 1) {
+      throw new Error('The selected fiscal year is no longer active. Refresh the page and try again.');
+    }
+    const batch = await client.query(`
+      INSERT INTO member_import_batches (filename, created_by, fiscal_year)
+      VALUES ($1, $2, $3) RETURNING id
+    `, [safeFilename, userId, Number(fiscalYear)]);
+    batchId = batch.rows[0].id;
+
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
+      const membershipNumber = 'membership_number' in mapping
+        ? String(row[mapping.membership_number] || '').trim() || null
+        : null;
       const name = String(row[mapping.name] || '').trim();
       if (!name) { skipped++; continue; }
 
-      const phone = 'phone' in mapping ? String(row[mapping.phone] || '').trim() || null : null;
-      const arrearsRaw = 'opening_arrears' in mapping ? row[mapping.opening_arrears] : 0;
-      const arrears = Number(String(arrearsRaw || '0').replace(/[^0-9.\-]/g, '')) || 0;
+      const phoneRaw = 'phone' in mapping ? String(row[mapping.phone] || '').trim() || null : null;
+      const hasArrears = 'opening_arrears' in mapping;
+      const arrearsRaw = hasArrears ? row[mapping.opening_arrears] : null;
+      const arrears = hasArrears ? parseOpeningBalance(arrearsRaw) : null;
+      if (hasArrears && arrears === null) {
+        errors.push(`Row ${i + 1} (${name}): opening balance is not a valid amount.`);
+        skipped++;
+        continue;
+      }
+      const status = 'status' in mapping
+        ? String(row[mapping.status] || '').trim().toLowerCase()
+        : null;
+      if (status && !['active', 'suspended', 'expelled', 'transferred', 'resigned'].includes(status)) {
+        errors.push(`Row ${i + 1} (${name}): invalid membership status "${status}".`);
+        skipped++;
+        continue;
+      }
 
       let dob = null;
+      let invalidDob = false;
       if ('dob' in mapping && row[mapping.dob]) {
         const raw = String(row[mapping.dob]).trim();
         // Try ISO date, dd/mm/yyyy, or Excel serial
@@ -229,22 +301,196 @@ function importMembers(buffer, filename, userId) {
           dob = `${y}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
         } else if (/^\d+$/.test(raw)) {
           dob = excelDate(raw);
+        } else {
+          invalidDob = true;
         }
+      }
+      if (invalidDob) {
+        errors.push(`Row ${i + 1} (${name}): date of birth is invalid. Use YYYY-MM-DD or DD/MM/YYYY.`);
+        skipped++;
+        continue;
       }
 
       try {
-        upsert.run(name, arrears, phone, dob);
+        await client.query('SAVEPOINT member_import_row');
+        const phone = normalizePhone(phoneRaw);
+        const matches = membershipNumber
+          ? await client.query(`
+              SELECT id, name, opening_arrears, phone, dob, status, first_name, last_name FROM members
+              WHERE membership_number = $1 FOR UPDATE
+            `, [membershipNumber])
+          : await client.query(`
+              SELECT id, name, opening_arrears, phone, dob, status, first_name, last_name FROM members
+              WHERE LOWER(name) = LOWER($1)
+                AND (($2::varchar IS NOT NULL AND phone = $2) OR ($3::varchar IS NOT NULL AND dob = $3) OR ($2::varchar IS NULL AND $3::varchar IS NULL))
+              ORDER BY id
+              FOR UPDATE
+            `, [name, phone, dob]);
+        if (membershipNumber && matches.rows.length === 0) {
+          errors.push(`Row ${i + 1} (${name}): membership number ${membershipNumber} was not found; no new member was created.`);
+          skipped++;
+          await client.query('RELEASE SAVEPOINT member_import_row');
+          continue;
+        }
+        if (matches.rows.length > 1) {
+          errors.push(`Row ${i + 1} (${name}): multiple possible matches; review manually.`);
+          skipped++;
+          await client.query('RELEASE SAVEPOINT member_import_row');
+          continue;
+        }
+        if (matches.rows.length === 1 && processedMemberIds.has(matches.rows[0].id)) {
+          errors.push(`Row ${i + 1} (${name}): duplicate member row in this file; only the first occurrence was applied.`);
+          skipped++;
+          await client.query('RELEASE SAVEPOINT member_import_row');
+          continue;
+        }
+        let member;
+        let action;
+        let beforeValue = null;
+        if (matches.rows.length === 1) {
+          beforeValue = memberSnapshot(matches.rows[0]);
+          if (name !== matches.rows[0].name && (matches.rows[0].first_name || matches.rows[0].last_name)) {
+            throw new Error('use Edit profile to rename this structured member record.');
+          }
+          const nextArrears = hasArrears ? arrears : matches.rows[0].opening_arrears;
+          const nextPhone = 'phone' in mapping ? phone : matches.rows[0].phone;
+          const nextDob = 'dob' in mapping ? dob : matches.rows[0].dob;
+          const nextStatus = status || matches.rows[0].status;
+          const updated = await client.query(`UPDATE members SET
+            name = $1, opening_arrears = $2, phone = $3, dob = $4, status = $5
+            WHERE id = $6
+            RETURNING id, name, opening_arrears, phone, dob, status
+          `, [name, nextArrears, nextPhone, nextDob, nextStatus, matches.rows[0].id]);
+          member = updated.rows[0];
+          action = 'updated';
+          if (nextStatus !== beforeValue.status) {
+            await client.query(`
+              INSERT INTO member_status_history
+                (commandery_id, member_id, previous_status, new_status, effective_date, reason, changed_by)
+              SELECT commandery_id, id, $1, $2, CURRENT_DATE, $3, $4 FROM members WHERE id = $5
+            `, [beforeValue.status, nextStatus, `Status changed during member import batch ${batchId}`, userId, member.id]);
+          }
+        } else {
+          const inserted = await client.query(`
+            INSERT INTO members (name, opening_arrears, phone, dob, status)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id, name, opening_arrears, phone, dob, status, commandery_id
+          `, [name, arrears || 0, phone, dob, status || 'active']);
+          member = inserted.rows[0];
+          action = 'created';
+          await client.query(`
+            INSERT INTO member_status_history
+              (commandery_id, member_id, previous_status, new_status, effective_date, reason, changed_by)
+            VALUES ($1, $2, NULL, $3, CURRENT_DATE, $4, $5)
+          `, [member.commandery_id, member.id, member.status, `Initial status recorded during member import batch ${batchId}`, userId]);
+        }
+        await client.query(`
+          INSERT INTO member_import_rows
+            (batch_id, row_number, member_id, action, before_value, after_value)
+          VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb)
+        `, [batchId, i + 1, member.id, action, beforeValue && JSON.stringify(beforeValue), JSON.stringify(memberSnapshot(member))]);
+        await client.query('RELEASE SAVEPOINT member_import_row');
+        processedMemberIds.add(member.id);
         imported++;
+        importedBalances.push(member.opening_arrears);
       } catch (err) {
+        await client.query('ROLLBACK TO SAVEPOINT member_import_row');
+        await client.query('RELEASE SAVEPOINT member_import_row');
         errors.push(`Row ${i + 1} (${name}): ${err.message}`);
         skipped++;
       }
     }
+
+    const summary = summarizeBalances(importedBalances);
+    await client.query(`
+      UPDATE member_import_batches SET
+        imported_count = $1, skipped_count = $2, positive_count = $3,
+        negative_count = $4, zero_count = $5, total_opening_balance = $6,
+        errors = $7::jsonb
+      WHERE id = $8
+    `, [imported, skipped, summary.positive, summary.negative, summary.zero,
+      summary.total, JSON.stringify(errors), batchId]);
+    await dal.audit(userId, 'import', 'member_import_batch', batchId,
+      { filename: safeFilename, imported, skipped, balanceSummary: summary }, { client });
   });
 
-  run();
-  audit(userId, 'import', 'members', null, `${imported} members from ${filename}`);
-  return { imported, skipped, errors, mapping: Object.keys(mapping) };
+  return { imported, skipped, errors, mapping: Object.keys(mapping), batchId, balanceSummary: summarizeBalances(importedBalances) };
 }
 
-module.exports = { importMembers, parseCsv, detectColumnMapping };
+async function rollbackMemberImport(batchId, userId) {
+  return dal.transaction(async (client) => {
+    const batchResult = await client.query('SELECT * FROM member_import_batches WHERE id = $1 FOR UPDATE', [batchId]);
+    const batch = batchResult.rows[0];
+    if (!batch) throw new Error('Import batch not found.');
+    if (batch.status !== 'completed') throw new Error('This import has already been reversed.');
+
+    const rowsResult = await client.query('SELECT * FROM member_import_rows WHERE batch_id = $1 ORDER BY id DESC', [batchId]);
+    const blockers = [];
+    for (const row of rowsResult.rows) {
+      const memberResult = await client.query(`
+        SELECT id, name, opening_arrears, phone, dob, status FROM members WHERE id = $1 FOR UPDATE
+      `, [row.member_id]);
+      const member = memberResult.rows[0];
+      const after = row.after_value;
+      if (!member) {
+        blockers.push(`row ${row.row_number}: member no longer exists`);
+        continue;
+      }
+      if (!sameSnapshot(member, after, true)) {
+        blockers.push(`row ${row.row_number} (${after.name}): member was changed after import`);
+        continue;
+      }
+      if (row.action === 'created') {
+        const dependencies = await client.query(`
+          SELECT
+            (SELECT COUNT(*)::int FROM transactions WHERE member_id = $1) AS transactions,
+            (SELECT COUNT(*)::int FROM member_dues WHERE member_id = $1) AS dues,
+            (SELECT COUNT(*)::int FROM member_emergency_contacts WHERE member_id = $1) AS contacts,
+            (SELECT COUNT(*)::int FROM member_status_history
+              WHERE member_id = $1 AND reason <> $2) AS later_statuses
+        `, [member.id, `Initial status recorded during member import batch ${batchId}`]);
+        const counts = dependencies.rows[0];
+        if (counts.transactions || counts.dues || counts.contacts || counts.later_statuses) {
+          blockers.push(`row ${row.row_number} (${after.name}): member has later financial or membership activity`);
+        }
+      }
+    }
+    if (blockers.length) {
+      throw new Error(`Rollback stopped safely. ${blockers.slice(0, 5).join('; ')}${blockers.length > 5 ? `; and ${blockers.length - 5} more` : ''}.`);
+    }
+
+    for (const row of rowsResult.rows) {
+      if (row.action === 'created') {
+        await client.query('DELETE FROM member_status_history WHERE member_id = $1 AND reason = $2',
+          [row.member_id, `Initial status recorded during member import batch ${batchId}`]);
+        await client.query('DELETE FROM members WHERE id = $1', [row.member_id]);
+      } else {
+        const before = row.before_value;
+        await client.query('DELETE FROM member_status_history WHERE member_id = $1 AND reason = $2',
+          [row.member_id, `Status changed during member import batch ${batchId}`]);
+        await client.query(`
+          UPDATE members SET name = $1, opening_arrears = $2, phone = $3, dob = $4, status = $5 WHERE id = $6
+        `, [before.name, before.opening_arrears, before.phone, before.dob, before.status, row.member_id]);
+      }
+    }
+    await client.query(`
+      UPDATE member_import_batches
+      SET status = 'reversed', reversed_by = $1, reversed_at = NOW()
+      WHERE id = $2
+    `, [userId, batchId]);
+    await dal.audit(userId, 'rollback', 'member_import_batch', batchId,
+      { filename: batch.filename, affectedMembers: rowsResult.rows.length }, { client });
+    return { affected: rowsResult.rows.length, filename: batch.filename };
+  });
+}
+
+module.exports = {
+  importMembers,
+  rollbackMemberImport,
+  parseCsv,
+  detectColumnMapping,
+  memberSnapshot,
+  sameSnapshot,
+  summarizeBalances,
+  parseOpeningBalance
+};

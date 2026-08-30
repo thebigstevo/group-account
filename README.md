@@ -1,91 +1,178 @@
-# KSJI Accounts
+# Treasurio — Group & Club Financial Management
 
-A lightweight Node.js accounts app for managing members, dues, welfare liability, cash/bank/mobile money balances, and executive reports.
+A lightweight, self-hosted financial management application for groups, clubs, and societies. Track member dues, record receipts and expenses, manage welfare funds, reconcile accounts, and generate reports — all from a clean, responsive web interface.
 
-## Run with Docker
+## Features
 
-```powershell
+- **Member Management** — Track members, dues, arrears, and welfare eligibility
+- **Transaction Recording** — Receipts, expenses, transfers, and welfare payouts with full audit trail
+- **Account Balances** — Cash, bank, and mobile money accounts with reconciliation support
+- **Dues & Assessments** — Per-fiscal-year age bands, amounts, member overrides, and welfare splits managed by administrators
+- **Financial Configuration** — Administrators can add, edit, deactivate, or safely remove accounts and transaction categories; standard categories can be income-only, expense-only, or available in both flows
+- **Annual Budgets** — Draft and approve category-level income and expense budgets, retain locked plans, and compare them with posted actuals and unbudgeted activity
+- **Reports** — Monthly summaries, arrears reports, income/expense breakdowns, running balance ledgers
+- **CSV Export** — Export transactions, arrears, reports, reconciliations, and audit logs
+- **Fiscal Year Management** — Open/close fiscal years with arrears carry-forward
+- **Role-Based Access** — Admin, finance secretary, treasurer, trustee, viewer, and auditor roles
+- **Trustee Audit Workspace** — Annual evidence pack with account books, exceptions, reconciliations, budget variance, transaction support, and a signed trustee checklist
+- **Audit Log** — Every action is logged with user, timestamp, change evidence, and reason where supplied
+- **Responsive UI** — Works on desktop, tablet, and mobile (down to 320px)
+- **Print-Friendly** — Clean print layouts for reports and transaction lists
+- **Health Endpoint** — `GET /health` for load balancer and monitoring checks
+
+## Quick Start with Docker Compose
+
+```bash
+# Clone the repository
+git clone <your-repo-url> treasurio
+cd treasurio
+
+# Copy and configure environment
+cp .env.example .env
+# Edit .env with your values (especially SESSION_SECRET and PGPASSWORD)
+
+# Start the stack
 docker compose up -d --build
 ```
 
-Open `http://localhost:3000`.
+Open `http://localhost:3100`.
 
-Default login after the first boot:
-
+Default login after first boot:
 - Email: `admin@example.com`
 - Password: `ChangeMe123!`
 
-Change the default password immediately after deployment. Also change `SESSION_SECRET` and `N8N_API_TOKEN` in `docker-compose.yml`.
+Change the default password immediately after deployment.
 
-The SQLite database is stored in the Docker volume `ksjiaccounts_accounts_data`, so container rebuilds keep the data.
+On a fresh installation, open the fiscal year first, then use **Configuration** and **Dues** to create the organization's accounts, transaction categories, accounting purposes, and annual dues rules. Business-specific financial data is intentionally not seeded by migrations.
 
-## Import workbook members with Docker
+For annual governance, prepare the plan under **Annual budget**, approve it when agreed, and use **Trustee audit** to start the independent year review. Trustees or auditors record each checklist outcome and any exception before signing the review; exports remain available as supporting evidence.
 
-From this project folder:
+## Environment Variables
 
-```powershell
-docker compose run --rm `
-  -e WORKBOOK_PATH=/import/GroupManagementTemplate.xlsx `
-  -v "C:\Users\steps\Downloads:/import:ro" `
-  accounts npm run import:workbook
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | — | Full PostgreSQL connection string (takes precedence over individual vars) |
+| `PGHOST` | `localhost` | PostgreSQL host |
+| `PGPORT` | `5432` | PostgreSQL port |
+| `PGDATABASE` | `treasurio` | Database name |
+| `PGUSER` | `treasurio` | Database user |
+| `PGPASSWORD` | — | Database password |
+| `PG_POOL_SIZE` | `10` | Connection pool size (1–100) |
+| `PORT` | `3000` | Application listen port (inside container) |
+| `APP_PORT` | `3100` | Host port for Docker Compose mapping |
+| `DOMAIN` | — | Domain for reverse proxy configuration |
+| `SESSION_SECRET` | — | Session encryption secret (required in production) |
+| `N8N_API_TOKEN` | — | API token for n8n webhook integrations |
+| `GROUP_NAME` | `My Group` | Organization name shown in UI and reports |
+| `GROUP_CURRENCY` | `GHS` | Currency code for monetary formatting |
+| `NODE_ENV` | `development` | Set to `production` for secure cookies |
+| `SECURE_COOKIES` | `0` | Set to `1` when behind HTTPS |
+
+## Development Setup
+
+Prerequisites:
+- Node.js 22+
+- PostgreSQL 16+ (or use Docker)
+
+```bash
+# Install dependencies
+npm install
+
+# Start PostgreSQL (if using Docker for DB only)
+docker compose up -d postgres
+
+# Run database migrations
+npm run migrate
+
+# Seed default data
+npm run seed
+
+# Start the development server
+npm start
 ```
 
-The importer reads the `Members` sheet and creates or updates member names, phone numbers, dates of birth, and opening arrears.
+After the first sign-in, Treasurio requires an administrator to open or select the active fiscal year before operational pages, transactions, or member-balance imports can be used.
 
-## Run locally without Docker
+The app starts on `http://localhost:3000`.
 
-```powershell
-npm.cmd install
-npm.cmd run seed
-npm.cmd start
+### Available Scripts
+
+| Script | Description |
+|--------|-------------|
+| `npm start` | Start the application server |
+| `npm run migrate` | Run idempotent database migrations |
+| `npm run seed` | Seed default admin user and dues rules |
+| `npm test` | Run unit tests |
+| `npm run test:properties` | Run property-based tests |
+| `npm run import:workbook` | Import members into the active fiscal year from an Excel workbook |
+
+## Database
+
+Treasurio uses PostgreSQL 16. The schema is managed by an idempotent migration script (`src/migrate.js`) that runs automatically on container start.
+
+### Migrating from SQLite
+
+If you have an existing SQLite database from a previous version, use the migration tool:
+
+```bash
+# Set the path to your SQLite database
+export SQLITE_PATH=./storage/accounts.db
+
+# Ensure PostgreSQL is running and empty
+docker compose up -d postgres
+
+# Run the migration
+node src/tools/migrate-sqlite-to-pg.js
 ```
 
-Open `http://localhost:3000`.
+The tool will:
+1. Validate the source SQLite file
+2. Check that target PostgreSQL tables are empty
+3. Migrate all data in dependency order within a single transaction
+4. Reset sequences to correct values
+5. Verify row counts match
 
-Default login after seeding:
+### Connection Configuration
 
-- Email: `admin@example.com`
-- Password: `ChangeMe123!`
+The app connects to PostgreSQL using either:
+- `DATABASE_URL` — a full connection string (takes precedence), or
+- Individual variables: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`
 
-Change this password immediately after deployment.
+## Deployment
 
-## Import workbook members without Docker
+For the full deployment guide (CI/CD with GitHub Actions, VPS setup, fresh deploy steps, backup/restore, troubleshooting), see **[DEPLOYMENT.md](./DEPLOYMENT.md)**.
 
-```powershell
-$env:WORKBOOK_PATH="C:\Users\steps\Downloads\GroupManagementTemplate.xlsx"
-npm.cmd run import:workbook
+Quick summary:
+1. Add GitHub Secrets (VPS credentials, DB password, session secrets)
+2. Push to `develop` → deploys dev
+3. Push to `master` → deploys prod
+4. SSH in and run `node src/seed.js` to create admin user
+5. Run `certbot` for HTTPS
+
+### Production Checklist
+
+1. Set a strong `SESSION_SECRET` (32+ random characters)
+2. Set a strong `PGPASSWORD`
+3. Set `NODE_ENV=production` and `SECURE_COOKIES=1`
+4. Configure nginx as a reverse proxy with TLS
+5. Change the default admin password immediately after first login
+6. Set `GROUP_NAME` and `GROUP_CURRENCY` for your organization
+
+## Architecture
+
+```
+Express 4 + EJS (server-rendered)
+        │
+        ├── src/server.js      — Routes & middleware
+        ├── src/services.js    — Business logic
+        ├── src/dal.js         — Data access layer (pg pool)
+        ├── src/config.js      — Environment configuration
+        ├── src/migrate.js     — Schema migrations
+        └── src/public/        — CSS & client-side JS
+                │
+                └── PostgreSQL 16 (via Docker)
 ```
 
-## n8n arrears endpoint
+## License
 
-After login/session protection is expanded for API tokens, n8n can use:
-
-```text
-GET /api/reports/member-arrears?year=2026
-```
-
-For now, set `N8N_API_TOKEN` in the environment and send:
-
-```text
-Authorization: Bearer your-token
-```
-
-## Current reports
-
-The Reports screen is monthly. It shows:
-
-- Gross receipts, assessment income, spends, welfare collected, welfare liability, raw balances, and estimated spendable balance.
-- Raw account balances beside the most recent reconciled statement balances.
-- Income and expenses by category for the selected month.
-- A running balance ledger for the selected month.
-- Member arrears for the selected year.
-
-Recommended next controls:
-
-- Password change and reset screens.
-- Correction workflow for mistaken entries instead of deleting transactions.
-- Backup and restore download from the Docker volume.
-- Approval status for large expenses and welfare payouts.
-- Statement upload/matching for bank and mobile money reconciliation.
-
-See `PRODUCTION_READINESS.md` for deployment and system design notes before using the app for live records.
+Private — All rights reserved.

@@ -1,0 +1,80 @@
+<%- include('partials/header') %>
+<% locals.title = 'Automated Audit'; %>
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <span class="eyebrow">Governance</span>
+      <h1>Automated Audit — FY <%= audit.year %></h1>
+      <p>System-generated financial integrity checks. Score: <strong><%= audit.score %>%</strong> (<%= audit.passed %> passed, <%= audit.warnings %> warnings, <%= audit.failures %> failures out of <%= audit.totalChecks %> checks).</p>
+    </div>
+    <div class="page-title__meta">
+      <span class="badge <%= audit.score >= 80 ? 'badge--success' : audit.score >= 60 ? 'badge--warning' : 'badge--danger' %>">Score: <%= audit.score %>%</span>
+      <a class="btn btn--primary btn--sm" href="/auto-audit?year=<%= audit.year %>&format=pdf">Download PDF</a>
+      <button class="btn btn--secondary btn--sm" type="button" data-print>Print</button>
+    </div>
+  </section>
+
+  <!-- Score summary cards -->
+  <section class="metric-grid" style="grid-template-columns: repeat(4, minmax(0,1fr)); margin-bottom: var(--space-5);">
+    <div class="metric-card metric-card--success"><span class="metric-card__label">Passed</span><strong class="metric-card__value"><%= audit.passed %></strong></div>
+    <div class="metric-card" style="border-left: 3px solid var(--warning-base);"><span class="metric-card__label">Warnings</span><strong class="metric-card__value"><%= audit.warnings %></strong></div>
+    <div class="metric-card" style="border-left: 3px solid var(--danger-base);"><span class="metric-card__label">Failed</span><strong class="metric-card__value"><%= audit.failures %></strong></div>
+    <div class="metric-card"><span class="metric-card__label">Overall Score</span><strong class="metric-card__value"><%= audit.score %>%</strong></div>
+  </section>
+
+  <!-- Individual checks -->
+  <section class="audit-checklist">
+    <% audit.checks.forEach(function(check) { %>
+    <div class="audit-checklist__item" style="border-left: 3px solid <%= check.status === 'pass' ? 'var(--success-base)' : check.status === 'warning' ? 'var(--warning-base)' : 'var(--danger-base)' %>;">
+      <div>
+        <h3>
+          <span class="badge <%= check.status === 'pass' ? 'badge--success' : check.status === 'warning' ? 'badge--warning' : 'badge--danger' %>"><%= check.status.toUpperCase() %></span>
+          <%= check.title %>
+        </h3>
+        <p><%= check.description %></p>
+        <small><strong>Finding:</strong> <%= check.detail %></small>
+        <small style="display:block; margin-top:4px; color: var(--neutral-400);">Severity: <%= check.severity %></small>
+
+        <% if (check.evidence && check.evidence.length > 0) { %>
+        <details style="margin-top: var(--space-3);">
+          <summary class="btn btn--secondary btn--sm">View <%= check.evidence.length %> record(s)</summary>
+          <div class="table-wrap" style="margin-top: var(--space-2);">
+            <table class="data-table">
+              <thead><tr><th>ID</th><th>Date</th><th>Category</th><th>Member</th><th class="num">Amount</th><th>Description</th></tr></thead>
+              <tbody>
+                <% check.evidence.forEach(function(row) { %>
+                <tr>
+                  <td><a href="/transactions/<%= row.id %>/edit">#<%= row.id %></a></td>
+                  <td><%= row.date %></td>
+                  <td><%= row.category %></td>
+                  <td><%= row.member %></td>
+                  <td class="num"><%= formatMoney(row.amount) %></td>
+                  <td><%= row.description || row.reference || '—' %></td>
+                </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+        </details>
+        <% } %>
+      </div>
+    </div>
+    <% }) %>
+  </section>
+
+  <!-- Manual checks reminder -->
+  <section class="panel" style="margin-top: var(--space-5);">
+    <h2>Manual Verification Required</h2>
+    <p class="text-muted text-sm">The following items cannot be verified by the system and require physical inspection by the trustee/auditor:</p>
+    <ul class="guidance-list">
+      <li>Physical vouchers/receipts are on file for all expenses</li>
+      <li>Bank statement originals match reconciled figures</li>
+      <li>Authorisations were obtained before expenditure (committee minutes)</li>
+      <li>Proper procurement procedures were followed for large purchases</li>
+      <li>Governance meetings were held regularly (minutes available)</li>
+      <li>Membership register matches physical attendance records</li>
+      <li>Assets register is up to date (regalia, equipment, etc.)</li>
+    </ul>
+  </section>
+</div>
+<%- include('partials/footer') %>

@@ -1,129 +1,106 @@
 <%- include('partials/header') %>
-<section class="hero print-head">
-  <div>
-    <h1>Monthly executive report</h1>
-    <p><%= period.label %>. Use browser print to save this report as PDF.</p>
-  </div>
-  <form method="get" action="/reports" class="inline-form no-print">
-    <input name="year" type="number" value="<%= year %>">
-    <select name="month">
-      <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach((name, index) => { %>
-        <option value="<%= index + 1 %>" <%= month === index + 1 ? 'selected' : '' %>><%= name %></option>
-      <% }) %>
-    </select>
-    <button type="submit">View month</button>
-    <button type="button" data-print>Print</button>
+<% locals.title = 'Reports' %>
+
+<div class="page-container">
+  <section class="page-title print-head">
+    <div>
+      <span class="eyebrow">Finance · Reports</span>
+      <h1>Monthly executive report</h1>
+      <p><%= period.label %>. Review the period position or use browser print to save a PDF.</p>
+    </div>
+    <a class="btn btn--secondary btn--sm no-print" href="/export/report?year=<%= year %>&month=<%= month %>">Export CSV</a>
+  </section>
+
+  <form method="get" action="/reports" class="report-toolbar no-print" aria-label="Report period">
+    <div class="report-toolbar__fields">
+      <div class="form-group">
+        <label for="report-year">Year</label>
+        <input id="report-year" name="year" type="number" value="<%= year %>">
+      </div>
+      <div class="form-group">
+        <label for="report-month">Month</label>
+        <select id="report-month" name="month">
+          <% ['January','February','March','April','May','June','July','August','September','October','November','December'].forEach(function(name, index) { %>
+            <option value="<%= index + 1 %>" <%= month === index + 1 ? 'selected' : '' %>><%= name %></option>
+          <% }) %>
+        </select>
+      </div>
+    </div>
+    <div class="report-toolbar__actions">
+      <button class="btn btn--primary" type="submit">View month</button>
+      <button class="btn btn--secondary" type="button" data-print>Print</button>
+    </div>
   </form>
-  <div style="margin-top: 10px; text-align: right; padding-right: 20px;">
-    <a href="/export/report?year=<%= year %>&month=<%= month %>" style="background: #4CAF50; color: white; padding: 8px 12px; border-radius: 4px; text-decoration: none; font-size: 0.9em;">Export CSV</a>
-  </div>
-</section>
 
-<section class="metrics">
-  <% summary.balances.forEach((account) => { %>
-    <div class="metric"><span><%= account.name %> raw balance</span><strong><%= formatMoney(account.balance) %></strong></div>
-  <% }) %>
-  <div class="metric"><span>Gross receipts this month</span><strong><%= formatMoney(summary.grossReceipts) %></strong></div>
-  <div class="metric"><span>Income this month</span><strong><%= formatMoney(summary.income) %></strong></div>
-  <div class="metric"><span>Spends this month</span><strong><%= formatMoney(summary.expenses) %></strong></div>
-  <div class="metric warning"><span>Welfare liability</span><strong><%= formatMoney(summary.welfareLiability) %></strong></div>
-  <div class="metric"><span>Total raw balance</span><strong><%= formatMoney(summary.totalCashPosition) %></strong></div>
-  <div class="metric warning"><span>Estimated spendable balance</span><strong><%= formatMoney(summary.spendableBalance) %></strong></div>
-</section>
+  <section class="summary-strip" aria-label="Period summary">
+    <div class="summary-strip__item"><span class="summary-strip__label">Current Balance (all accounts)</span><strong class="summary-strip__value"><%= formatMoney(summary.totalCashPosition) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Net Income · <%= period.label %></span><strong class="summary-strip__value" style="color: var(--success-dark)"><%= formatMoney(summary.income) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Expenses · <%= period.label %></span><strong class="summary-strip__value" style="color: var(--danger-dark)"><%= formatMoney(summary.expenses) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Spendable (excl. welfare)</span><strong class="summary-strip__value"><%= formatMoney(summary.spendableBalance) %></strong></div>
+  </section>
 
-<section class="grid two">
-  <div class="panel">
-    <h2>Raw vs reconciled balances</h2>
-    <table>
-      <thead><tr><th>Account</th><th class="num">Raw balance</th><th class="num">Last reconciled</th><th>Date</th><th class="num">Difference</th></tr></thead>
-      <tbody>
-        <% summary.balances.forEach((account) => {
-          const rec = reconciliations.find((item) => item.account_id === account.id);
+  <section class="grid two report-grid">
+    <div class="panel">
+      <div class="section-head"><div><h2>Account Balances</h2><p>Current position of each account, with last reconciliation status.</p></div></div>
+      <div class="account-list">
+        <% summary.balances.forEach(function(account) {
+          const rec = reconciliations.find(function(item) { return item.account_id === account.id; });
         %>
-          <tr>
-            <td><%= account.name %></td>
-            <td class="num"><%= formatMoney(account.balance) %></td>
-            <td class="num"><%= rec && rec.statement_balance !== null ? formatMoney(rec.statement_balance) : 'Not reconciled' %></td>
-            <td><%= rec && rec.period_end ? rec.period_end : '' %></td>
-            <td class="num"><%= rec && rec.difference !== null ? formatMoney(rec.difference) : '' %></td>
-          </tr>
+          <div class="report-account-row">
+            <div><strong><%= account.name %></strong><span><%= rec && rec.period_end ? 'Reconciled ' + rec.period_end : 'Not reconciled' %></span></div>
+            <div><strong><%= formatMoney(account.balance) %></strong><span><%= rec && rec.difference !== null ? 'Difference ' + formatMoney(rec.difference) : 'Raw balance' %></span></div>
+          </div>
         <% }) %>
-      </tbody>
-    </table>
-  </div>
-  <div class="panel">
-    <h2>Period notes</h2>
-    <table>
-      <tbody>
-        <tr><th>Period start</th><td><%= period.startDate %></td></tr>
-        <tr><th>Period end</th><td><%= period.endDate %></td></tr>
-        <tr><th>Welfare collected this month</th><td class="num"><%= formatMoney(summary.welfareCollected) %></td></tr>
-        <tr><th>Welfare still payable</th><td class="num"><%= formatMoney(summary.welfareLiability) %></td></tr>
-      </tbody>
-    </table>
-  </div>
-</section>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="section-head"><div><h2>Period Summary</h2><p>Key figures for <%= period.label %>.</p></div></div>
+      <dl class="report-notes">
+        <div><dt>Period</dt><dd><%= period.startDate %> to <%= period.endDate %></dd></div>
+        <div><dt>Gross receipts (incl. welfare)</dt><dd><%= formatMoney(summary.grossReceipts) %></dd></div>
+        <div><dt>Welfare collected this period</dt><dd><%= formatMoney(summary.welfareCollected) %></dd></div>
+        <div><dt>Total welfare liability (still payable)</dt><dd><%= formatMoney(summary.welfareLiability) %></dd></div>
+      </dl>
+    </div>
+  </section>
 
-<section class="grid two">
-  <div class="panel">
-    <h2>Income by category</h2>
-    <table>
-      <thead><tr><th>Category</th><th class="num">Amount</th></tr></thead>
-      <tbody>
-        <% incomeByCategory.forEach((row) => { %><tr><td><%= row.category %></td><td class="num"><%= formatMoney(row.total) %></td></tr><% }) %>
-      </tbody>
-    </table>
-  </div>
-  <div class="panel">
-    <h2>Expenses by category</h2>
-    <table>
-      <thead><tr><th>Category</th><th class="num">Amount</th></tr></thead>
-      <tbody>
-        <% expensesByCategory.forEach((row) => { %><tr><td><%= row.category %></td><td class="num"><%= formatMoney(row.total) %></td></tr><% }) %>
-      </tbody>
-    </table>
-  </div>
-</section>
+  <section class="grid two report-grid">
+    <div class="panel">
+      <h2>Income by category</h2>
+      <div class="table-wrap"><table class="data-table"><thead><tr><th>Category</th><th class="num">Amount</th></tr></thead><tbody>
+        <% incomeByCategory.forEach(function(row) { %><tr><td><%= row.category %></td><td class="num"><%= formatMoney(row.total) %></td></tr><% }) %>
+        <% if (incomeByCategory.length === 0) { %><tr><td colspan="2">No income recorded for this month.</td></tr><% } %>
+      </tbody></table></div>
+    </div>
+    <div class="panel">
+      <h2>Expenses by category</h2>
+      <div class="table-wrap"><table class="data-table"><thead><tr><th>Category</th><th class="num">Amount</th></tr></thead><tbody>
+        <% expensesByCategory.forEach(function(row) { %><tr><td><%= row.category %></td><td class="num"><%= formatMoney(row.total) %></td></tr><% }) %>
+        <% if (expensesByCategory.length === 0) { %><tr><td colspan="2">No expenses recorded for this month.</td></tr><% } %>
+      </tbody></table></div>
+    </div>
+  </section>
 
-<section class="panel">
-  <h2>Running balance</h2>
-  <table>
-    <thead><tr><th>Date</th><th>Type</th><th>Account</th><th>Member / detail</th><th>Category</th><th class="num">Cash impact</th><th class="num">Running balance</th></tr></thead>
-    <tbody>
-      <% runningRows.forEach((row) => { %>
-        <tr>
-          <td><%= row.tx_date %></td>
-          <td><%= row.tx_type %></td>
-          <td><%= row.tx_type === 'transfer' ? `${row.account_name} to ${row.to_account_name}` : (row.account_name || '') %></td>
-          <td><%= row.member_name || row.description || '' %></td>
-          <td><%= row.category %></td>
-          <td class="num"><%= formatMoney(row.cashImpact) %></td>
-          <td class="num"><%= formatMoney(row.runningBalance) %></td>
-        </tr>
-      <% }) %>
-      <% if (runningRows.length === 0) { %>
-        <tr><td colspan="7">No transactions recorded for this month.</td></tr>
-      <% } %>
-    </tbody>
-  </table>
-</section>
+  <section class="panel">
+    <div class="section-head"><div><h2>Running balance</h2><p>Posted movements for the selected period.</p></div></div>
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Date</th><th>Type</th><th>Account</th><th>Member / detail</th><th>Category</th><th class="num">Cash impact</th><th class="num">Running balance</th></tr></thead><tbody>
+      <% runningRows.forEach(function(row) { %><tr><td><%= row.tx_date %></td><td><%= row.tx_type %></td><td><%= row.tx_type === 'transfer' ? (row.account_name + ' to ' + row.to_account_name) : (row.account_name || '') %></td><td><%= row.member_name || row.description || '' %></td><td><%= row.category %></td><td class="num"><%= formatMoney(row.cashImpact) %></td><td class="num"><%= formatMoney(row.runningBalance) %></td></tr><% }) %>
+      <% if (runningRows.length === 0) { %><tr><td colspan="7">No transactions recorded for this month.</td></tr><% } %>
+    </tbody></table></div>
+  </section>
 
-<section class="panel">
-  <h2>Member arrears for <%= year %></h2>
-  <table>
-    <thead><tr><th>Member</th><th>Phone</th><th class="num">Opening</th><th class="num">Due</th><th class="num">Paid</th><th class="num">Balance</th></tr></thead>
-    <tbody>
-      <% arrears.filter((row) => row.balance > 0).forEach((row) => { %>
-        <tr>
-          <td><%= row.name %></td>
-          <td><%= row.phone || '' %></td>
-          <td class="num"><%= formatMoney(row.opening_arrears) %></td>
-          <td class="num"><%= formatMoney(row.assessment_due) %></td>
-          <td class="num"><%= formatMoney(row.paid) %></td>
-          <td class="num"><%= formatMoney(row.balance) %></td>
-        </tr>
-      <% }) %>
-    </tbody>
-  </table>
-</section>
+  <section class="panel">
+    <div class="section-head"><div><h2>Member arrears for <%= year %></h2><p>Members with an outstanding balance.</p></div><form method="post" action="/admin/send-arrears-reminders" class="no-print" style="display:inline"><%- include('partials/csrf') %><button class="btn btn--secondary btn--sm" type="submit" data-modal-confirm data-modal-title="Send SMS Reminders" data-modal-body="This will send an SMS reminder to all members with outstanding balances who have a phone number. Continue?">📱 Send Reminders</button></form></div>
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Member</th><th>Phone</th><th class="num">Opening</th><th class="num">Due</th><th class="num">Paid</th><th class="num">Balance</th></tr></thead><tbody>
+      <% arrears.filter(function(row) { return row.balance > 0; }).forEach(function(row) { %><tr><td><%= row.name %></td><td><%= row.phone || '' %></td><td class="num"><%= formatMoney(row.opening_arrears) %></td><td class="num"><%= formatMoney(row.assessment_due) %></td><td class="num"><%= formatMoney(row.paid) %></td><td class="num"><%= formatMoney(row.balance) %></td></tr><% }) %>
+    </tbody></table></div>
+  </section>
+
+  <!-- Signature block (visible only when printing) -->
+  <section class="print-signatures" style="display:none">
+    <p style="font-size:9pt;margin-bottom:4pt;font-style:italic">Prepared and presented as a true record of the financial position for the period stated above.</p>
+    <div class="print-signatures__line">Treasurer / Finance Secretary</div>
+    <div class="print-signatures__line">President / Chairman</div>
+  </section>
+</div>
 <%- include('partials/footer') %>

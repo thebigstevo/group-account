@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - feature/treasurio-overhaul
+      - develop
+      - master
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --runInBand
+      - run: npm audit --omit=dev --audit-level=high
+      - name: Validate JavaScript and deployment files
+        run: |
+          find src -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+          bash -n deploy/backup.sh deploy/restore.sh deploy/provision-app-role.sh deploy/deploy.sh
+          POSTGRES_PASSWORD=test DEV_DB_PASSWORD=123456789012345678901234 PROD_DB_PASSWORD=123456789012345678901234 DEV_SESSION_SECRET=test PROD_SESSION_SECRET=test docker compose -f deploy/docker-compose.yml config --quiet
+      - name: Build production image
+        run: docker build -t treasurio-ci:${{ github.sha }} .

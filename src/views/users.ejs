@@ -1,61 +1,124 @@
 <%- include('partials/header') %>
+<% locals.title = 'Users' %>
+
+<% if (locals.errors && locals.errors.length) { %>
+<div class="error-summary" role="alert" aria-live="assertive">
+  <h2>There were errors with your submission</h2>
+  <ul>
+    <% locals.errors.forEach(function(err) { %><li><%= err %></li><% }) %>
+  </ul>
+</div>
+<% } %>
+
 <section class="grid two">
   <div class="panel">
     <h1>Users</h1>
-    <table>
-      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
-      <tbody>
-        <% users.forEach((row) => { %>
-          <tr>
-            <td><%= row.name %></td>
-            <td><%= row.email %></td>
-            <td><%= row.role %></td>
-            <td><%= row.active ? 'Active' : 'Inactive' %></td>
-            <td>
-              <% if (row.id !== user.id) { %>
-                <form method="post" action="/users/<%= row.id %>/toggle" style="display: inline;">
-                  <%- include('partials/csrf') %>
-                  <button type="submit" style="padding: 2px 6px; font-size: 0.85em;"><%= row.active ? 'Deactivate' : 'Activate' %></button>
-                </form>
-              <% } %>
-            </td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          <% users.forEach(function(row) { %>
+            <tr>
+              <td><%= row.name %></td>
+              <td><%= row.email %></td>
+              <td><span class="badge"><%= row.role.replace(/_/g, ' ') %></span></td>
+              <td><span class="badge <%= row.active ? 'badge--success' : 'badge--soft' %>"><%= row.active ? 'Active' : 'Inactive' %></span></td>
+              <td>
+                <% if (row.id !== user.id) { %>
+                <div class="btn-group" style="gap:2px;">
+                  <details class="inline-edit">
+                    <summary class="btn-icon" title="Change role"><svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"/></svg></summary>
+                    <form method="post" action="/users/<%= row.id %>/role" class="inline-form stack">
+                      <%- include('partials/csrf') %>
+                      <div class="form-group">
+                        <select name="role" required>
+                          <option value="secretary" <%= row.role === 'secretary' ? 'selected' : '' %>>Secretary</option>
+                          <option value="finance_secretary" <%= row.role === 'finance_secretary' ? 'selected' : '' %>>Finance Secretary</option>
+                          <option value="treasurer" <%= row.role === 'treasurer' ? 'selected' : '' %>>Treasurer</option>
+                          <option value="president" <%= row.role === 'president' ? 'selected' : '' %>>President</option>
+                          <option value="first_vice_president" <%= row.role === 'first_vice_president' ? 'selected' : '' %>>First VP</option>
+                          <option value="second_vice_president" <%= row.role === 'second_vice_president' ? 'selected' : '' %>>Second VP</option>
+                          <option value="commander" <%= row.role === 'commander' ? 'selected' : '' %>>Commander</option>
+                          <option value="trustee" <%= row.role === 'trustee' ? 'selected' : '' %>>Trustee</option>
+                          <option value="executive" <%= row.role === 'executive' ? 'selected' : '' %>>Executive</option>
+                          <option value="viewer" <%= row.role === 'viewer' ? 'selected' : '' %>>Viewer</option>
+                          <option value="auditor" <%= row.role === 'auditor' ? 'selected' : '' %>>Auditor</option>
+                          <option value="admin" <%= row.role === 'admin' ? 'selected' : '' %>>Admin</option>
+                        </select>
+                      </div>
+                      <button class="btn btn--primary btn--sm" type="submit">Save</button>
+                    </form>
+                  </details>
+                  <details class="inline-edit">
+                    <summary class="btn-icon" title="Edit user"><svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg></summary>
+                    <form method="post" action="/users/<%= row.id %>/edit" class="inline-form stack">
+                      <%- include('partials/csrf') %>
+                      <div class="form-group"><label>Name</label><input name="name" value="<%= row.name %>" required></div>
+                      <div class="form-group"><label>Email</label><input name="email" type="email" value="<%= row.email %>" required></div>
+                      <button class="btn btn--primary btn--sm" type="submit">Save</button>
+                    </form>
+                  </details>
+                  <form method="post" action="/users/<%= row.id %>/toggle" style="display:inline"><%- include('partials/csrf') %><button class="btn-icon" type="submit" title="<%= row.active ? 'Deactivate' : 'Activate' %>"><svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><% if (row.active) { %><path fill-rule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clip-rule="evenodd"/><% } else { %><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/><% } %></svg></button></form>
+                  <form method="post" action="/users/<%= row.id %>/delete" style="display:inline" data-modal-confirm data-modal-title="Delete user" data-modal-body="Permanently delete this user? This cannot be undone."><%- include('partials/csrf') %><button class="btn-icon btn-icon--danger" type="submit" title="Delete user"><svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg></button></form>
+                </div>
+                <% } %>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
   </div>
   <div class="panel">
     <h2>Add user</h2>
-    <form method="post" action="/users" class="stack">
+    <form method="post" action="/users" class="stack" data-validate>
       <%- include('partials/csrf') %>
-      <label>Name <input name="name" required></label>
-      <label>Email <input name="email" type="email" required></label>
-      <label>Password <input name="password" type="password" required minlength="8"></label>
-      <label>Role
-        <select name="role">
-          <option value="finance_secretary">Finance Secretary</option>
-          <option value="treasurer">Treasurer</option>
-          <option value="viewer">Executive Viewer</option>
-          <option value="auditor">Auditor</option>
-          <option value="admin">Admin</option>
-        </select>
-      </label>
-      <button type="submit">Add user</button>
+      <fieldset class="fieldset">
+        <legend>User details <span class="required-legend">* Required</span></legend>
+        <div class="form-group"><label for="user-name">Name *</label><input id="user-name" name="name" required value="<%= (locals.values && locals.values.name) || '' %>"></div>
+        <div class="form-group"><label for="user-email">Email *</label><input id="user-email" name="email" type="email" required value="<%= (locals.values && locals.values.email) || '' %>"></div>
+        <div class="form-group"><label for="user-password">Password *</label><input id="user-password" name="password" type="password" required minlength="8"></div>
+        <div class="form-group">
+          <label for="user-role">Role</label>
+          <select id="user-role" name="role">
+            <option value="secretary">Secretary</option>
+            <option value="finance_secretary">Finance Secretary</option>
+            <option value="treasurer">Treasurer</option>
+            <option value="president">President</option>
+            <option value="first_vice_president">First Vice President</option>
+            <option value="second_vice_president">Second Vice President</option>
+            <option value="commander">Commander</option>
+            <option value="trustee">Trustee</option>
+            <option value="executive">Executive</option>
+            <option value="viewer">Viewer</option>
+            <option value="auditor">Auditor</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Add user</button>
     </form>
 
-    <h2 style="margin-top: 24px;">Reset user password</h2>
-    <form method="post" class="stack" id="reset-form">
+    <h2 style="margin-top: var(--space-6);">Reset user password</h2>
+    <form method="post" action="/users/reset-password" class="stack">
       <%- include('partials/csrf') %>
-      <label>User
-        <select id="reset-user-select" onchange="document.getElementById('reset-form').action='/users/' + this.value + '/reset-password'">
-          <option value="">Select a user</option>
-          <% users.filter(u => u.id !== user.id).forEach((row) => { %>
-            <option value="<%= row.id %>"><%= row.name %> (<%= row.email %>)</option>
-          <% }) %>
-        </select>
-      </label>
-      <label>New password <input name="new_password" type="password" required minlength="8"></label>
-      <button type="submit">Reset password</button>
+      <fieldset class="fieldset">
+        <legend>Password reset <span class="required-legend">* Required</span></legend>
+        <div class="form-group">
+          <label for="reset-user-select">User *</label>
+          <select id="reset-user-select" name="user_id" required>
+            <option value="">Select a user</option>
+            <% users.filter(function(u) { return u.id !== user.id; }).forEach(function(row) { %>
+              <option value="<%= row.id %>"><%= row.name %> (<%= row.email %>)</option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="reset-new-password">New password *</label>
+          <input id="reset-new-password" name="new_password" type="password" required minlength="8">
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Reset password</button>
     </form>
   </div>
 </section>

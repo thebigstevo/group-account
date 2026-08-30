@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="Treasurio — Group & Club Financial Management">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#1a2332">
+  <title><%= typeof title !== 'undefined' ? title : 'Dashboard' %> – Treasurio</title>
+  <link rel="stylesheet" href="/app.css?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : 'dev' %>">
+</head>
+<body<% if (locals.activeFiscalYear) { %> data-fiscal-year="<%= locals.activeFiscalYear.year %>"<% } %>>
+  <!-- Skip navigation link (first focusable element) -->
+  <a href="#main-content" class="skip-nav">Skip to content</a>
+
+  <!-- Mobile top bar (visible ≤768px) -->
+  <%- include('partials/topbar-mobile') %>
+
+  <!-- Sidebar navigation (left panel on desktop, drawer on mobile) -->
+  <%- include('partials/sidebar') %>
+
+  <!-- Main content area -->
+  <main id="main-content" class="main-content" role="main">
+    <%- body %>
+  </main>
+
+  <!-- Footer -->
+  <footer class="app-footer" role="contentinfo">
+    <small>Treasurio <span class="credit">by TILC</span></small>
+  </footer>
+
+  <!-- Mobile Bottom Navigation -->
+  <%- include('partials/bottom-nav') %>
+
+  <!-- Toast notification container -->
+  <%- include('partials/toast-container') %>
+
+  <!-- Modal shell -->
+  <%- include('partials/modal') %>
+
+  <script src="/app.js?v=<%= typeof assetVersion !== 'undefined' ? assetVersion : 'dev' %>"></script>
+</body>
+</html>

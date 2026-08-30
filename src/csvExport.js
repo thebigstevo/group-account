@@ -1,4 +1,6 @@
 const { stringify } = require('csv-stringify/sync');
+const dal = require('./dal');
+const { arrearsReport, budgetVsActual } = require('./services');
 
 /**
  * Convert array of objects to CSV string
@@ -27,7 +29,7 @@ function formatCurrency(value) {
 /**
  * Export transactions as CSV
  */
-function exportTransactionsCsv(db, filters = {}) {
+async function exportTransactionsCsv(filters = {}) {
   const { startDate, endDate, status = 'posted', includeReversed = false } = filters;
 
   let query = `
@@ -41,25 +43,32 @@ function exportTransactionsCsv(db, filters = {}) {
       ta.name AS to_account,
       t.amount,
       t.welfare_component,
+      t.reference,
       t.description,
       t.reconciled,
-      t.status
+      t.status,
+      t.created_at,
+      u.name AS recorded_by
     FROM transactions t
     LEFT JOIN members m ON m.id = t.member_id
     LEFT JOIN accounts a ON a.id = t.account_id
     LEFT JOIN accounts ta ON ta.id = t.to_account_id
+    LEFT JOIN users u ON u.id = t.created_by
     WHERE 1=1
   `;
 
   const params = [];
+  let idx = 1;
 
   if (startDate) {
-    query += ` AND t.tx_date >= ?`;
+    query += ` AND t.tx_date >= $${idx}`;
     params.push(startDate);
+    idx++;
   }
   if (endDate) {
-    query += ` AND t.tx_date <= ?`;
+    query += ` AND t.tx_date <= $${idx}`;
     params.push(endDate);
+    idx++;
   }
 
   if (!includeReversed) {
@@ -68,7 +77,7 @@ function exportTransactionsCsv(db, filters = {}) {
 
   query += ` ORDER BY t.tx_date DESC, t.id DESC`;
 
-  const rows = db.prepare(query).all(...params);
+  const rows = await dal.query(query, params);
 
   const formatted = rows.map(row => ({
     Date: row.tx_date,
@@ -79,9 +88,12 @@ function exportTransactionsCsv(db, filters = {}) {
     'To Account': row.to_account || '',
     Amount: formatCurrency(row.amount),
     'Welfare Component': formatCurrency(row.welfare_component),
+    Reference: row.reference || '',
     Cleared: row.reconciled ? 'Yes' : 'No',
     Status: row.status,
-    Description: row.description || ''
+    Description: row.description || '',
+    'Recorded By': row.recorded_by || '',
+    'Recorded At': row.created_at || ''
   }));
 
   return arrayToCsv(formatted);
@@ -90,8 +102,8 @@ function exportTransactionsCsv(db, filters = {}) {
 /**
  * Export arrears report as CSV
  */
-function exportArrearsCsv(db, year) {
-  const rows = db.prepare(`
+async function exportArrearsCsv(year) {
+  const rows = await dal.query(`
     SELECT 
       m.name,
       m.phone,
@@ -100,31 +112,33 @@ function exportArrearsCsv(db, year) {
       COALESCE(md.welfare_portion, dr.welfare_portion, 0) as welfare_portion,
       COALESCE((
         SELECT SUM(amount)
-        FROM transactions
-        WHERE tx_type = 'receipt'
-          AND member_id = m.id
-          AND category = 'Assessment'
-          AND strftime('%Y', tx_date) = ?
-          AND status = 'posted'
+        FROM transactions t
+        JOIN transaction_categories c ON c.name = t.category
+        WHERE t.tx_type = 'receipt'
+          AND t.member_id = m.id
+          AND c.purpose = 'assessment'
+          AND SUBSTRING(t.tx_date FROM 1 FOR 4) = $1
+          AND t.status = 'posted'
       ), 0) as paid,
       m.opening_arrears + COALESCE(md.assessment_due, dr.annual_assessment, 0) - COALESCE((
         SELECT SUM(amount)
-        FROM transactions
-        WHERE tx_type = 'receipt'
-          AND member_id = m.id
-          AND category = 'Assessment'
-          AND strftime('%Y', tx_date) = ?
-          AND status = 'posted'
+        FROM transactions t
+        JOIN transaction_categories c ON c.name = t.category
+        WHERE t.tx_type = 'receipt'
+          AND t.member_id = m.id
+          AND c.purpose = 'assessment'
+          AND SUBSTRING(t.tx_date FROM 1 FOR 4) = $2
+          AND t.status = 'posted'
       ), 0) as balance
     FROM members m
-    LEFT JOIN member_dues md ON md.member_id = m.id AND md.year = ?
-    LEFT JOIN dues_rules dr ON dr.year = ? AND (
-      (dr.min_age IS NULL OR (julianday('now') - julianday(m.dob)) / 365.25 >= dr.min_age) AND
-      (dr.max_age IS NULL OR (julianday('now') - julianday(m.dob)) / 365.25 <= dr.max_age)
+    LEFT JOIN member_dues md ON md.member_id = m.id AND md.year = $3
+    LEFT JOIN dues_rules dr ON dr.year = $4 AND dr.active = true AND (
+      (dr.min_age IS NULL OR EXTRACT(YEAR FROM AGE(CURRENT_DATE, m.dob::date)) >= dr.min_age) AND
+      (dr.max_age IS NULL OR EXTRACT(YEAR FROM AGE(CURRENT_DATE, m.dob::date)) <= dr.max_age)
     )
     WHERE m.status = 'active'
     ORDER BY m.name
-  `).all(String(year), String(year), year, year);
+  `, [String(year), String(year), year, year]);
 
   const formatted = rows.map(row => ({
     Name: row.name,
@@ -140,31 +154,74 @@ function exportArrearsCsv(db, year) {
 }
 
 /**
+ * Export a stable, re-importable membership cleanup register. Calculated
+ * financial columns are deliberately ignored by the importer.
+ */
+async function exportMemberCleanupCsv(year) {
+  const [members, balances] = await Promise.all([
+    dal.query(`
+      SELECT m.id, m.membership_number, m.name, m.phone, m.dob, m.status, m.opening_arrears,
+        (SELECT COUNT(*)::int FROM transactions t WHERE t.member_id = m.id) AS transaction_count,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM members d
+          WHERE d.id <> m.id AND (
+            LOWER(BTRIM(d.name)) = LOWER(BTRIM(m.name))
+            OR (m.phone IS NOT NULL AND BTRIM(m.phone) <> '' AND d.phone = m.phone)
+          )
+        ) THEN 'REVIEW' ELSE '' END AS potential_duplicate
+      FROM members m
+      ORDER BY m.name, m.id
+    `),
+    arrearsReport(year)
+  ]);
+  const balanceByMember = new Map(balances.map(row => [row.member_id, row]));
+  const formatted = members.map(member => {
+    const balance = balanceByMember.get(member.id);
+    return {
+      'Membership Number': member.membership_number,
+      Name: member.name,
+      Phone: member.phone || '',
+      DOB: member.dob || '',
+      Status: member.status,
+      'Opening Balance': formatCurrency(member.opening_arrears),
+      'Reference Year': year,
+      'Assessment Due (reference only)': balance ? formatCurrency(balance.assessment_due) : '',
+      'Payments (reference only)': balance ? formatCurrency(balance.paid) : '',
+      'Calculated Balance (reference only)': balance ? formatCurrency(balance.balance) : '',
+      'Transaction Count (reference only)': member.transaction_count,
+      'Potential Duplicate (reference only)': member.potential_duplicate
+    };
+  });
+
+  return arrayToCsv(formatted);
+}
+
+/**
  * Export income/expense report as CSV
  */
-function exportReportCsv(db, startDate, endDate) {
-  const incomeByCategory = db.prepare(`
+async function exportReportCsv(startDate, endDate) {
+  const incomeByCategory = await dal.query(`
     SELECT category, COALESCE(SUM(amount - welfare_component), 0) AS total
     FROM transactions
     WHERE tx_type = 'receipt' AND status = 'posted'
-      AND tx_date >= ?
-      AND tx_date <= ?
+      AND tx_date >= $1
+      AND tx_date <= $2
     GROUP BY category
     ORDER BY total DESC
-  `).all(startDate, endDate);
+  `, [startDate, endDate]);
 
-  const expensesByCategory = db.prepare(`
+  const expensesByCategory = await dal.query(`
     SELECT category, COALESCE(SUM(amount), 0) AS total
     FROM transactions
     WHERE tx_type = 'expense' AND status = 'posted'
-      AND tx_date >= ?
-      AND tx_date <= ?
+      AND tx_date >= $1
+      AND tx_date <= $2
     GROUP BY category
     ORDER BY total DESC
-  `).all(startDate, endDate);
+  `, [startDate, endDate]);
 
-  const totalIncome = incomeByCategory.reduce((sum, row) => sum + row.total, 0);
-  const totalExpenses = expensesByCategory.reduce((sum, row) => sum + row.total, 0);
+  const totalIncome = incomeByCategory.reduce((sum, row) => sum + Number(row.total), 0);
+  const totalExpenses = expensesByCategory.reduce((sum, row) => sum + Number(row.total), 0);
 
   const incomeFormatted = incomeByCategory.map(row => ({
     Type: 'Income',
@@ -191,8 +248,8 @@ function exportReportCsv(db, startDate, endDate) {
 /**
  * Export reconciliation records as CSV
  */
-function exportReconciliationsCsv(db) {
-  const rows = db.prepare(`
+async function exportReconciliationsCsv() {
+  const rows = await dal.query(`
     SELECT 
       a.name as account,
       r.period_start,
@@ -207,7 +264,7 @@ function exportReconciliationsCsv(db) {
     JOIN accounts a ON a.id = r.account_id
     LEFT JOIN users u ON u.id = r.created_by
     ORDER BY r.period_end DESC
-  `).all();
+  `);
 
   const formatted = rows.map(row => ({
     Account: row.account,
@@ -227,8 +284,8 @@ function exportReconciliationsCsv(db) {
 /**
  * Export audit log as CSV
  */
-function exportAuditLogCsv(db, limitDays = 90) {
-  const rows = db.prepare(`
+async function exportAuditLogCsv(limitDays = 90) {
+  const rows = await dal.query(`
     SELECT 
       l.created_at,
       u.name as user,
@@ -236,12 +293,16 @@ function exportAuditLogCsv(db, limitDays = 90) {
       l.entity,
       l.entity_id,
       l.details,
-      l.ip_address
+      l.before_value,
+      l.after_value,
+      l.reason,
+      l.ip_address,
+      l.user_agent
     FROM audit_log l
     LEFT JOIN users u ON u.id = l.user_id
-    WHERE l.created_at >= datetime('now', '-' || ? || ' days')
+    WHERE l.created_at >= NOW() - ($1 || ' days')::interval
     ORDER BY l.created_at DESC
-  `).all(limitDays);
+  `, [limitDays]);
 
   const formatted = rows.map(row => ({
     'Date/Time': row.created_at,
@@ -250,18 +311,37 @@ function exportAuditLogCsv(db, limitDays = 90) {
     Entity: row.entity,
     'Entity ID': row.entity_id || '',
     Details: row.details || '',
-    'IP Address': row.ip_address || ''
+    'Before Value': row.before_value || '',
+    'After Value': row.after_value || '',
+    Reason: row.reason || '',
+    'IP Address': row.ip_address || '',
+    'User Agent': row.user_agent || ''
   }));
 
   return arrayToCsv(formatted);
 }
 
+async function exportBudgetActualCsv(year) {
+  const report = await budgetVsActual(year);
+  return arrayToCsv(report.lines.map((line) => ({
+    Year: year,
+    Direction: line.kind === 'income' ? 'Income' : 'Expense',
+    Category: line.category,
+    Budget: formatCurrency(line.budget),
+    Actual: formatCurrency(line.actual),
+    'Variance (Actual - Budget)': formatCurrency(line.variance),
+    Notes: line.notes || ''
+  })));
+}
+
 module.exports = {
   exportTransactionsCsv,
   exportArrearsCsv,
+  exportMemberCleanupCsv,
   exportReportCsv,
   exportReconciliationsCsv,
   exportAuditLogCsv,
+  exportBudgetActualCsv,
   arrayToCsv,
   formatCurrency
 };

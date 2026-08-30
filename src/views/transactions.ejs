@@ -1,81 +1,160 @@
 <%- include('partials/header') %>
+<% locals.title = 'Transactions' %>
+<% const activeYear = locals.activeFiscalYear ? Number(locals.activeFiscalYear.year) : new Date().getFullYear(); %>
+<% const today = new Date().toISOString().slice(0, 10); %>
+<% const defaultTxDate = Number(today.slice(0, 4)) === activeYear ? today : activeYear + '-01-01'; %>
+
 <section class="page-title">
   <div>
     <span class="eyebrow">Daily entry</span>
     <h1>Transactions</h1>
-    <p>Record receipts, expenses, welfare payouts, and transfers across Cash, Bank, and Mobile Money.</p>
+    <p>Record receipts, expenses, welfare payouts, and transfers for active fiscal year <strong><%= activeYear %></strong>.</p>
   </div>
-  <a class="button secondary" href="/export/transactions">Export CSV</a>
+  <a class="btn btn--secondary" href="/export/transactions">Export CSV</a>
 </section>
+
+<% if (locals.errors && locals.errors.length) { %>
+<div class="error-summary" role="alert" aria-live="assertive">
+  <h2>There were errors with your submission</h2>
+  <ul>
+    <% locals.errors.forEach(function(err) { %>
+      <li><%= err %></li>
+    <% }) %>
+  </ul>
+</div>
+<% } %>
 
 <section class="grid three">
   <div class="panel">
     <h2>Receive payment</h2>
-    <form method="post" action="/transactions/receipt" class="stack">
+    <form method="post" action="/transactions/receipt" class="stack" data-validate>
       <%- include('partials/csrf') %>
-      <label>Date <input name="tx_date" type="date" required></label>
-      <label>Member
-        <select name="member_id">
-          <option value="">No member</option>
-          <% members.forEach((member) => { %><option value="<%= member.id %>"><%= member.name %></option><% }) %>
-        </select>
-      </label>
-      <label>Account
-        <select name="account_id" required>
-          <% accounts.forEach((account) => { %><option value="<%= account.id %>"><%= account.name %></option><% }) %>
-        </select>
-      </label>
-      <label>Category
-        <select name="category">
-          <% incomeCategories.forEach((category) => { %><option><%= category.name %></option><% }) %>
-        </select>
-      </label>
-      <label>Amount received <input name="amount" type="number" step="0.01" required></label>
-      <label>Welfare portion <input name="welfare_component" type="number" step="0.01" placeholder="Auto from Config"></label>
-      <label>Description <input name="description" placeholder="Receipt note or reference"></label>
-      <button type="submit">Save receipt</button>
+      <fieldset class="fieldset">
+        <legend>Payment details <span class="required-legend">* Required</span></legend>
+
+        <div class="form-group">
+          <label for="receipt-tx-date">Date *</label>
+          <input id="receipt-tx-date" name="tx_date" type="date" min="<%= activeYear %>-01-01" max="<%= activeYear %>-12-31" required value="<%= (locals.values && locals.values.tx_date) || defaultTxDate %>">
+        </div>
+
+        <div class="form-group">
+          <label for="receipt-member">Member</label>
+          <select id="receipt-member" name="member_id">
+            <option value="">No member</option>
+            <% members.forEach(function(member) { %><option value="<%= member.id %>" <%= (locals.values && locals.values.member_id == member.id) ? 'selected' : '' %>><%= member.name %></option><% }) %>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="receipt-account">Account *</label>
+          <select id="receipt-account" name="account_id" required>
+            <% accounts.forEach(function(account) { %><option value="<%= account.id %>" <%= (locals.values && locals.values.account_id == account.id) ? 'selected' : '' %>><%= account.name %></option><% }) %>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="receipt-category">Category</label>
+          <select id="receipt-category" name="category">
+            <% incomeCategories.forEach(function(category) { %><option <%= (locals.values && locals.values.category === category.name) ? 'selected' : '' %>><%= category.name %></option><% }) %>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="receipt-amount">Amount received *</label>
+          <input id="receipt-amount" name="amount" type="number" step="0.01" required value="<%= (locals.values && locals.values.amount) || '' %>">
+        </div>
+
+        <div class="form-group">
+          <label for="receipt-welfare">Welfare portion</label>
+          <input id="receipt-welfare" name="welfare_component" type="number" step="0.01" placeholder="Auto from Config" value="<%= (locals.values && locals.values.welfare_component) || '' %>">
+        </div>
+
+        <div class="form-group">
+          <label for="receipt-description">Description</label>
+          <input id="receipt-description" name="description" placeholder="Receipt note or reference" value="<%= (locals.values && locals.values.description) || '' %>">
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Save receipt</button>
     </form>
   </div>
 
   <div class="panel">
     <h2>Record expense</h2>
-    <form method="post" action="/transactions/expense" class="stack">
+    <form method="post" action="/transactions/expense" class="stack" data-validate>
       <%- include('partials/csrf') %>
-      <label>Date <input name="tx_date" type="date" required></label>
-      <label>Paid from
-        <select name="account_id" required>
-          <% accounts.forEach((account) => { %><option value="<%= account.id %>"><%= account.name %></option><% }) %>
-        </select>
-      </label>
-      <label>Category
-        <select name="category">
-          <% expenseCategories.forEach((category) => { %><option><%= category.name %></option><% }) %>
-        </select>
-      </label>
-      <label>Amount <input name="amount" type="number" step="0.01" required></label>
-      <label>Description <input name="description" placeholder="What was paid for"></label>
-      <button type="submit">Save expense</button>
+      <fieldset class="fieldset">
+        <legend>Expense details <span class="required-legend">* Required</span></legend>
+
+        <div class="form-group">
+          <label for="expense-tx-date">Date *</label>
+          <input id="expense-tx-date" name="tx_date" type="date" min="<%= activeYear %>-01-01" max="<%= activeYear %>-12-31" required value="<%= (locals.values && locals.values.tx_date) || defaultTxDate %>">
+        </div>
+
+        <div class="form-group">
+          <label for="expense-account">Paid from *</label>
+          <select id="expense-account" name="account_id" required>
+            <% accounts.forEach(function(account) { %><option value="<%= account.id %>" <%= (locals.values && locals.values.account_id == account.id) ? 'selected' : '' %>><%= account.name %></option><% }) %>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="expense-category">Category</label>
+          <select id="expense-category" name="category">
+            <% expenseCategories.forEach(function(category) { %><option <%= (locals.values && locals.values.category === category.name) ? 'selected' : '' %>><%= category.name %></option><% }) %>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="expense-amount">Amount *</label>
+          <input id="expense-amount" name="amount" type="number" step="0.01" required value="<%= (locals.values && locals.values.amount) || '' %>">
+        </div>
+
+        <div class="form-group">
+          <label for="expense-description">Description</label>
+          <input id="expense-description" name="description" placeholder="What was paid for" value="<%= (locals.values && locals.values.description) || '' %>">
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Save expense</button>
     </form>
   </div>
 
   <div class="panel">
     <h2>Transfer money</h2>
-    <form method="post" action="/transactions/transfer" class="stack">
+    <form method="post" action="/transactions/transfer" class="stack" data-validate>
       <%- include('partials/csrf') %>
-      <label>Date <input name="tx_date" type="date" required></label>
-      <label>From
-        <select name="account_id" required>
-          <% accounts.forEach((account) => { %><option value="<%= account.id %>"><%= account.name %></option><% }) %>
-        </select>
-      </label>
-      <label>To
-        <select name="to_account_id" required>
-          <% accounts.forEach((account) => { %><option value="<%= account.id %>"><%= account.name %></option><% }) %>
-        </select>
-      </label>
-      <label>Amount <input name="amount" type="number" step="0.01" required></label>
-      <label>Description <input name="description" placeholder="Transfer reason"></label>
-      <button type="submit">Save transfer</button>
+      <fieldset class="fieldset">
+        <legend>Transfer details <span class="required-legend">* Required</span></legend>
+
+        <div class="form-group">
+          <label for="transfer-tx-date">Date *</label>
+          <input id="transfer-tx-date" name="tx_date" type="date" min="<%= activeYear %>-01-01" max="<%= activeYear %>-12-31" required value="<%= (locals.values && locals.values.tx_date) || defaultTxDate %>">
+        </div>
+
+        <div class="form-group">
+          <label for="transfer-from">From *</label>
+          <select id="transfer-from" name="account_id" required>
+            <% accounts.forEach(function(account) { %><option value="<%= account.id %>" <%= (locals.values && locals.values.account_id == account.id) ? 'selected' : '' %>><%= account.name %></option><% }) %>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="transfer-to">To *</label>
+          <select id="transfer-to" name="to_account_id" required>
+            <% accounts.forEach(function(account) { %><option value="<%= account.id %>" <%= (locals.values && locals.values.to_account_id == account.id) ? 'selected' : '' %>><%= account.name %></option><% }) %>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="transfer-amount">Amount *</label>
+          <input id="transfer-amount" name="amount" type="number" step="0.01" required value="<%= (locals.values && locals.values.amount) || '' %>">
+        </div>
+
+        <div class="form-group">
+          <label for="transfer-description">Description</label>
+          <input id="transfer-description" name="description" placeholder="Transfer reason" value="<%= (locals.values && locals.values.description) || '' %>">
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Save transfer</button>
     </form>
   </div>
 </section>
@@ -87,47 +166,54 @@
       <p>Recent entries. Clear transactions as they appear on account checks.</p>
     </div>
   </div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Date</th><th>Type</th><th>Status</th><th>Member</th><th>Account</th><th>To</th><th>Category</th>
-          <th class="num">Amount</th><th class="num">Welfare</th><th>Cleared</th><th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% transactions.forEach((row) => { %>
-          <tr class="<%= row.status === 'reversed' ? 'muted-row' : '' %>">
-            <td><%= row.tx_date %></td>
-            <td><span class="badge"><%= row.tx_type.replace('_', ' ') %></span></td>
-            <td><span class="badge <%= row.status === 'reversed' ? 'danger' : 'success' %>"><%= row.status %></span></td>
-            <td><%= row.member_name || '' %></td>
-            <td><%= row.account_name || '' %></td>
-            <td><%= row.to_account_name || '' %></td>
-            <td><%= row.category %></td>
-            <td class="num"><%= formatMoney(row.amount) %></td>
-            <td class="num"><%= formatMoney(row.welfare_component) %></td>
-            <td><span class="badge <%= row.reconciled ? 'success' : 'soft' %>"><%= row.reconciled ? 'Cleared' : 'Pending' %></span></td>
-            <td>
-              <% if (row.status === 'posted') { %>
-                <div class="row-actions">
-                  <form method="post" action="/transactions/<%= row.id %>/reconcile">
-                    <%- include('partials/csrf') %>
-                    <button class="small-button" type="submit"><%= row.reconciled ? 'Unclear' : 'Clear' %></button>
-                  </form>
-                  <% if (user && (user.role === 'admin' || user.role === 'finance_secretary' || user.role === 'treasurer')) { %>
-                    <form method="post" action="/transactions/<%= row.id %>/reverse">
-                      <%- include('partials/csrf') %>
-                      <button class="small-button danger-button" type="submit">Reverse</button>
-                    </form>
-                  <% } %>
-                </div>
-              <% } %>
-            </td>
+  <div aria-live="polite" aria-atomic="false">
+    <div class="table-wrap">
+      <table class="data-table" id="transactions-table">
+        <thead>
+          <tr>
+            <th>Date</th><th>Type</th><th>Status</th><th>Member</th><th>Account</th><th>To</th><th>Category</th>
+            <th class="num">Amount</th><th class="num">Welfare</th><th>Cleared</th><th>Actions</th>
           </tr>
-        <% }) %>
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          <% transactions.forEach(function(row) { %>
+            <tr class="<%= row.status === 'reversed' ? 'muted-row' : '' %>">
+              <td><%= row.tx_date %></td>
+              <td><span class="badge"><%= row.tx_type.replace('_', ' ') %></span></td>
+              <td><span class="badge <%= row.status === 'reversed' ? 'badge--danger' : 'badge--success' %>"><%= row.status %></span></td>
+              <td><%= row.member_name || '' %></td>
+              <td><%= row.account_name || '' %></td>
+              <td><%= row.to_account_name || '' %></td>
+              <td><%= row.category %></td>
+              <td class="num"><%= formatMoney(row.amount) %></td>
+              <td class="num"><%= formatMoney(row.welfare_component) %></td>
+              <td><span class="badge <%= row.reconciled ? 'badge--success' : 'badge--soft' %>"><%= row.reconciled ? 'Cleared' : 'Pending' %></span></td>
+              <td>
+                <% if (row.status === 'posted') { %>
+                  <div class="row-actions">
+                    <form method="post" action="/transactions/<%= row.id %>/reconcile">
+                      <%- include('partials/csrf') %>
+                      <button class="btn btn--secondary btn--sm" type="submit"><%= row.reconciled ? 'Unclear' : 'Clear' %></button>
+                    </form>
+                    <% if (user && (user.role === 'admin' || user.role === 'finance_secretary' || user.role === 'treasurer')) { %>
+                      <form method="post" action="/transactions/<%= row.id %>/reverse">
+                        <%- include('partials/csrf') %>
+                        <button class="btn btn--danger btn--sm" type="submit"
+                          data-modal-confirm
+                          data-modal-title="Reverse Transaction"
+                          data-modal-body="Are you sure you want to reverse this transaction? This action cannot be undone."
+                          data-modal-prompt="reason"
+                          data-modal-prompt-label="Reason for reversal">Reverse</button>
+                      </form>
+                    <% } %>
+                  </div>
+                <% } %>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
   </div>
 </section>
 <%- include('partials/footer') %>

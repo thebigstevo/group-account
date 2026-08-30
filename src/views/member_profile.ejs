@@ -1,0 +1,227 @@
+<%- include('partials/header') %>
+<% locals.title = member.name %>
+<section class="page-title"><div><span class="eyebrow"><%= member.membership_number %></span><h1><%= member.name %></h1><p><%= member.commandery_name %> · <span class="badge <%= member.status === 'active' ? 'badge--success' : 'badge--soft' %>"><%= member.status %></span></p></div><% if (canEdit) { %><div class="hero-actions"><a class="btn btn--primary" href="/members/<%= member.id %>/edit">Edit profile</a></div><% } %></section>
+
+<section class="grid two">
+  <div class="panel"><h2>Member profile</h2><dl class="detail-list">
+    <dt>Preferred name</dt><dd><%= member.preferred_name || '—' %></dd><dt>Primary phone</dt><dd><%= member.phone || '—' %></dd><dt>Secondary phone</dt><dd><%= member.secondary_phone || '—' %></dd><dt>Email</dt><dd><%= member.email || '—' %></dd><dt>Date of birth</dt><dd><%= formatDate(member.dob, '—') %></dd><dt>Parish</dt><dd><%= member.parish || '—' %></dd><dt>Occupation</dt><dd><%= member.occupation || '—' %></dd><dt>Date first admitted</dt><dd><%= formatDate(member.date_first_admitted, '—') %></dd><dt>Address</dt><dd><%= member.residential_address || '—' %></dd>
+  </dl></div>
+  <div class="panel"><h2>Status history</h2><div class="table-wrap"><table class="data-table"><thead><tr><th>Effective</th><th>Change</th><th>Reason</th></tr></thead><tbody>
+    <% statusHistory.forEach(function(row) { %><tr><td><%= formatDate(row.effective_date) %></td><td><%= row.previous_status ? row.previous_status + ' → ' : '' %><strong><%= row.new_status %></strong></td><td><%= row.reason %><% if (row.supporting_reference) { %><br><small><%= row.supporting_reference %></small><% } %></td></tr><% }) %>
+  </tbody></table></div>
+  <% if (canEdit) { %><form method="post" action="/members/<%= member.id %>/status" class="stack" data-validate><%- include('partials/csrf') %><h3>Record status change</h3>
+    <div class="form-group"><label for="status">New status *</label><select id="status" name="status" required><% statuses.filter(function(s) { return s !== member.status; }).forEach(function(status) { %><option value="<%= status %>"><%= status %></option><% }) %></select></div>
+    <div class="form-group"><label for="effective-date">Effective date *</label><input id="effective-date" name="effective_date" type="date" required></div>
+    <div class="form-group"><label for="status-reason">Reason *</label><textarea id="status-reason" name="reason" required></textarea></div>
+    <div class="form-group"><label for="status-reference">Supporting reference</label><input id="status-reference" name="supporting_reference"></div><button class="btn btn--secondary" type="submit">Record status change</button>
+  </form><% } %></div>
+</section>
+
+<% if (mayViewEmergency) { %><section class="grid two">
+  <div class="panel"><h2>Emergency contacts</h2><% if (!emergencyContacts.length) { %><p>No emergency contact has been recorded.</p><% } %><% emergencyContacts.forEach(function(contact) { %><article class="card"><h3><%= contact.name %><% if (contact.is_primary) { %> <span class="badge">Primary</span><% } %></h3><p><%= contact.relationship %><br><strong><%= contact.primary_phone %></strong><% if (contact.secondary_phone) { %><br><%= contact.secondary_phone %><% } %></p><% if (contact.address) { %><p><%= contact.address %></p><% } %>
+    <% if (canEdit) { %><div class="card-actions" style="margin-top:0.5rem">
+      <details class="inline-edit"><summary class="btn btn--small btn--secondary">Edit</summary>
+        <form method="post" action="/members/<%= member.id %>/emergency-contacts/<%= contact.id %>/edit" class="inline-form stack"><%- include('partials/csrf') %>
+          <div class="form-group"><label>Name *</label><input name="name" value="<%= contact.name %>" required></div>
+          <div class="form-group"><label>Relationship *</label><input name="relationship" value="<%= contact.relationship %>" required></div>
+          <div class="form-group"><label>Primary phone *</label><input name="primary_phone" inputmode="tel" value="<%= contact.primary_phone %>" required></div>
+          <div class="form-group"><label>Secondary phone</label><input name="secondary_phone" inputmode="tel" value="<%= contact.secondary_phone || '' %>"></div>
+          <div class="form-group"><label>Address</label><textarea name="address"><%= contact.address || '' %></textarea></div>
+          <label><input type="checkbox" name="is_primary" <%= contact.is_primary ? 'checked' : '' %>> Primary emergency contact</label>
+          <button class="btn btn--small btn--primary" type="submit">Save</button>
+        </form>
+      </details>
+      <form method="post" action="/members/<%= member.id %>/emergency-contacts/<%= contact.id %>/delete" style="display:inline" data-confirm="Delete this emergency contact?"><%- include('partials/csrf') %><button class="btn btn--small btn--danger" type="submit">Delete</button></form>
+    </div><% } %>
+  </article><% }) %></div>
+  <% if (canEdit) { %><div class="panel"><h2>Add emergency contact</h2><form method="post" action="/members/<%= member.id %>/emergency-contacts" class="stack" data-validate><%- include('partials/csrf') %>
+    <div class="form-group"><label for="contact-name">Name *</label><input id="contact-name" name="name" required></div><div class="form-group"><label for="contact-relationship">Relationship *</label><input id="contact-relationship" name="relationship" required></div><div class="form-group"><label for="contact-phone">Primary phone *</label><input id="contact-phone" name="primary_phone" inputmode="tel" required></div><div class="form-group"><label for="contact-secondary-phone">Secondary phone</label><input id="contact-secondary-phone" name="secondary_phone" inputmode="tel"></div><div class="form-group"><label for="contact-address">Address</label><textarea id="contact-address" name="address"></textarea></div><label><input type="checkbox" name="is_primary"> Primary emergency contact</label><button class="btn btn--primary" type="submit">Add contact</button>
+  </form></div><% } %>
+</section><% } %>
+
+<!-- Rank History Section -->
+<section class="grid two">
+  <div class="panel"><h2>Rank History</h2>
+    <% if (rankHistory && rankHistory.length) { %>
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Rank</th><th>Date conferred</th><th>Conferring authority</th><% if (canEdit) { %><th>Actions</th><% } %></tr></thead><tbody>
+      <% rankHistory.forEach(function(entry) { %><tr><td><%= entry.rank_title %></td><td><%= formatDate(entry.date_conferred) %></td><td><%= entry.conferring_authority || '—' %></td><% if (canEdit) { %><td class="actions-cell">
+        <details class="inline-edit"><summary class="btn btn--small btn--secondary">Edit</summary>
+          <form method="post" action="/members/<%= member.id %>/ranks/<%= entry.id %>/edit" class="inline-form"><%- include('partials/csrf') %>
+            <input type="hidden" name="rank_title" value="<%= entry.rank_title %>">
+            <div class="form-group"><label>Date conferred</label><input name="date_conferred" type="date" value="<%= entry.date_conferred ? new Date(entry.date_conferred).toISOString().slice(0,10) : '' %>" required></div>
+            <div class="form-group"><label>Conferring authority</label><input name="conferring_authority" maxlength="200" value="<%= entry.conferring_authority || '' %>"></div>
+            <button class="btn btn--small btn--primary" type="submit">Save</button>
+          </form>
+        </details>
+        <form method="post" action="/members/<%= member.id %>/ranks/<%= entry.id %>/delete" style="display:inline" data-confirm="Delete this rank entry?"><%- include('partials/csrf') %><button class="btn btn--small btn--danger" type="submit">Delete</button></form>
+      </td><% } %></tr><% }) %>
+    </tbody></table></div>
+    <% } else { %>
+    <p>No rank history recorded.</p>
+    <% } %>
+  </div>
+  <% if (canEdit) { %><div class="panel"><h2>Add Rank Entry</h2>
+    <form method="post" action="/members/<%= member.id %>/ranks" class="stack" data-validate><%- include('partials/csrf') %>
+      <div class="form-group"><label for="rank-title">Rank *</label><select id="rank-title" name="rank_title" required><option value="">Select rank…</option><% if (locals.rankDefinitions) { rankDefinitions.forEach(function(r) { %><option value="<%= r.title %>"><%= r.title %></option><% }) } %></select></div>
+      <div class="form-group"><label for="rank-date">Date conferred *</label><input id="rank-date" name="date_conferred" type="date" required></div>
+      <div class="form-group"><label for="rank-authority">Conferring authority</label><input id="rank-authority" name="conferring_authority" maxlength="200"></div>
+      <button class="btn btn--secondary" type="submit">Add rank entry</button>
+    </form>
+  </div><% } %>
+</section>
+
+<!-- Degrees Conferred Section -->
+<section class="grid two">
+  <div class="panel"><h2>Degrees Conferred</h2>
+    <%
+      var degreeLabels = { 1: '1st Degree (Initiation)', 2: '2nd Degree', 3: '3rd Degree', 4: '4th Degree', 5: '5th Degree' };
+      var degreesMap = {};
+      if (memberDegrees) memberDegrees.forEach(function(d) { degreesMap[d.degree] = d; });
+    %>
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Degree</th><th>Date conferred</th><th>Conferring authority</th><th>Status</th><% if (canEdit) { %><th>Actions</th><% } %></tr></thead><tbody>
+      <% [1,2,3,4,5].forEach(function(deg) { var entry = degreesMap[deg]; %>
+      <tr>
+        <td><strong><%= degreeLabels[deg] %></strong></td>
+        <td><%= entry ? formatDate(entry.date_conferred) : '—' %></td>
+        <td><%= entry ? (entry.conferring_authority || '—') : '—' %></td>
+        <td><span class="badge <%= entry ? 'badge--success' : 'badge--soft' %>"><%= entry ? 'Conferred' : 'Not yet' %></span></td>
+        <% if (canEdit) { %><td><% if (entry) { %><form method="post" action="/members/<%= member.id %>/degrees/<%= deg %>/delete" style="display:inline" data-confirm="Remove this degree record? The degree can be re-recorded later."><%- include('partials/csrf') %><button class="btn btn--small btn--danger" type="submit">Remove</button></form><% } %></td><% } %>
+      </tr>
+      <% }) %>
+    </tbody></table></div>
+  </div>
+  <% if (canEdit) { %><div class="panel"><h2>Record Degree</h2>
+    <form method="post" action="/members/<%= member.id %>/degrees" class="stack" data-validate><%- include('partials/csrf') %>
+      <div class="form-group"><label for="degree-select">Degree *</label><select id="degree-select" name="degree" required>
+        <option value="">Select degree…</option>
+        <% [1,2,3,4,5].forEach(function(deg) { if (!degreesMap[deg]) { %>
+        <option value="<%= deg %>"><%= degreeLabels[deg] %></option>
+        <% } }) %>
+      </select></div>
+      <div class="form-group"><label for="degree-date">Date conferred *</label><input id="degree-date" name="date_conferred" type="date" required></div>
+      <div class="form-group"><label for="degree-authority">Conferring authority</label><input id="degree-authority" name="conferring_authority" maxlength="200"></div>
+      <div class="form-group"><label for="degree-notes">Notes</label><input id="degree-notes" name="notes" maxlength="500" placeholder="e.g. Ceremony location"></div>
+      <button class="btn btn--secondary" type="submit">Record degree</button>
+    </form>
+    <% if (Object.keys(degreesMap).length === 5) { %><p class="text-muted">All degrees have been conferred.</p><% } %>
+  </div><% } %>
+</section>
+
+<!-- Position History Section -->
+<section class="grid two">
+  <%
+    var levelLabels = { local_commandery: 'Local Commandery', district_regiment: 'District/Regiment', grand_commandery: 'Grand Commandery', supreme_subordinate: 'Supreme Subordinate', supreme_commandery: 'Supreme Commandery' };
+  %>
+  <div class="panel"><h2>Position History</h2>
+    <% if (positionHistory && positionHistory.length) { %>
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Position</th><th>Level</th><th>Start date</th><th>End date</th><% if (canEdit) { %><th>Actions</th><% } %></tr></thead><tbody>
+      <% positionHistory.forEach(function(entry) { %><tr><td><%= entry.position_title %></td><td><%= levelLabels[entry.position_level] || entry.position_level || 'Local Commandery' %></td><td><%= formatDate(entry.start_date) %></td><td><%= entry.end_date ? formatDate(entry.end_date) : 'Current' %></td><% if (canEdit) { %><td class="actions-cell">
+        <details class="inline-edit"><summary class="btn btn--small btn--secondary">Edit</summary>
+          <form method="post" action="/members/<%= member.id %>/positions/<%= entry.id %>/edit" class="inline-form"><%- include('partials/csrf') %>
+            <div class="form-group"><label>Position title</label><input name="position_title" value="<%= entry.position_title %>" required></div>
+            <div class="form-group"><label>Level</label><select name="position_level" required><option value="local_commandery" <%= entry.position_level === 'local_commandery' ? 'selected' : '' %>>Local Commandery</option><option value="district_regiment" <%= entry.position_level === 'district_regiment' ? 'selected' : '' %>>District / Regiment</option><option value="grand_commandery" <%= entry.position_level === 'grand_commandery' ? 'selected' : '' %>>Grand Commandery</option><option value="supreme_subordinate" <%= entry.position_level === 'supreme_subordinate' ? 'selected' : '' %>>Supreme Subordinate</option><option value="supreme_commandery" <%= entry.position_level === 'supreme_commandery' ? 'selected' : '' %>>Supreme Commandery</option></select></div>
+            <div class="form-group"><label>Start date</label><input name="start_date" type="date" value="<%= entry.start_date ? new Date(entry.start_date).toISOString().slice(0,10) : '' %>" required></div>
+            <div class="form-group"><label>End date</label><input name="end_date" type="date" value="<%= entry.end_date ? new Date(entry.end_date).toISOString().slice(0,10) : '' %>"></div>
+            <button class="btn btn--small btn--primary" type="submit">Save</button>
+          </form>
+        </details>
+        <form method="post" action="/members/<%= member.id %>/positions/<%= entry.id %>/delete" style="display:inline" data-confirm="Delete this position entry?"><%- include('partials/csrf') %><button class="btn btn--small btn--danger" type="submit">Delete</button></form>
+      </td><% } %></tr><% }) %>
+    </tbody></table></div>
+    <% } else { %>
+    <p>No position history recorded.</p>
+    <% } %>
+  </div>
+  <% if (canEdit) { %><div class="panel"><h2>Add Position Entry</h2>
+    <form method="post" action="/members/<%= member.id %>/positions" class="stack" data-validate><%- include('partials/csrf') %>
+      <div class="form-group"><label for="position-title">Position *</label><select id="position-title" name="position_title" required><option value="">Select position…</option><% if (locals.positionDefinitions) { positionDefinitions.forEach(function(p) { %><option value="<%= p.title %>"><%= p.title %> (<%= levelLabels[p.level] || p.level %>)</option><% }) } %></select></div>
+      <div class="form-group"><label for="position-level">Level *</label><select id="position-level" name="position_level" required><option value="local_commandery">Local Commandery</option><option value="district_regiment">District / Regiment</option><option value="grand_commandery">Grand Commandery</option><option value="supreme_subordinate">Supreme Subordinate</option><option value="supreme_commandery">Supreme Commandery</option></select></div>
+      <div class="form-group"><label for="position-start">Start date *</label><input id="position-start" name="start_date" type="date" required></div>
+      <div class="form-group"><label for="position-end">End date</label><input id="position-end" name="end_date" type="date"></div>
+      <button class="btn btn--secondary" type="submit">Add position entry</button>
+    </form>
+  </div><% } %>
+</section>
+
+<!-- Transfer Record Section -->
+<section class="grid two">
+  <div class="panel"><h2>Transfer Information</h2>
+    <% if (transferRecord) { %>
+    <dl class="detail-list">
+      <dt>Commandery name and location</dt><dd><%= transferRecord.origin_commandery_name %></dd>
+      <dt>Transfer date</dt><dd><%= formatDate(transferRecord.transfer_date) %></dd>
+      <dt>Commandery number</dt><dd><%= transferRecord.reference_number || '—' %></dd>
+    </dl>
+    <% if (canEdit) { %><form method="post" action="/members/<%= member.id %>/transfer/delete" style="margin-top:1rem" data-confirm="Delete this transfer record? The member will be marked as a direct admission."><%- include('partials/csrf') %><button class="btn btn--small btn--danger" type="submit">Delete transfer record</button></form><% } %>
+    <% } else { %>
+    <p>Direct admission (not transferred).</p>
+    <% } %>
+  </div>
+  <% if (canEdit) { %><div class="panel"><h2><%= transferRecord ? 'Edit' : 'Add' %> Transfer Record</h2>
+    <form method="post" action="/members/<%= member.id %>/transfer" class="stack" data-validate><%- include('partials/csrf') %>
+      <div class="form-group"><label for="transfer-origin">Commandery name and location *</label><input id="transfer-origin" name="origin_commandery_name" required maxlength="150" value="<%= transferRecord ? transferRecord.origin_commandery_name : '' %>"></div>
+      <div class="form-group"><label for="transfer-date">Transfer date *</label><input id="transfer-date" name="transfer_date" type="date" required value="<%= transferRecord ? transferRecord.transfer_date : '' %>"></div>
+      <div class="form-group"><label for="transfer-ref">Commandery number</label><input id="transfer-ref" name="reference_number" maxlength="100" value="<%= transferRecord ? (transferRecord.reference_number || '') : '' %>"></div>
+      <button class="btn btn--secondary" type="submit"><%= transferRecord ? 'Update' : 'Add' %> transfer record</button>
+    </form>
+  </div><% } %>
+</section>
+
+<% if (locals.user && locals.user.role === 'admin') { %>
+  <section class="panel">
+    <h2>Membership data cleanup</h2>
+    <p class="text-muted">Use this only for a record that should never have been created. Deletion is blocked when transactions, dues, or emergency contacts are linked.</p>
+    <form method="post" action="/members/<%= member.id %>/delete" data-confirm="Permanently remove this member record? This cannot be undone.">
+      <%- include('partials/csrf') %>
+      <button class="btn btn--danger" type="submit">Delete erroneous member</button>
+    </form>
+  </section>
+<% } %>
+
+<!-- Lifetime Financial Summary -->
+<section class="panel">
+  <div class="section-head">
+    <div><h2>Financial History</h2><p>Assessment balance across all fiscal years.</p></div>
+    <span class="badge <%= lifetimeBalance <= 0 ? 'badge--success' : 'badge--danger' %>">
+      <%= lifetimeBalance <= 0 ? 'Paid up' : 'Owes ' + formatMoney(lifetimeBalance) %>
+    </span>
+  </div>
+
+  <% const currentYearData = yearlyBreakdown.length ? yearlyBreakdown[yearlyBreakdown.length - 1] : null; %>
+  <% if (currentYearData && currentYearData.assessment_due > 0) { %>
+  <% const pct = Math.min(100, Math.round((currentYearData.assessment_paid / currentYearData.assessment_due) * 100)); %>
+  <div style="margin-bottom: var(--space-4); padding: var(--space-3); background: var(--neutral-50); border-radius: var(--radius-md);">
+    <div style="display:flex; justify-content:space-between; font-size: var(--font-size-caption); margin-bottom: 4px;">
+      <span>FY <%= currentYearData.year %> Assessment: <%= formatMoney(currentYearData.assessment_paid) %> of <%= formatMoney(currentYearData.assessment_due) %></span>
+      <strong><%= pct %>%</strong>
+    </div>
+    <div style="height: 8px; background: var(--neutral-200); border-radius: 4px; overflow: hidden;">
+      <div style="height: 100%; width: <%= pct %>%; background: <%= pct >= 100 ? 'var(--success-base)' : pct >= 50 ? 'var(--primary-500)' : 'var(--warning-base)' %>; border-radius: 4px; transition: width 0.3s ease;"></div>
+    </div>
+  </div>
+  <% } %>
+  <% if (yearlyBreakdown && yearlyBreakdown.length) { %>
+  <div class="table-wrap"><table class="data-table">
+    <thead><tr><th>Year</th><th class="num">Assessment Due</th><th class="num">Assessment Paid</th><th class="num">Total Paid</th><th class="num">Year Balance</th><th class="num">Cumulative</th></tr></thead>
+    <tbody>
+      <% if (member.opening_arrears && Number(member.opening_arrears) !== 0) { %>
+      <tr><td><em>Opening</em></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num"><%= formatMoney(member.opening_arrears) %></td></tr>
+      <% } %>
+      <% yearlyBreakdown.forEach(function(row) { %>
+      <tr>
+        <td><%= row.year %></td>
+        <td class="num"><%= formatMoney(row.assessment_due) %></td>
+        <td class="num"><%= formatMoney(row.assessment_paid) %></td>
+        <td class="num"><%= formatMoney(row.total_paid) %></td>
+        <td class="num"><span class="<%= row.year_balance > 0 ? 'variance-bad' : row.year_balance < 0 ? 'variance-good' : '' %>"><%= formatMoney(row.year_balance) %></span></td>
+        <td class="num"><strong class="<%= row.cumulative_balance > 0 ? 'variance-bad' : 'variance-good' %>"><%= formatMoney(row.cumulative_balance) %></strong></td>
+      </tr>
+      <% }) %>
+    </tbody>
+  </table></div>
+  <% } else { %>
+  <p class="text-muted">No fiscal years configured.</p>
+  <% } %>
+</section>
+
+<%- include('partials/footer') %>

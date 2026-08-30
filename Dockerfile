@@ -1,21 +1,24 @@
-FROM node:22-bookworm-slim
-
+# Stage 1: Install dependencies
+FROM node:22-alpine AS builder
 WORKDIR /app
-
-ENV NODE_ENV=production
-ENV PORT=3000
-ENV DB_PATH=/app/storage/accounts.db
-
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --only=production
 
-COPY src ./src
-COPY README.md ./
+# Stage 2: Production image
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production
 
-RUN mkdir -p /app/storage && chown -R node:node /app
+RUN apk add --no-cache postgresql-client
+
+COPY --from=builder /app/node_modules ./node_modules
+COPY src/ ./src/
+COPY package.json ./
+
+# Create uploads directory writable by node user
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
 
 USER node
-
 EXPOSE 3000
 
-CMD ["sh", "-c", "npm run seed && npm start"]
+CMD ["node", "src/server.js"]

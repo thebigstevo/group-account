@@ -1,45 +1,77 @@
 <%- include('partials/header') %>
+<% locals.title = 'Configuration' %>
+
 <section class="page-title">
   <div>
     <span class="eyebrow">System setup</span>
     <h1>Configuration</h1>
     <p>Set the rules executives should not have to remember while entering transactions.</p>
   </div>
-  <a class="button secondary" href="/dues">Dues setup</a>
+  <a class="btn btn--secondary" href="/dues">Dues setup</a>
 </section>
+
+<% if (locals.errors && locals.errors.length) { %>
+<div class="error-summary" role="alert" aria-live="assertive">
+  <h2>There were errors with your submission</h2>
+  <ul>
+    <% locals.errors.forEach(function(err) { %>
+      <li><%= err %></li>
+    <% }) %>
+  </ul>
+</div>
+<% } %>
 
 <section class="grid two">
   <div class="panel">
     <h2>Welfare split rules</h2>
-    <table>
-      <thead><tr><th>Year</th><th>Category</th><th class="num">Assessment amount</th><th class="num">Welfare amount</th><th>Status</th></tr></thead>
-      <tbody>
-        <% splits.forEach((split) => { %>
-          <tr>
-            <td><%= split.year %></td>
-            <td><%= split.category %></td>
-            <td class="num"><%= formatMoney(split.assessment_amount) %></td>
-            <td class="num"><%= formatMoney(split.welfare_amount) %></td>
-            <td><span class="badge <%= split.active ? 'success' : 'soft' %>"><%= split.active ? 'Active' : 'Inactive' %></span></td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Year</th><th>Category</th><th class="num">Assessment amount</th><th class="num">Welfare amount</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <% splits.forEach(function(split) { %>
+            <tr>
+              <td><%= split.year %></td>
+              <td><%= split.category %></td>
+              <td class="num"><%= formatMoney(split.assessment_amount) %></td>
+              <td class="num"><%= formatMoney(split.welfare_amount) %></td>
+              <td><span class="badge <%= split.active ? 'badge--success' : 'badge--soft' %>"><%= split.active ? 'Active' : 'Inactive' %></span></td>
+              <td><% if (Number(split.year) === Number(year)) { %><form method="post" action="/config/payment-splits/<%= split.id %>/delete" data-confirm="Delete this payment split?"><%- include('partials/csrf') %><button class="btn btn--danger btn--sm" type="submit">Delete</button></form><% } %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
   </div>
   <div class="panel">
     <h2>Set welfare split</h2>
-    <form method="post" action="/config/payment-splits" class="stack">
+    <form method="post" action="/config/payment-splits" class="stack" data-validate>
       <%- include('partials/csrf') %>
-      <label>Year <input name="year" type="number" value="<%= year %>" required></label>
-      <label>Category
-        <select name="category">
-          <option>Assessment</option>
-          <option>Welfare</option>
-        </select>
-      </label>
-      <label>Full assessment amount <input name="assessment_amount" type="number" step="0.01" value="700" required></label>
-      <label>Welfare part of that amount <input name="welfare_amount" type="number" step="0.01" value="300" required></label>
-      <button type="submit">Save split</button>
+      <fieldset class="fieldset">
+        <legend>Split configuration <span class="required-legend">* Required</span></legend>
+
+        <div class="form-group">
+          <label for="split-year">Year *</label>
+          <input id="split-year" name="year" type="number" value="<%= year %>" readonly required>
+        </div>
+
+        <div class="form-group">
+          <label for="split-category">Category</label>
+          <select id="split-category" name="category" required>
+            <% categories.filter(function(category) { return category.active && category.kind !== 'expense' && category.purpose !== 'welfare_payout'; }).forEach(function(category) { %><option><%= category.name %></option><% }) %>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="split-assessment">Full assessment amount *</label>
+          <input id="split-assessment" name="assessment_amount" type="number" step="0.01" value="<%= (locals.values && locals.values.assessment_amount) || '' %>" required>
+        </div>
+
+        <div class="form-group">
+          <label for="split-welfare">Welfare part of that amount *</label>
+          <input id="split-welfare" name="welfare_amount" type="number" step="0.01" value="<%= (locals.values && locals.values.welfare_amount) || '' %>" required>
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Save split</button>
     </form>
   </div>
 </section>
@@ -48,14 +80,15 @@
   <div class="panel">
     <h2>Transaction categories</h2>
     <div class="table-wrap">
-      <table>
-        <thead><tr><th>Name</th><th>Kind</th><th>Status</th></tr></thead>
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>Kind</th><th>Purpose</th><th>Status</th></tr></thead>
         <tbody>
-          <% categories.forEach((category) => { %>
+          <% categories.forEach(function(category) { %>
             <tr>
               <td><%= category.name %></td>
-              <td><span class="badge"><%= category.kind %></span></td>
-              <td><span class="badge <%= category.active ? 'success' : 'soft' %>"><%= category.active ? 'Active' : 'Inactive' %></span></td>
+              <td><span class="badge"><%= category.kind === 'both' ? 'Income & expense' : category.kind %></span></td>
+              <td><%= category.purpose.replace(/_/g, ' ') %></td>
+              <td><span class="badge <%= category.active ? 'badge--success' : 'badge--soft' %>"><%= category.active ? 'Active' : 'Inactive' %></span></td>
             </tr>
           <% }) %>
         </tbody>
@@ -64,82 +97,159 @@
   </div>
   <div class="panel">
     <h2>Add category</h2>
-    <form method="post" action="/config/categories" class="stack">
+    <form method="post" action="/config/categories" class="stack" data-validate>
       <%- include('partials/csrf') %>
-      <label>Name <input name="name" required placeholder="Transport, Harvest, Welfare support"></label>
-      <label>Kind
-        <select name="kind">
-          <option value="income">Income</option>
-          <option value="expense">Expense</option>
-        </select>
-      </label>
-      <label>Sort order <input name="sort_order" type="number" value="100"></label>
-      <button type="submit">Save category</button>
+      <fieldset class="fieldset">
+        <legend>Category details <span class="required-legend">* Required</span></legend>
+
+        <div class="form-group">
+          <label for="cat-name">Name *</label>
+          <input id="cat-name" name="name" required placeholder="Transport, Harvest, Welfare support" value="<%= (locals.values && locals.values.name) || '' %>">
+        </div>
+
+        <div class="form-group">
+          <label for="cat-kind">Kind</label>
+          <select id="cat-kind" name="kind">
+            <option value="income">Income</option>
+            <option value="expense">Expense</option>
+            <option value="both">Income &amp; expense</option>
+          </select>
+          <small class="text-muted">Use Income &amp; expense for flows such as appeals, offertory, or transport support that may be received and later paid out.</small>
+        </div>
+
+        <div class="form-group">
+          <label for="cat-purpose">Accounting purpose</label>
+          <select id="cat-purpose" name="purpose">
+            <option value="standard">Standard</option><option value="assessment">Member assessment</option><option value="welfare_income">Welfare collection</option><option value="welfare_payout">Welfare payout</option>
+          </select>
+          <small class="text-muted">Purpose controls dues payments and welfare calculations independently of the category name.</small>
+        </div>
+
+        <div class="form-group">
+          <label for="cat-sort">Sort order</label>
+          <input id="cat-sort" name="sort_order" type="number" value="<%= (locals.values && locals.values.sort_order) || '100' %>">
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Save category</button>
     </form>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Edit or remove transaction categories</h2>
+  <p class="text-muted text-sm">Renaming keeps related transactions and splits connected. A category with transaction history is deactivated instead of deleted.</p>
+  <div class="grid two">
+    <% categories.forEach(function(category) { %>
+      <div class="card">
+        <form method="post" action="/config/categories/<%= category.id %>" class="stack compact-form" data-validate>
+          <%- include('partials/csrf') %>
+          <div class="form-group"><label for="category-name-<%= category.id %>">Name</label><input id="category-name-<%= category.id %>" name="name" value="<%= category.name %>" required></div>
+          <div class="grid two"><div class="form-group"><label for="category-kind-<%= category.id %>">Type</label><select id="category-kind-<%= category.id %>" name="kind"><option value="income" <%= category.kind === 'income' ? 'selected' : '' %>>Income</option><option value="expense" <%= category.kind === 'expense' ? 'selected' : '' %>>Expense</option><option value="both" <%= category.kind === 'both' ? 'selected' : '' %>>Income &amp; expense</option></select></div><div class="form-group"><label for="category-purpose-<%= category.id %>">Purpose</label><select id="category-purpose-<%= category.id %>" name="purpose"><option value="standard" <%= category.purpose === 'standard' ? 'selected' : '' %>>Standard</option><option value="assessment" <%= category.purpose === 'assessment' ? 'selected' : '' %>>Member assessment</option><option value="welfare_income" <%= category.purpose === 'welfare_income' ? 'selected' : '' %>>Welfare collection</option><option value="welfare_payout" <%= category.purpose === 'welfare_payout' ? 'selected' : '' %>>Welfare payout</option></select></div></div>
+          <div class="form-group"><label for="category-sort-<%= category.id %>">Sort order</label><input id="category-sort-<%= category.id %>" name="sort_order" type="number" value="<%= category.sort_order %>"></div>
+          <label class="check"><input name="active" type="checkbox" <%= category.active ? 'checked' : '' %>> Active</label>
+          <button class="btn btn--primary btn--sm" type="submit">Save category</button>
+        </form>
+        <form method="post" action="/config/categories/<%= category.id %>/delete" data-confirm="Remove this category? Used categories are retained as inactive."><%- include('partials/csrf') %><button class="btn btn--danger btn--sm" type="submit">Remove category</button></form>
+      </div>
+    <% }) %>
   </div>
 </section>
 
 <section class="grid two">
   <div class="panel">
     <h2>Accounts</h2>
-    <table>
-      <thead><tr><th>Name</th><th>Type</th><th class="num">Opening balance</th><th>Status</th></tr></thead>
-      <tbody>
-        <% accounts.forEach((account) => { %>
-          <tr>
-            <td><%= account.name %></td>
-            <td><%= account.type %></td>
-            <td class="num"><%= formatMoney(account.opening_balance) %></td>
-            <td><span class="badge <%= account.active ? 'success' : 'soft' %>"><%= account.active ? 'Active' : 'Inactive' %></span></td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>Type</th><th class="num">Opening balance</th><th>Status</th></tr></thead>
+        <tbody>
+          <% accounts.forEach(function(account) { %>
+            <tr>
+              <td><%= account.name %></td>
+              <td><%= account.type %></td>
+              <td class="num"><%= formatMoney(account.opening_balance) %></td>
+              <td><span class="badge <%= account.active ? 'badge--success' : 'badge--soft' %>"><%= account.active ? 'Active' : 'Inactive' %></span></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
   </div>
   <div class="panel">
     <h2>Update accounts</h2>
-    <% accounts.forEach((account) => { %>
-      <form method="post" action="/config/accounts/<%= account.id %>" class="stack compact-form">
+    <% accounts.forEach(function(account) { %>
+      <form method="post" action="/config/accounts/<%= account.id %>" class="stack compact-form" data-validate>
         <%- include('partials/csrf') %>
-        <label>Name <input name="name" value="<%= account.name %>" required></label>
-        <label>Opening balance <input name="opening_balance" type="number" step="0.01" value="<%= account.opening_balance %>"></label>
-        <label class="check"><input name="active" type="checkbox" value="1" <%= account.active ? 'checked' : '' %>> Active</label>
-        <button type="submit">Save <%= account.name %></button>
+        <fieldset class="fieldset">
+          <legend><%= account.name %></legend>
+
+          <div class="form-group">
+            <label for="acc-name-<%= account.id %>">Name *</label>
+            <input id="acc-name-<%= account.id %>" name="name" value="<%= account.name %>" required>
+          </div>
+
+          <div class="form-group">
+            <label for="acc-balance-<%= account.id %>">Opening balance</label>
+            <input id="acc-balance-<%= account.id %>" name="opening_balance" type="number" step="0.01" value="<%= account.opening_balance %>">
+          </div>
+
+          <div class="form-group">
+            <label for="acc-active-<%= account.id %>" class="check">
+              <input id="acc-active-<%= account.id %>" name="active" type="checkbox" value="1" <%= account.active ? 'checked' : '' %>> Active
+            </label>
+          </div>
+        </fieldset>
+        <button class="btn btn--primary btn--sm" type="submit">Save <%= account.name %></button>
       </form>
+      <form method="post" action="/config/accounts/<%= account.id %>/delete" data-confirm="Remove this account? Accounts with history are retained as inactive."><%- include('partials/csrf') %><button class="btn btn--danger btn--sm" type="submit">Remove <%= account.name %></button></form>
     <% }) %>
 
-    <h2 style="margin-top: 24px;">Add account</h2>
-    <form method="post" action="/config/accounts" class="stack compact-form">
+    <h2 style="margin-top: var(--space-6);">Add account</h2>
+    <form method="post" action="/config/accounts" class="stack compact-form" data-validate>
       <%- include('partials/csrf') %>
-      <label>Name <input name="name" required placeholder="e.g. Second Bank Account"></label>
-      <label>Type
-        <select name="type" required>
-          <option value="cash">Cash</option>
-          <option value="bank">Bank</option>
-          <option value="mobile_money">Mobile Money</option>
-        </select>
-      </label>
-      <label>Opening balance <input name="opening_balance" type="number" step="0.01" value="0"></label>
-      <button type="submit">Add account</button>
+      <fieldset class="fieldset">
+        <legend>New account <span class="required-legend">* Required</span></legend>
+
+        <div class="form-group">
+          <label for="new-acc-name">Name *</label>
+          <input id="new-acc-name" name="name" required placeholder="e.g. Second Bank Account">
+        </div>
+
+        <div class="form-group">
+          <label for="new-acc-type">Type *</label>
+          <select id="new-acc-type" name="type" required>
+            <option value="cash">Cash</option>
+            <option value="bank">Bank</option>
+            <option value="mobile_money">Mobile Money</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="new-acc-balance">Opening balance</label>
+          <input id="new-acc-balance" name="opening_balance" type="number" step="0.01" value="0">
+        </div>
+      </fieldset>
+      <button class="btn btn--primary" type="submit">Add account</button>
     </form>
   </div>
 </section>
 
 <section class="panel">
   <h2>Current dues rules</h2>
-  <table>
-    <thead><tr><th>Year</th><th>Label</th><th>Age band</th><th class="num">Assessment</th><th class="num">Welfare</th></tr></thead>
-    <tbody>
-      <% rules.forEach((rule) => { %>
-        <tr>
-          <td><%= rule.year %></td>
-          <td><%= rule.label %></td>
-          <td><%= rule.min_age ?? '' %> - <%= rule.max_age ?? '' %></td>
-          <td class="num"><%= formatMoney(rule.annual_assessment) %></td>
-          <td class="num"><%= formatMoney(rule.welfare_portion) %></td>
-        </tr>
-      <% }) %>
-    </tbody>
-  </table>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Year</th><th>Label</th><th>Age band</th><th class="num">Assessment</th><th class="num">Welfare</th></tr></thead>
+      <tbody>
+        <% rules.forEach(function(rule) { %>
+          <tr>
+            <td><%= rule.year %></td>
+            <td><%= rule.label %></td>
+            <td><%= rule.min_age ?? '' %> - <%= rule.max_age ?? '' %></td>
+            <td class="num"><%= formatMoney(rule.annual_assessment) %></td>
+            <td class="num"><%= formatMoney(rule.welfare_portion) %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
 </section>
 <%- include('partials/footer') %>

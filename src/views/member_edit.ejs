@@ -1,23 +1,43 @@
 <%- include('partials/header') %>
+<% locals.title = 'Edit Member' %>
+<section class="page-title"><div><span class="eyebrow"><%= member.membership_number %></span><h1>Edit member</h1><p>Status and finance values are maintained through their own controlled workflows.</p></div></section>
 <section class="panel narrow">
-  <h1>Edit member</h1>
-  <form method="post" action="/members/<%= member.id %>" class="stack">
-    <%- include('partials/csrf') %>
-    <label>Name <input name="name" value="<%= member.name %>" required></label>
-    <label>Phone <input name="phone" value="<%= member.phone || '' %>"></label>
-    <label>Date of birth <input name="dob" type="date" value="<%= member.dob || '' %>"></label>
-    <label>Status
-      <select name="status">
-        <option value="active" <%= member.status === 'active' ? 'selected' : '' %>>Active</option>
-        <option value="inactive" <%= member.status === 'inactive' ? 'selected' : '' %>>Inactive</option>
-      </select>
-    </label>
-    <label>Opening arrears <input name="opening_arrears" type="number" step="0.01" value="<%= member.opening_arrears %>"></label>
-    <label>Notes <textarea name="notes"><%= member.notes || '' %></textarea></label>
-    <div class="actions">
-      <button type="submit">Save changes</button>
-      <a class="button secondary" href="/members">Cancel</a>
-    </div>
+  <% if (locals.errors && locals.errors.length) { %><div class="error-summary" role="alert"><h2>Please correct these fields</h2><ul><% locals.errors.forEach(function(err) { %><li><%= err %></li><% }) %></ul></div><% } %>
+  <% const value = function(key, fallback) { return locals.values ? (locals.values[key] || '') : (fallback || ''); }; %>
+  <%
+    // Pre-fill first/last name from the combined name field if individual fields are empty
+    const nameParts = (member.name || '').trim().split(/\s+/);
+    const inferredFirst = member.first_name || (nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : nameParts[0] || '');
+    const inferredLast = member.last_name || (nameParts.length > 1 ? nameParts[nameParts.length - 1] : '');
+  %>
+  <form method="post" action="/members/<%= member.id %>" class="stack" data-validate><%- include('partials/csrf') %>
+    <fieldset class="fieldset"><legend>Identity <span class="required-legend">* Required</span></legend>
+      <div class="grid two"><div class="form-group"><label for="edit-title">Title</label><input id="edit-title" name="title" value="<%= value('title', member.title) %>"></div><div class="form-group"><label for="edit-preferred">Preferred name</label><input id="edit-preferred" name="preferred_name" value="<%= value('preferred_name', member.preferred_name) %>"></div></div>
+      <div class="form-group"><label for="edit-first">First name *</label><input id="edit-first" name="first_name" value="<%= value('first_name', inferredFirst) %>" required></div>
+      <div class="form-group"><label for="edit-middle">Middle name</label><input id="edit-middle" name="middle_name" value="<%= value('middle_name', member.middle_name) %>"></div>
+      <div class="form-group"><label for="edit-last">Last name *</label><input id="edit-last" name="last_name" value="<%= value('last_name', inferredLast) %>" required></div>
+      <div class="form-group"><label for="edit-dob">Date of birth</label><input id="edit-dob" name="dob" type="date" value="<%= value('dob', member.dob) %>"></div>
+    </fieldset>
+    <fieldset class="fieldset"><legend>Contact</legend>
+      <div class="form-group"><label for="edit-phone">Primary phone</label><input id="edit-phone" name="phone" inputmode="tel" value="<%= value('phone', member.phone) %>"></div>
+      <div class="form-group"><label for="edit-secondary-phone">Secondary phone</label><input id="edit-secondary-phone" name="secondary_phone" inputmode="tel" value="<%= value('secondary_phone', member.secondary_phone) %>"></div>
+      <div class="form-group"><label for="edit-email">Email</label><input id="edit-email" name="email" type="email" value="<%= value('email', member.email) %>"></div>
+      <div class="form-group"><label for="edit-address">Residential address</label><textarea id="edit-address" name="residential_address"><%= value('residential_address', member.residential_address) %></textarea></div>
+    </fieldset>
+    <fieldset class="fieldset"><legend>Commandery details</legend>
+      <div class="form-group"><label for="edit-parish">Parish</label><input id="edit-parish" name="parish" value="<%= value('parish', member.parish) %>"></div>
+      <div class="form-group"><label for="edit-occupation">Occupation</label><input id="edit-occupation" name="occupation" value="<%= value('occupation', member.occupation) %>"></div>
+      <div class="form-group"><label for="edit-admitted">Date first admitted</label><input id="edit-admitted" name="date_first_admitted" type="date" value="<%= value('date_first_admitted', formatDate(member.date_first_admitted)) %>"></div>
+      <div class="form-group"><label for="edit-notes">Administrative notes</label><textarea id="edit-notes" name="notes"><%= value('notes', member.notes) %></textarea></div>
+    </fieldset>
+    <fieldset class="fieldset"><legend>Finance</legend>
+      <div class="form-group">
+        <label for="edit-opening-balance">Opening balance</label>
+        <input id="edit-opening-balance" name="opening_arrears" type="number" step="0.01" inputmode="decimal" value="<%= value('opening_arrears', member.opening_arrears || 0) %>">
+        <span class="form-group__hint">Positive = member owes (arrears). Negative = member has credit. This is the starting balance for the active fiscal year.</span>
+      </div>
+    </fieldset>
+    <div class="actions"><button class="btn btn--primary" type="submit">Save changes</button><a class="btn btn--secondary" href="/members/<%= member.id %>">Cancel</a></div>
   </form>
 </section>
 <%- include('partials/footer') %>

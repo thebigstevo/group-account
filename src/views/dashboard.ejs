@@ -1,109 +1,62 @@
 <%- include('partials/header') %>
-<section class="hero hero-panel">
-  <div>
-    <span class="eyebrow">Today</span>
-    <h1>Finance overview</h1>
-    <p>Cash, Bank, Mobile Money, welfare liability, and current work needing attention.</p>
-  </div>
-  <div class="hero-actions">
-    <a class="button" href="/transactions">Enter transaction</a>
-    <a class="button secondary" href="/reports">Monthly report</a>
-  </div>
-</section>
+<% locals.title = 'Dashboard'; %>
+<div class="page-container">
+  <section class="page-title">
+    <div><span class="eyebrow"><%= groupName %></span><h1>Dashboard</h1><p>Financial position, priorities, and recent activity.</p></div>
+    <% if (locals.activeFiscalYear) { %><div class="page-title__meta"><span class="badge badge--success">Fiscal year <%= activeFiscalYear.year %></span></div><% } %>
+  </section>
 
-<section class="metrics">
-  <% summary.balances.forEach((account) => { %>
-    <div class="metric account-card">
-      <span><%= account.name %> balance</span>
-      <strong><%= formatMoney(account.balance) %></strong>
-    </div>
-  <% }) %>
-  <div class="metric">
-    <span>Income</span>
-    <strong><%= formatMoney(summary.income) %></strong>
-  </div>
-  <div class="metric">
-    <span>Expenses</span>
-    <strong><%= formatMoney(summary.expenses) %></strong>
-  </div>
-  <div class="metric warning">
-    <span>Welfare liability</span>
-    <strong><%= formatMoney(summary.welfareLiability) %></strong>
-  </div>
-  <div class="metric success">
-    <span>Spendable estimate</span>
-    <strong><%= formatMoney(summary.spendableBalance) %></strong>
-  </div>
-</section>
+  <% if (locals.error) { %><section class="panel"><div class="error-state" role="alert" aria-live="assertive"><h2>Unable to load financial data</h2><p>Financial data is temporarily unavailable. Refresh the page or contact an administrator.</p></div></section><% } else { %>
+  <section class="quick-actions" aria-label="Primary actions">
+    <% if (['admin','finance_secretary','treasurer'].includes(user.role)) { %><a class="btn btn--primary" href="/finance/income/new">Add Income</a><% } %>
+    <% if (['admin','treasurer'].includes(user.role)) { %><a class="btn btn--primary" href="/finance/expenses/new">Add Expense</a><% } %>
+    <% if (['admin','treasurer','auditor','viewer'].includes(user.role)) { %><a class="btn btn--secondary" href="/finance/reconciliation">Reconcile</a><% } %>
+    <a class="btn btn--secondary" href="/finance/reports">Reports</a>
+  </section>
 
-<section class="grid two balanced">
-  <div class="panel">
-    <div class="section-head">
+  <section class="summary-strip" aria-label="Key financial metrics">
+    <div class="summary-strip__item"><span class="summary-strip__label">Current total balance</span><strong class="summary-strip__value"><%= formatMoney(summary.totalCashPosition) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Income · Full Year</span><strong class="summary-strip__value"><%= formatMoney(summary.income) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Expenses · Full Year</span><strong class="summary-strip__value"><%= formatMoney(summary.expenses) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Income · <%= dashboardMonth.label %></span><strong class="summary-strip__value"><%= formatMoney(monthSummary.income) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Expenses · <%= dashboardMonth.label %></span><strong class="summary-strip__value"><%= formatMoney(monthSummary.expenses) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Members with overdue dues</span><strong class="summary-strip__value"><%= arrearsCount %></strong></div>
+  </section>
+
+  <section class="dashboard-layout">
+    <div class="dashboard-stack">
       <div>
-        <h2>Work queue</h2>
-        <p>Items to look at before the next executive update.</p>
+        <div class="dashboard-total"><span>Current total balance (all accounts)</span><strong><%= formatMoney(summary.totalCashPosition) %></strong></div>
+        <div class="account-list" aria-label="Account balances">
+          <% if (!summary.balances.length) { %><div class="empty-state"><p>No active accounts are configured.</p></div><% } %>
+          <% summary.balances.forEach(function(account) { %><div class="account-row"><span class="account-row__name"><%= account.name %></span><strong class="account-row__value"><%= formatMoney(account.balance) %></strong></div><% }) %>
+        </div>
+      </div>
+
+      <% if (locals.fundBalances) { %>
+      <div class="dashboard-section">
+        <div class="section-head"><div><h2>Funds Availability</h2><p>Breakdown of cash by fund designation.</p></div></div>
+        <div class="account-list" aria-label="Funds availability">
+          <div class="account-row"><span class="account-row__name">Total Cash &amp; Bank</span><strong class="account-row__value"><%= formatMoney(summary.totalCashPosition) %></strong></div>
+          <div class="account-row"><span class="account-row__name">Less: Joint Welfare held</span><strong class="account-row__value">(<%= formatMoney(fundBalances.joint_welfare || 0) %>)</strong></div>
+          <div class="account-row" style="border-top: 2px solid var(--border-color, #ddd); padding-top: 0.5rem; margin-top: 0.5rem;"><span class="account-row__name"><strong>Men's Operating Funds Available</strong></span><strong class="account-row__value"><%= formatMoney(summary.totalCashPosition - (fundBalances.joint_welfare || 0)) %></strong></div>
+        </div>
+      </div>
+      <% } %>
+
+      <div class="dashboard-section">
+        <div class="section-head"><div><h2>Recent activity</h2><p>Latest posted transactions.</p></div><a href="/finance">View finance</a></div>
+        <% if (!recent.length) { %><div class="empty-state"><p>No transactions have been recorded yet.</p></div><% } else { %>
+        <div class="table-wrap desktop-table"><table class="data-table"><thead><tr><th>Date</th><th>Category</th><th>Account</th><th>Status</th><th class="num">Amount</th></tr></thead><tbody><% recent.forEach(function(row) { %><tr><td><%= formatDate(row.tx_date) %></td><td><%= row.category %></td><td><%= row.account_name || '—' %></td><td><span class="badge status-badge <%= row.reconciled ? 'badge--success' : 'badge--warning' %>"><%= row.reconciled ? 'Reconciled' : 'Unreconciled' %></span></td><td class="num"><%= formatMoney(row.amount) %></td></tr><% }) %></tbody></table></div>
+        <div class="mobile-list"><% recent.forEach(function(row) { %><article class="transaction-card"><div class="transaction-card__top"><strong><%= row.category %></strong><span class="transaction-card__amount"><%= formatMoney(row.amount) %></span></div><div class="transaction-card__meta"><span><%= formatDate(row.tx_date) %></span><span><%= row.account_name || 'No account' %></span><span class="badge status-badge <%= row.reconciled ? 'badge--success' : 'badge--warning' %>"><%= row.reconciled ? 'Reconciled' : 'Unreconciled' %></span></div></article><% }) %></div><% } %>
       </div>
     </div>
-    <div class="task-list">
-      <a href="/transactions" class="task-item">
-        <strong><%= unreconciledCount %></strong>
-        <span>Uncleared transactions</span>
-      </a>
-      <a href="/reports" class="task-item">
-        <strong><%= arrearsCount %></strong>
-        <span>Members with arrears</span>
-      </a>
-      <a href="/members" class="task-item">
-        <strong><%= memberCount %></strong>
-        <span>Active members</span>
-      </a>
-      <a href="/reconciliation" class="task-item">
-        <strong><%= lastReconciliation || 'None' %></strong>
-        <span>Latest reconciliation</span>
-      </a>
-    </div>
-  </div>
 
-  <div class="panel">
-    <div class="section-head">
-      <div>
-        <h2>Quick actions</h2>
-        <p>Common tasks for finance officers.</p>
-      </div>
-    </div>
-    <div class="quick-grid">
-      <a class="quick-action" href="/transactions">Receive payment</a>
-      <a class="quick-action" href="/transactions">Record expense</a>
-      <a class="quick-action" href="/reconciliation">Reconcile account</a>
-      <a class="quick-action" href="/config">Update rules</a>
-    </div>
-  </div>
-</section>
-
-<section class="panel">
-  <div class="section-head">
-    <div>
-      <h2>Recent transactions</h2>
-      <p>Latest posted receipts, expenses, and transfers.</p>
-    </div>
-    <a href="/transactions" class="text-link">View all</a>
-  </div>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Date</th><th>Type</th><th>Member</th><th>Account</th><th>Category</th><th class="num">Amount</th></tr></thead>
-      <tbody>
-        <% recent.forEach((row) => { %>
-          <tr>
-            <td><%= row.tx_date %></td>
-            <td><span class="badge"><%= row.tx_type.replace('_', ' ') %></span></td>
-            <td><%= row.member_name || '' %></td>
-            <td><%= row.account_name || '' %></td>
-            <td><%= row.category %></td>
-            <td class="num"><%= formatMoney(row.amount) %></td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
-  </div>
-</section>
+    <aside class="dashboard-stack">
+      <div class="dashboard-section"><div class="section-head"><div><h2>Work requiring attention</h2><p>Priorities for this period.</p></div></div><div class="work-queue"><a href="/finance" class="work-queue__item"><strong class="work-queue__count"><%= unreconciledCount %></strong><span class="work-queue__label">Unreconciled items</span></a><a href="/reports" class="work-queue__item"><strong class="work-queue__count"><%= arrearsCount %></strong><span class="work-queue__label">Members with overdue dues</span></a><a href="/members" class="work-queue__item"><strong class="work-queue__count"><%= memberCount %></strong><span class="work-queue__label">Active members</span></a></div></div>
+      <div class="dashboard-section"><div class="section-head"><div><h2>Reconciliation status</h2><p>Latest completed account check.</p></div></div><strong><%= lastReconciliation ? formatDate(lastReconciliation) : 'No reconciliation recorded' %></strong><div class="actions" style="margin-top:1rem"><% if (['admin','treasurer','auditor','viewer'].includes(user.role)) { %><a href="/finance/reconciliation">Review reconciliation</a><% } %></div></div>
+    </aside>
+  </section>
+  <% } %>
+</div>
 <%- include('partials/footer') %>
