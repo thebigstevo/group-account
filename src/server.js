@@ -68,6 +68,7 @@ const { calculateAllocations } = require('./allocationService');
 const { createReversal } = require('./reversalService');
 const { validateTransactionEdit } = require('./transactionLifecycle');
 const { uploadTypeFor, validateUploadedFile } = require('./fileSecurity');
+const { helpForRole } = require('./helpContent');
 
 const app = express();
 const publicDirectory = path.join(__dirname, 'public');
@@ -233,7 +234,7 @@ app.use(async (req, res, next) => {
     );
     req.activeFiscalYear = activeFiscalYear;
     res.locals.activeFiscalYear = activeFiscalYear;
-    if (activeFiscalYear || req.path.startsWith('/fiscal-years') || req.path === '/logout' || req.path === '/trustee-dashboard') return next();
+    if (activeFiscalYear || req.path.startsWith('/fiscal-years') || req.path === '/logout' || req.path === '/trustee-dashboard' || req.path === '/help') return next();
     if (FISCAL_SETUP_ROLES.has(req.session.user.role)) return res.redirect('/fiscal-years?setup=1');
     return res.status(503).render('setup_required');
   } catch (error) {
@@ -364,6 +365,11 @@ app.post('/logout', requireLogin, (req, res) => {
   req.session.destroy(() => res.redirect('/login'));
 });
 
+app.get('/help', requireLogin, (req, res) => {
+  const guide = helpForRole(req.session.user.role, req.query.q);
+  res.render('help', { guide });
+});
+
 app.get('/', requireLogin, asyncHandler(async (req, res) => {
   try {
     const year = selectedYear(req);
@@ -377,13 +383,13 @@ app.get('/', requireLogin, asyncHandler(async (req, res) => {
       FROM transactions t
       LEFT JOIN members m ON m.id = t.member_id
       LEFT JOIN accounts a ON a.id = t.account_id
-      WHERE t.status = 'posted' AND t.tx_date >= $1 AND t.tx_date <= $2
+      WHERE t.status = 'posted' AND t.reverses_transaction_id IS NULL AND t.tx_date >= $1 AND t.tx_date <= $2
       ORDER BY t.tx_date DESC, t.id DESC
       LIMIT 10
     `, [yearStart, yearEnd]);
     const memberCountRow = await dal.queryOne("SELECT COUNT(*) AS count FROM members WHERE status = 'active'");
     const memberCount = Number(memberCountRow.count);
-    const unreconciledRow = await dal.queryOne("SELECT COUNT(*) AS count FROM transactions WHERE status = 'posted' AND reconciled = false AND tx_date >= $1 AND tx_date <= $2", [yearStart, yearEnd]);
+    const unreconciledRow = await dal.queryOne("SELECT COUNT(*) AS count FROM transactions WHERE status = 'posted' AND reverses_transaction_id IS NULL AND reconciled = false AND tx_date >= $1 AND tx_date <= $2", [yearStart, yearEnd]);
     const unreconciledCount = Number(unreconciledRow.count);
     const arrearsData = await arrearsReport(selectedYear(req));
     const arrearsCount = arrearsData.filter((row) => row.balance > 0).length;
@@ -2091,12 +2097,24 @@ app.post('/finance/batch-income', allow('admin', 'finance_secretary', 'treasurer
     return res.status(400).render('batch_income', { members, accounts, categories, errors: [yearError] });
   }
 
+  const receiptCategory = await dal.queryOne(
+    "SELECT * FROM transaction_categories WHERE name = $1 AND kind IN ('income','both') AND active = true",
+    [req.body.category]
+  );
+  if (!receiptCategory) {
+    return res.status(400).render('batch_income', { members, accounts, categories, errors: ['Select an active income category.'] });
+  }
+  const receiptAccount = await dal.queryOne('SELECT id FROM accounts WHERE id = $1 AND active = true', [Number(req.body.account_id)]);
+  if (!receiptAccount) {
+    return res.status(400).render('batch_income', { members, accounts, categories, errors: ['Select an active account to receive the income.'] });
+  }
+  if (receiptCategory.purpose === 'assessment' && validEntries.some(entry => !entry.member_id)) {
+    return res.status(400).render('batch_income', { members, accounts, categories, errors: ['Every assessment payment must have a member.'] });
+  }
+
   // Get fiscal year for allocation calculation
   const activeYear = await dal.queryOne("SELECT year FROM fiscal_years WHERE is_active = true");
   const year = activeYear ? activeYear.year : new Date().getFullYear();
-
-  // Look up welfare fund ID once for backward-compat welfare_component field
-  const welfareFund = await dal.queryOne("SELECT id FROM fund_classifications WHERE code = 'joint_welfare'");
 
   let totalAmount = 0;
   let count = 0;
@@ -2106,11 +2124,11 @@ app.post('/finance/batch-income', allow('admin', 'finance_secretary', 'treasurer
       const amount = Number(entry.amount);
       if (!Number.isFinite(amount) || amount <= 0) continue;
 
-      const allocations = await calculateAllocations(amount, req.body.category, year, entry.member_id ? Number(entry.member_id) : null);
-
-      // Calculate welfare_component from allocations (for backward compat)
-      const welfareAlloc = allocations.find(a => welfareFund && a.fund_classification_id === welfareFund.id);
-      const welfare = welfareAlloc ? welfareAlloc.amount : 0;
+      const memberId = entry.member_id ? Number(entry.member_id) : null;
+      const welfare = await calculateWelfareComponent({
+        memberId, category: receiptCategory.name, amount, txDate: req.body.tx_date
+      });
+      const allocations = await calculateAllocations(amount, receiptCategory.name, year, memberId, welfare);
 
       const result = await client.query(`
         INSERT INTO transactions (tx_date, tx_type, member_id, account_id, category, description, amount, welfare_component, status, reference, created_by)
@@ -2184,14 +2202,13 @@ app.get('/finance/welfare', requireLogin, asyncHandler(async (req, res) => {
   // Per-member welfare contributions for the year (using receipt_allocations with joint_welfare fund)
   const contributions = await dal.query(`
     SELECT m.id, m.name,
-      COALESCE(SUM(ra.amount), 0) AS welfare_paid
+      COALESCE(SUM(ra.amount) FILTER (WHERE fc.code = 'joint_welfare'), 0) AS welfare_paid
     FROM members m
     LEFT JOIN transactions t ON t.member_id = m.id
-      AND t.tx_type = 'receipt' AND t.status = 'posted'
+      AND t.tx_type = 'receipt' AND t.status = 'posted' AND t.reverses_transaction_id IS NULL
       AND t.tx_date >= $1 AND t.tx_date <= $2
     LEFT JOIN receipt_allocations ra ON ra.transaction_id = t.id
     LEFT JOIN fund_classifications fc ON fc.id = ra.fund_classification_id
-      AND fc.code = 'joint_welfare'
     WHERE m.status = 'active'
     GROUP BY m.id, m.name
     ORDER BY m.name
@@ -2239,7 +2256,7 @@ app.post('/transactions/receipt', allow('admin', 'finance_secretary', 'treasurer
   const year = activeYear ? activeYear.year : new Date().getFullYear();
 
   // Calculate fund allocations (replaces split-pair logic)
-  const allocations = await calculateAllocations(amount, receiptCategory.name, year, req.body.member_id ? Number(req.body.member_id) : null);
+  const allocations = await calculateAllocations(amount, receiptCategory.name, year, req.body.member_id ? Number(req.body.member_id) : null, welfare);
 
   // Create single transaction + receipt_allocations in one atomic operation
   await dal.transaction(async (client) => {
@@ -2602,7 +2619,7 @@ app.post('/reconciliation/:id/delete', allow('admin', 'treasurer'), asyncHandler
     UPDATE transactions
     SET reconciled = false, updated_at = NOW()
     WHERE account_id = $1
-      AND status = 'posted'
+      AND status = 'posted' AND reverses_transaction_id IS NULL
       AND reconciled = true
       AND tx_date >= $2
       AND tx_date <= $3
@@ -2623,7 +2640,7 @@ app.get('/reports', requireLogin, asyncHandler(async (req, res) => {
     SELECT t.category, COALESCE(SUM(t.amount - t.welfare_component), 0) AS total
     FROM transactions t
     JOIN transaction_categories tc ON tc.name = t.category
-    WHERE t.tx_type = 'receipt' AND t.status = 'posted'
+    WHERE t.tx_type = 'receipt' AND t.status = 'posted' AND t.reverses_transaction_id IS NULL
       AND tc.purpose != 'welfare_income'
       AND t.tx_date >= $1
       AND t.tx_date <= $2
@@ -2634,7 +2651,7 @@ app.get('/reports', requireLogin, asyncHandler(async (req, res) => {
   const expensesByCategory = await dal.query(`
     SELECT category, COALESCE(SUM(amount), 0) AS total
     FROM transactions
-    WHERE tx_type = 'expense' AND status = 'posted'
+    WHERE tx_type = 'expense' AND status = 'posted' AND reverses_transaction_id IS NULL
       AND tx_date >= $1
       AND tx_date <= $2
     GROUP BY category

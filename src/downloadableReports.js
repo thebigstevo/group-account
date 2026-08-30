@@ -22,6 +22,7 @@ async function incomeAndExpenditureReport(startDate, endDate, periodLabel) {
     FROM receipt_allocations ra
     JOIN transactions t ON t.id = ra.transaction_id
       AND t.status = 'posted'
+      AND t.reverses_transaction_id IS NULL
       AND t.tx_type = 'receipt'
       AND t.tx_date >= $1 AND t.tx_date <= $2
     JOIN fund_classifications fc ON fc.id = ra.fund_classification_id
@@ -36,6 +37,7 @@ async function incomeAndExpenditureReport(startDate, endDate, periodLabel) {
     FROM receipt_allocations ra
     JOIN transactions t ON t.id = ra.transaction_id
       AND t.status = 'posted'
+      AND t.reverses_transaction_id IS NULL
       AND t.tx_type = 'expense'
       AND t.tx_date >= $1 AND t.tx_date <= $2
     JOIN fund_classifications fc ON fc.id = ra.fund_classification_id
@@ -92,13 +94,13 @@ async function receiptsAndPaymentsReport(startDate, endDate, periodLabel) {
     const priorIncomingRow = await dal.queryOne(`
       SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
       WHERE ((tx_type = 'receipt' AND account_id = $1) OR (tx_type = 'transfer' AND to_account_id = $2))
-        AND status = 'posted' AND tx_date < $3
+        AND status = 'posted' AND reverses_transaction_id IS NULL AND tx_date < $3
     `, [account.id, account.id, startDate]);
 
     const priorOutgoingRow = await dal.queryOne(`
       SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
       WHERE ((tx_type IN ('expense','welfare_payout') AND account_id = $1) OR (tx_type = 'transfer' AND account_id = $2))
-        AND status = 'posted' AND tx_date < $3
+        AND status = 'posted' AND reverses_transaction_id IS NULL AND tx_date < $3
     `, [account.id, account.id, startDate]);
 
     const openingBalance = Number(account.opening_balance) + Number(priorIncomingRow.total) - Number(priorOutgoingRow.total);
@@ -107,7 +109,7 @@ async function receiptsAndPaymentsReport(startDate, endDate, periodLabel) {
     const receipts = await dal.query(`
       SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions
       WHERE ((tx_type = 'receipt' AND account_id = $1) OR (tx_type = 'transfer' AND to_account_id = $2))
-        AND status = 'posted' AND tx_date >= $3 AND tx_date <= $4
+        AND status = 'posted' AND reverses_transaction_id IS NULL AND tx_date >= $3 AND tx_date <= $4
       GROUP BY category ORDER BY total DESC
     `, [account.id, account.id, startDate, endDate]);
 
@@ -115,7 +117,7 @@ async function receiptsAndPaymentsReport(startDate, endDate, periodLabel) {
     const payments = await dal.query(`
       SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions
       WHERE ((tx_type IN ('expense','welfare_payout') AND account_id = $1) OR (tx_type = 'transfer' AND account_id = $2))
-        AND status = 'posted' AND tx_date >= $3 AND tx_date <= $4
+        AND status = 'posted' AND reverses_transaction_id IS NULL AND tx_date >= $3 AND tx_date <= $4
       GROUP BY category ORDER BY total DESC
     `, [account.id, account.id, startDate, endDate]);
 
@@ -167,13 +169,12 @@ async function welfareFundReport(startDate, endDate, periodLabel) {
   const openingRow = await dal.queryOne(`
     SELECT COALESCE(SUM(
       CASE
-        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NULL THEN -ra.amount
-        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NOT NULL THEN ra.amount
+        WHEN t.tx_type = 'welfare_payout' THEN -ra.amount
         ELSE ra.amount
       END
     ), 0) AS total
     FROM receipt_allocations ra
-    JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted' AND t.tx_date < $1
+    JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted' AND t.reverses_transaction_id IS NULL AND t.tx_date < $1
     JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'joint_welfare'
   `, [startDate]);
   const openingBalance = Number(openingRow.total);
@@ -215,20 +216,18 @@ async function welfareFundReport(startDate, endDate, periodLabel) {
   const physicalHoldings = await dal.query(`
     SELECT a.name AS account_name, COALESCE(SUM(
       CASE
-        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NULL THEN -ra.amount
-        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NOT NULL THEN ra.amount
+        WHEN t.tx_type = 'welfare_payout' THEN -ra.amount
         ELSE ra.amount
       END
     ), 0) AS balance
     FROM receipt_allocations ra
-    JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted' AND t.tx_date <= $1
+    JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted' AND t.reverses_transaction_id IS NULL AND t.tx_date <= $1
     JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'joint_welfare'
     JOIN accounts a ON a.id = t.account_id
     GROUP BY a.id, a.name
     HAVING SUM(
       CASE
-        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NULL THEN -ra.amount
-        WHEN t.tx_type = 'welfare_payout' AND t.reverses_transaction_id IS NOT NULL THEN ra.amount
+        WHEN t.tx_type = 'welfare_payout' THEN -ra.amount
         ELSE ra.amount
       END
     ) != 0
@@ -310,7 +309,7 @@ async function memberStatementReport(memberId, year) {
     FROM transactions t
     LEFT JOIN accounts a ON a.id = t.account_id
     LEFT JOIN transaction_categories c ON c.name = t.category
-    WHERE t.member_id = $1 AND t.status = 'posted'
+    WHERE t.member_id = $1 AND t.status = 'posted' AND t.reverses_transaction_id IS NULL
       AND t.tx_date >= $2 AND t.tx_date <= $3
     ORDER BY t.tx_date ASC, t.id ASC
   `, [memberId, startDate, endDate]);

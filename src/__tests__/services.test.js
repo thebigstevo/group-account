@@ -85,6 +85,19 @@ describe('Services: calculateWelfareComponent', () => {
     });
     expect(welfare).toBe(400);
   });
+
+  test('calculates welfare from an effective member dues rule without a payment split', async () => {
+    dal.queryOne
+      .mockResolvedValueOnce({ purpose: 'assessment' })
+      .mockResolvedValueOnce({ id: 9, dob: '1980-01-01' })
+      .mockResolvedValueOnce({ assessment_due: 560, welfare_portion: 240 });
+
+    const welfare = await calculateWelfareComponent({
+      memberId: 9, category: 'Assessment', amount: 200,
+      txDate: '2024-05-11', enteredWelfare: null
+    });
+    expect(welfare).toBe(85.71);
+  });
 });
 
 describe('Services: currentYear', () => {
