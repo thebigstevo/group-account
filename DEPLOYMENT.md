@@ -8,8 +8,8 @@
 │                                                                  │
 │  ┌─────────────────────────────────────────────────────────────┐ │
 │  │ Nginx (reverse proxy + SSL termination)                     │ │
-│  │   dev-groupledger.tilcsaas.com → 127.0.0.1:3100            │ │
-│  │   prod-groupledger.tilcsaas.com → 127.0.0.1:3200           │ │
+│  │   ksji-dev.tilcsaas.com → 127.0.0.1:3100            │ │
+│  │   ksji825.tilcsaas.com → 127.0.0.1:3200                    │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 │                                                                  │
 │  ┌─────────────────────────────────────────────────────────────┐ │
@@ -42,7 +42,7 @@
 
 | Decision | Rationale |
 |---|---|
-| Single PostgreSQL container, two databases | Saves resources; both environments are on same VPS |
+| Single PostgreSQL container, two databases and isolated login roles | Saves resources while preventing either application role from connecting to the other database |
 | Bind to 127.0.0.1 only | Nginx handles public access; ports not directly exposed |
 | Nginx config naming: `*.tilcsaas.com.conf` | Matches existing VPS convention |
 | Code at `/opt/treasurio` | Doesn't conflict with other apps |
@@ -56,18 +56,20 @@
 
 | Branch | Workflow | Deploys |
 |---|---|---|
-| `feature/treasurio-overhaul` or `develop` | Deploy Dev | `app-dev` container (port 3100) |
-| `master` or `main` | Deploy Prod | `app-prod` container (port 3200) |
+| Pull requests and protected branches | CI | Tests, dependency audit, syntax/config validation, production-image build |
+| Manual `Deploy Dev` dispatch | Deploy Dev | Selected committed branch to `app-dev` (port 3100) |
+| Manual `Deploy Prod` dispatch from `master` | Deploy Prod | Reviewed `master` commit to `app-prod` (port 3200) |
 
 ### What Each Deploy Does
 
 1. SSH into VPS as `root`
-2. Clone repo (first time) or `git fetch && git reset --hard` (updates)
-3. Write `/opt/treasurio/deploy/.env` from GitHub Secrets
-4. Create Nginx site config if it doesn't exist
-5. `docker compose up -d --build postgres <app-service>`
-6. Wait 12 seconds for postgres healthcheck
-7. Run `node src/migrate.js` (idempotent — creates tables if missing, skips if present)
+2. Clone the repository or reset the server checkout to the selected committed branch
+3. Write an environment-specific, mode-0600 Compose env file
+4. Provision the environment's least-privilege PostgreSQL role
+5. Run tests, dependency audit, deployment validation, and image build in GitHub Actions
+6. Create and verify database and upload-volume backups in S3 before production migration
+7. Run the idempotent migration with the database owner, start the app, and wait for `/health`
+8. Verify another S3 backup after production is healthy
 
 ### Required GitHub Secrets
 
@@ -75,14 +77,18 @@
 |---|---|
 | `VPS_HOST` | VPS IP (`84.54.23.37`) |
 | `VPS_USER` | SSH user (`root`) |
-| `VPS_PASSWORD` | SSH password |
-| `POSTGRES_PASSWORD` | Shared PostgreSQL password |
+| `VPS_SSH_KEY` | SSH private key used by GitHub Actions |
+| `POSTGRES_PASSWORD` | Database-owner password, 24+ characters |
+| `DEV_DB_PASSWORD` | Least-privilege development application role, 24+ characters |
+| `PROD_DB_PASSWORD` | Least-privilege production application role, 24+ characters |
 | `DEV_SESSION_SECRET` | Express session key for dev |
 | `PROD_SESSION_SECRET` | Express session key for prod |
 | `DEV_N8N_API_TOKEN` | n8n API token for dev |
 | `PROD_N8N_API_TOKEN` | n8n API token for prod |
 | `DEV_GROUP_NAME` | Organization name in dev UI |
 | `PROD_GROUP_NAME` | Organization name in prod UI |
+
+Required repository variables: `PROJECT_NAME`, `DEV_DOMAIN`, `PROD_DOMAIN`, and `BACKUP_S3_BUCKET`.
 
 ---
 
@@ -98,26 +104,25 @@
 
 ```bash
 # 1. Set DNS records (in your domain panel)
-#    dev-groupledger.tilcsaas.com → A → 84.54.23.37
-#    prod-groupledger.tilcsaas.com → A → 84.54.23.37
+#    ksji-dev.tilcsaas.com → A → 84.54.23.37
+#    ksji825.tilcsaas.com → A → 84.54.23.37
 
-# 2. Add all 10 GitHub Secrets (see table above)
+# 2. Add the GitHub Secrets and repository variables listed above
 
-# 3. Push to branch to trigger deploy
-git push origin feature/treasurio-overhaul   # deploys dev
-git push origin master                        # deploys prod
+# 3. Open a pull request, wait for CI, and merge the reviewed commit
+# 4. Dispatch Deploy Dev or Deploy Prod from GitHub Actions
 
 # 4. Wait for GitHub Actions to complete (2-3 minutes)
 #    Monitor at: https://github.com/thebigstevo/group-account/actions
 
 # 5. Open the app in your browser
-#    Visit: https://dev-groupledger.tilcsaas.com
+#    Visit: https://ksji-dev.tilcsaas.com
 #    The setup wizard will appear automatically (no SSH needed!)
 #    Create your admin account, set organization name, and you're done.
 
 # 6. Enable HTTPS
 ssh root@84.54.23.37
-certbot --nginx -d dev-groupledger.tilcsaas.com -d prod-groupledger.tilcsaas.com
+certbot --nginx -d ksji-dev.tilcsaas.com -d ksji825.tilcsaas.com
 ```
 
 ### Setup Wizard
@@ -255,37 +260,21 @@ ORDER BY n_live_tup DESC;"
 
 ## Backup & Restore
 
-### Manual Backup
+### Manual S3-verified Backup
 
 ```bash
 cd /opt/treasurio/deploy
-mkdir -p /opt/treasurio/backups
-
-# Backup dev
-docker compose exec -T postgres pg_dump -U treasurio -d treasurio_dev \
-  --clean --if-exists | gzip > /opt/treasurio/backups/dev_$(date +%Y%m%d_%H%M%S).sql.gz
-
-# Backup prod
-docker compose exec -T postgres pg_dump -U treasurio -d treasurio_prod \
-  --clean --if-exists | gzip > /opt/treasurio/backups/prod_$(date +%Y%m%d_%H%M%S).sql.gz
-
-# List backups
-ls -lh /opt/treasurio/backups/
+S3_BUCKET=treasurio-backups-390403853790 RETAIN_COUNT=30 ./backup.sh
 ```
+
+The script archives both databases and both upload volumes, validates gzip integrity, uploads with AES-256 server-side encryption and a SHA-256 metadata checksum, and verifies the remote object size and checksum.
 
 ### Automated Daily Backup (Cron)
 
-```bash
-crontab -e
-```
-
-Add these lines:
 ```cron
-# Treasurio database backups at 2 AM daily
-0 2 * * * cd /opt/treasurio/deploy && docker compose exec -T postgres pg_dump -U treasurio -d treasurio_prod --clean --if-exists | gzip > /opt/treasurio/backups/prod_$(date +\%Y\%m\%d).sql.gz
-
-# Delete backups older than 14 days
-30 2 * * * find /opt/treasurio/backups -name "*.sql.gz" -mtime +14 -delete
+S3_BUCKET=treasurio-backups-390403853790
+S3_PREFIX=treasurio
+47 4 * * * root umask 077; RETAIN_COUNT=30 /opt/treasurio/deploy/backup.sh >> /var/log/treasurio-backup.log 2>&1
 ```
 
 ### Restore from Backup
@@ -293,17 +282,11 @@ Add these lines:
 ```bash
 cd /opt/treasurio/deploy
 
-# Stop the app container first (prevents writes during restore)
-docker compose stop app-prod
-
-# Restore prod from backup
-gunzip -c /opt/treasurio/backups/prod_20260808_020000.sql.gz | \
-  docker compose exec -T postgres psql -U treasurio -d treasurio_prod --quiet
-
-# Start app again
-docker compose start app-prod
-
-echo "Restore complete"
+# The command requires typing the exact database/volume name before replacement.
+PROD_DB_PASSWORD='value-from-secure-store' ./restore.sh database prod \
+  s3://treasurio-backups-390403853790/treasurio/prod_YYYYMMDD_HHMMSS.sql.gz
+PROD_DB_PASSWORD='value-from-secure-store' ./restore.sh uploads prod \
+  s3://treasurio-backups-390403853790/treasurio/uploads-prod_YYYYMMDD_HHMMSS.tar.gz
 ```
 
 ### Restore to a completely fresh database
@@ -455,11 +438,11 @@ docker compose down -v
 rm -rf /opt/treasurio
 
 # Remove nginx configs
-rm -f /etc/nginx/sites-enabled/dev-groupledger.tilcsaas.com.conf
-rm -f /etc/nginx/sites-enabled/prod-groupledger.tilcsaas.com.conf
+rm -f /etc/nginx/sites-enabled/ksji-dev.tilcsaas.com.conf
+rm -f /etc/nginx/sites-enabled/ksji825.tilcsaas.com.conf
 nginx -t && systemctl reload nginx
 
-# Now trigger a fresh deploy from GitHub Actions (push to branch)
+# Now dispatch the appropriate deployment workflow from GitHub Actions
 # After deploy completes, restore backups:
 cd /opt/treasurio/deploy
 gunzip -c /opt/treasurio/backups/dev_pre-rebuild.sql.gz | docker compose exec -T postgres psql -U treasurio -d treasurio_dev
@@ -474,13 +457,13 @@ gunzip -c /opt/treasurio/backups/prod_pre-rebuild.sql.gz | docker compose exec -
 
 ```bash
 ls /etc/nginx/sites-enabled/
-# Expected: dev-groupledger.tilcsaas.com.conf, prod-groupledger.tilcsaas.com.conf, (plus your other apps)
+# Expected: ksji-dev.tilcsaas.com.conf, ksji825.tilcsaas.com.conf, (plus your other apps)
 ```
 
 ### View a config
 
 ```bash
-cat /etc/nginx/sites-enabled/dev-groupledger.tilcsaas.com.conf
+cat /etc/nginx/sites-enabled/ksji-dev.tilcsaas.com.conf
 ```
 
 ### Test and reload after changes
@@ -520,8 +503,8 @@ curl http://127.0.0.1:3200/health    # prod
 ### From outside
 
 ```bash
-curl https://dev-groupledger.tilcsaas.com/health
-curl https://prod-groupledger.tilcsaas.com/health
+curl https://ksji-dev.tilcsaas.com/health
+curl https://ksji825.tilcsaas.com/health
 ```
 
 ### Docker healthcheck
@@ -545,7 +528,7 @@ To deploy Treasurio for a different organization:
    - New `GROUP_CURRENCY` if needed
 4. **Change domains** in workflow files (search for `tilcsaas.com`)
 5. **Change ports** in `deploy/docker-compose.yml` if same VPS (e.g., 3300/3400)
-6. **Push** to trigger deploy
+6. **Dispatch** the environment's deployment workflow for the reviewed commit
 7. **Seed** admin user
 8. **Certbot** for HTTPS
 
@@ -560,7 +543,8 @@ No code changes needed — the app is fully white-labeled via `GROUP_NAME` and `
 ├── deploy/
 │   ├── docker-compose.yml      # 3 services: postgres, app-dev, app-prod
 │   ├── init-databases.sql      # Creates treasurio_dev DB on first boot
-│   └── .env                    # Secrets (written by CI/CD, never committed)
+│   ├── .env.dev                # Dev secrets (written by CI/CD, never committed)
+│   └── .env.prod               # Prod secrets (written by CI/CD, never committed)
 ├── src/                        # Application code
 │   ├── server.js               # Express app
 │   ├── dal.js                  # PostgreSQL data access layer
@@ -578,8 +562,8 @@ No code changes needed — the app is fully white-labeled via `GROUP_NAME` and `
   └── prod_20260808_020000.sql.gz
 
 /etc/nginx/sites-enabled/
-  ├── dev-groupledger.tilcsaas.com.conf   # → 127.0.0.1:3100
-  └── prod-groupledger.tilcsaas.com.conf  # → 127.0.0.1:3200
+  ├── ksji-dev.tilcsaas.com.conf   # → 127.0.0.1:3100
+  └── ksji825.tilcsaas.com.conf  # → 127.0.0.1:3200
 ```
 
 ---
@@ -588,8 +572,8 @@ No code changes needed — the app is fully white-labeled via `GROUP_NAME` and `
 
 | Task | Command |
 |---|---|
-| Deploy dev | Push to `develop` or `feature/treasurio-overhaul` |
-| Deploy prod | Push to `master` |
+| Deploy dev | Dispatch `Deploy Dev` for the committed development branch |
+| Deploy prod | Dispatch `Deploy Prod` from reviewed `master` |
 | View dev logs | `cd /opt/treasurio/deploy && docker compose logs -f app-dev` |
 | View prod logs | `cd /opt/treasurio/deploy && docker compose logs -f app-prod` |
 | Restart dev | `cd /opt/treasurio/deploy && docker compose restart app-dev` |

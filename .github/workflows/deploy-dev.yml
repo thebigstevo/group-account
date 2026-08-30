@@ -1,10 +1,13 @@
 name: Deploy Dev
 
+permissions:
+  contents: read
+
+concurrency:
+  group: treasurio-vps
+  cancel-in-progress: false
+
 on:
-  push:
-    branches:
-      - feature/treasurio-overhaul
-      - develop
   workflow_dispatch:
     inputs:
       project_name:
@@ -27,13 +30,27 @@ env:
   PROJECT_NAME: ${{ inputs.project_name || vars.PROJECT_NAME || 'treasurio' }}
   DOMAIN_NAME: ${{ inputs.domain_name || vars.DEV_DOMAIN || 'ksji-dev.tilcsaas.com' }}
   RESET_DEV_DATA: ${{ inputs.reset_dev_data || 'false' }}
+  BACKUP_S3_BUCKET: ${{ vars.BACKUP_S3_BUCKET }}
 
 jobs:
   deploy-dev:
     runs-on: ubuntu-latest
+    environment: development
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify release candidate
+        run: |
+          npm ci
+          npm test -- --runInBand
+          npm audit --omit=dev --audit-level=high
+          docker compose -f deploy/docker-compose.yml config --quiet
 
       - name: Deploy to VPS (Dev)
         uses: appleboy/ssh-action@v1.2.0
@@ -41,7 +58,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: PROJECT_NAME,DOMAIN_NAME,RESET_DEV_DATA,POSTGRES_PASSWORD,DEV_SESSION_SECRET,DEV_N8N_API_TOKEN,DEV_GROUP_NAME,PROD_SESSION_SECRET,PROD_N8N_API_TOKEN,PROD_GROUP_NAME
+          envs: PROJECT_NAME,DOMAIN_NAME,RESET_DEV_DATA,POSTGRES_PASSWORD,DEV_DB_PASSWORD,DEV_SESSION_SECRET,DEV_N8N_API_TOKEN,DEV_GROUP_NAME,BACKUP_S3_BUCKET
           script: |
             set -eu
             APP_DIR="/opt/${PROJECT_NAME}"
@@ -56,7 +73,10 @@ jobs:
               git clone -b "$BRANCH" https://github.com/thebigstevo/group-account.git "$APP_DIR"
             fi
             cd "$APP_DIR/deploy"
-            printf 'POSTGRES_PASSWORD=%s\nDEV_SESSION_SECRET=%s\nDEV_N8N_API_TOKEN=%s\nDEV_GROUP_NAME=%s\nPROD_SESSION_SECRET=%s\nPROD_N8N_API_TOKEN=%s\nPROD_GROUP_NAME=%s\nGROUP_CURRENCY=GHS\n' "$POSTGRES_PASSWORD" "$DEV_SESSION_SECRET" "$DEV_N8N_API_TOKEN" "$DEV_GROUP_NAME" "$PROD_SESSION_SECRET" "$PROD_N8N_API_TOKEN" "$PROD_GROUP_NAME" > .env
+            [ ${#POSTGRES_PASSWORD} -ge 24 ] || { echo "POSTGRES_PASSWORD must be at least 24 characters" >&2; exit 1; }
+            [ ${#DEV_DB_PASSWORD} -ge 24 ] || { echo "DEV_DB_PASSWORD must be at least 24 characters" >&2; exit 1; }
+            umask 077
+            printf 'POSTGRES_PASSWORD=%s\nDEV_DB_PASSWORD=%s\nDEV_SESSION_SECRET=%s\nDEV_N8N_API_TOKEN=%s\nDEV_GROUP_NAME=%s\nGROUP_CURRENCY=GHS\n' "$POSTGRES_PASSWORD" "$DEV_DB_PASSWORD" "$DEV_SESSION_SECRET" "$DEV_N8N_API_TOKEN" "$DEV_GROUP_NAME" > .env.dev
             install -m 644 cloudflare-real-ip.conf /etc/nginx/snippets/cloudflare-real-ip.conf
             NGINX_AVAILABLE="/etc/nginx/sites-available/${DOMAIN_NAME}"
             NGINX_ENABLED="/etc/nginx/sites-enabled/${DOMAIN_NAME}.conf"
@@ -66,26 +86,29 @@ jobs:
               nginx -t && systemctl reload nginx
               echo "Nginx config added for ${DOMAIN_NAME}"
             fi
-            docker compose --env-file .env up -d postgres
+            docker compose --env-file .env.dev up -d postgres
+            DEV_DB_PASSWORD="$DEV_DB_PASSWORD" ./provision-app-role.sh dev
             if [ "$RESET_DEV_DATA" = "true" ]; then
               echo "Resetting dev database only; production database and shared volume are preserved."
-              docker compose --env-file .env stop app-dev || true
-              docker compose --env-file .env exec -T postgres psql -U treasurio -d postgres -v ON_ERROR_STOP=1 -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'treasurio_dev' AND pid <> pg_backend_pid();"
-              docker compose --env-file .env exec -T postgres psql -U treasurio -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS treasurio_dev;"
-              docker compose --env-file .env exec -T postgres psql -U treasurio -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE treasurio_dev;"
+              docker compose --env-file .env.dev stop app-dev || true
+              S3_BUCKET="$BACKUP_S3_BUCKET" RETAIN_COUNT=30 ./backup.sh
+              docker compose --env-file .env.dev exec -T postgres psql -U treasurio -d postgres -v ON_ERROR_STOP=1 -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'treasurio_dev' AND pid <> pg_backend_pid();"
+              docker compose --env-file .env.dev exec -T postgres psql -U treasurio -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS treasurio_dev;"
+              docker compose --env-file .env.dev exec -T postgres psql -U treasurio -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE treasurio_dev OWNER treasurio;"
+              DEV_DB_PASSWORD="$DEV_DB_PASSWORD" ./provision-app-role.sh dev
             fi
-            docker compose --env-file .env build app-dev
-            docker compose --env-file .env run --rm --no-deps app-dev node src/migrate.js
+            docker compose --env-file .env.dev build app-dev
+            docker compose --env-file .env.dev run --rm --no-deps -e PGUSER=treasurio -e PGPASSWORD="$POSTGRES_PASSWORD" app-dev node src/migrate.js
             if [ "$RESET_DEV_DATA" = "true" ]; then
-              docker compose --env-file .env run --rm --no-deps app-dev node src/seed.js
+              docker compose --env-file .env.dev run --rm --no-deps app-dev node src/seed.js
             fi
-            docker compose --env-file .env up -d app-dev
+            docker compose --env-file .env.dev up -d app-dev
             for attempt in $(seq 1 30); do
               if curl --fail --silent --show-error http://127.0.0.1:3100/health >/dev/null; then
                 break
               fi
               if [ "$attempt" -eq 30 ]; then
-                docker compose --env-file .env logs --tail=100 app-dev
+                docker compose --env-file .env.dev logs --tail=100 app-dev
                 exit 1
               fi
               sleep 2
@@ -99,9 +122,8 @@ jobs:
           DOMAIN_NAME: ${{ env.DOMAIN_NAME }}
           RESET_DEV_DATA: ${{ env.RESET_DEV_DATA }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          DEV_DB_PASSWORD: ${{ secrets.DEV_DB_PASSWORD }}
           DEV_SESSION_SECRET: ${{ secrets.DEV_SESSION_SECRET }}
           DEV_N8N_API_TOKEN: ${{ secrets.DEV_N8N_API_TOKEN }}
           DEV_GROUP_NAME: ${{ secrets.DEV_GROUP_NAME }}
-          PROD_SESSION_SECRET: ${{ secrets.PROD_SESSION_SECRET }}
-          PROD_N8N_API_TOKEN: ${{ secrets.PROD_N8N_API_TOKEN }}
-          PROD_GROUP_NAME: ${{ secrets.PROD_GROUP_NAME }}
+          BACKUP_S3_BUCKET: ${{ vars.BACKUP_S3_BUCKET }}

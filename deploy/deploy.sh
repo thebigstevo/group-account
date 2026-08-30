@@ -5,7 +5,7 @@ set -euo pipefail
 # Treasurio — Deploy to VPS (Dev + Prod)
 # VPS: root@84.54.23.37
 # Dev: ksji-dev.tilcsaas.com :3100
-# Prod: prod-groupledger.tilcsaas.com :3200
+# Prod: ksji825.tilcsaas.com :3200
 # ============================================
 
 VPS_HOST="84.54.23.37"
@@ -86,12 +86,12 @@ echo ""
 echo "  Dev:  http://ksji-dev.tilcsaas.com"
 echo "        → 127.0.0.1:3100"
 echo ""
-echo "  Prod: http://prod-groupledger.tilcsaas.com"
+echo "  Prod: http://ksji825.tilcsaas.com"
 echo "        → 127.0.0.1:3200"
 echo ""
 echo "  Next steps:"
 echo "    1. Point DNS for both domains to ${VPS_HOST}"
-echo "    2. Run: ssh ${VPS_USER}@${VPS_HOST} certbot --nginx -d ksji-dev.tilcsaas.com -d prod-groupledger.tilcsaas.com"
+echo "    2. Run: ssh ${VPS_USER}@${VPS_HOST} certbot --nginx -d ksji-dev.tilcsaas.com -d ksji825.tilcsaas.com"
 echo "    3. Seed the databases:"
 echo "       ssh ${VPS_USER}@${VPS_HOST} 'cd ${REMOTE_DIR}/deploy && docker compose exec app-dev node src/seed.js'"
 echo "       ssh ${VPS_USER}@${VPS_HOST} 'cd ${REMOTE_DIR}/deploy && docker compose exec app-prod node src/seed.js'"

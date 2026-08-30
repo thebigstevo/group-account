@@ -32,6 +32,7 @@
   </div>
 
   <form method="post" action="/members/import" enctype="multipart/form-data" class="stack" data-validate>
+    <%- include('partials/csrf') %>
     <fieldset class="fieldset">
       <legend>Upload file <span class="required-legend">* Required</span></legend>
       <div class="form-group">

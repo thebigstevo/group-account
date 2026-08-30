@@ -170,6 +170,24 @@ describe('role-aware navigation', () => {
     expect(html).not.toContain('href="/finance/expenses/new"');
     expect(html).not.toContain('href="/config"');
   });
+
+  test('administration navigation matches route permissions', async () => {
+    const admin = await sidebar('admin');
+    expect(admin).toContain('href="/organization"');
+    expect(admin).toContain('href="/sms"');
+    expect(admin).toContain('href="/users"');
+
+    const financeSecretary = await sidebar('finance_secretary');
+    expect(financeSecretary).toContain('href="/config"');
+    expect(financeSecretary).toContain('href="/dues"');
+    expect(financeSecretary).not.toContain('href="/organization"');
+    expect(financeSecretary).not.toContain('href="/sms"');
+
+    const secretary = await sidebar('secretary');
+    expect(secretary).toContain('href="/sms"');
+    expect(secretary).not.toContain('href="/config"');
+    expect(secretary).not.toContain('href="/organization"');
+  });
 });
 
 describe('responsive dashboard contracts', () => {

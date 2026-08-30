@@ -36,8 +36,8 @@ services:
       PGHOST: postgres
       PGPORT: 5432
       PGDATABASE: treasurio_dev
-      PGUSER: treasurio
-      PGPASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      PGUSER: treasurio_dev
+      PGPASSWORD: ${DEV_DB_PASSWORD:-unused}
       SESSION_SECRET: ${DEV_SESSION_SECRET}
       N8N_API_TOKEN: ${DEV_N8N_API_TOKEN:-dev-token}
       GROUP_NAME: ${DEV_GROUP_NAME:-KSJI Dev}
@@ -62,8 +62,8 @@ services:
       PGHOST: postgres
       PGPORT: 5432
       PGDATABASE: treasurio_prod
-      PGUSER: treasurio
-      PGPASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      PGUSER: treasurio_prod
+      PGPASSWORD: ${PROD_DB_PASSWORD:-unused}
       SESSION_SECRET: ${PROD_SESSION_SECRET}
       N8N_API_TOKEN: ${PROD_N8N_API_TOKEN:-prod-token}
       GROUP_NAME: ${PROD_GROUP_NAME:-KSJI}

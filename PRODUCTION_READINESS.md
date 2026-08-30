@@ -1,118 +1,40 @@
-# Production Readiness Notes
+# Production Readiness
 
-## Architecture
+## Runtime architecture
 
-- Node.js 22 + Express 4 + EJS templates + SQLite (better-sqlite3).
-- Dockerized with `docker-compose.yml`; persistent data in named volume `ksjiaccounts_accounts_data`.
-- Single-process, single-file database — suitable for low-concurrency church group use.
-- No external dependencies beyond npm packages.
+- Node.js 22, Express 4, server-rendered EJS, and PostgreSQL 16.
+- Nginx terminates TLS and proxies only to loopback-bound application ports.
+- Development and production use separate databases, application login roles, upload volumes, secrets, and Compose env files.
+- The database owner is used only for migrations and operational backups; runtime containers use least-privilege roles.
 
-## Security hardening (completed)
+## Release controls
 
-| Control | Implementation |
-|---------|---------------|
-| Security headers | Helmet with strict CSP (self-only scripts, styles, images, fonts) |
-| CSRF protection | Custom token-based via `crypto.randomBytes`; stored in session; validated on all POST; API routes (`/api/`) excluded |
-| Global rate limiting | 100 requests / 15 min per IP (express-rate-limit) |
-| Login rate limiting | 10 attempts / 15 min per IP |
-| Password hashing | PBKDF2-SHA256, 210 000 iterations, 16-byte salt |
-| Session storage | SQLite-backed (not in-memory); httpOnly, sameSite=lax cookies |
-| Secure cookies | Enabled when `SECURE_COOKIES=1` (set when behind HTTPS) |
-| Production secret enforcement | App refuses to start if `SESSION_SECRET` is default in `NODE_ENV=production` |
-| Role-based access | 5 roles: admin, finance_secretary, treasurer, auditor, viewer |
-| Audit logging | All sensitive actions logged with user ID, IP, entity, before/after values |
-| Transaction integrity | Reversal workflow — no physical deletes; reversed status excludes from calculations |
-| CSRF tokens in templates | Every form includes `partials/csrf.ejs` hidden field |
-| API authentication | Bearer token for n8n integration (`N8N_API_TOKEN`) |
+- Pull requests and protected branches run Jest, production dependency audit, JavaScript and shell syntax checks, Compose validation, and a production Docker build.
+- Deployment workflows are manually dispatched against committed Git state and share a concurrency lock for the VPS.
+- Production deployment creates and verifies an S3 backup before migration, retains a rollback image, checks application health, and creates another verified S3 backup after startup.
+- Production configuration refuses weak session, API, and database credentials.
 
-## Features (completed)
+## Security controls
 
-- Dashboard with balances, welfare liability, spendable estimate, work queue.
-- Members register with search, add, edit, opening arrears.
-- Configurable dues rules (age-based) with per-member overrides.
-- Configurable payment splits (assessment → welfare ratio).
-- Configurable transaction categories (income/expense, sort order).
-- Receipts, expenses, welfare payouts, inter-account transfers.
-- Auto-calculated welfare component from config rules.
-- Transaction reconciliation (clear/unclear toggle).
-- Transaction reversal with audit trail.
-- Reconciliation records with statement vs system balance.
-- Monthly executive report (income, expenses, running balance, arrears).
-- Downloadable CSV reports: Income & Expenditure, Receipts & Payments, Welfare Fund, Financial Position, Member Statement.
-- CSV exports: transactions, arrears, report summary, reconciliations, audit log.
-- User management: add, activate/deactivate, admin password reset.
-- Self-service password change.
-- Workbook import from Excel (Members sheet).
-- Web-based CSV/XLSX member import with flexible column matching (Members → Import).
-- n8n API endpoint for member arrears with SMS message text.
-- Print-friendly report page.
-- Client-side table search and auto-date fill.
+- PBKDF2-SHA256 password hashing, PostgreSQL-backed sessions, session rotation on login/setup, secure production cookies, CSRF protection, and login/global rate limiting.
+- Helmet security headers and a restrictive content-security policy.
+- Role-based accounting, membership, administration, and trustee-audit permissions.
+- Uploaded evidence is signature-validated and served only through authenticated finance/audit routes; upload volumes are included in backups.
+- Sensitive actions are recorded in the audit trail, and accounting corrections use reversal records rather than deleting posted transactions.
 
-## Remaining work
+## Backup and recovery
 
-### High priority (before live use)
+- `deploy/backup.sh` archives both databases and both upload volumes.
+- Archives are gzip-tested, uploaded to the configured private/versioned S3 bucket with AES-256 server-side encryption and SHA-256 metadata, then verified by remote checksum and size.
+- `deploy/restore.sh` restores database or upload archives from local files or S3 and requires an exact target confirmation.
+- A production restore rehearsal must be recorded after material schema changes.
 
-1. **Session cleanup** — `SQLiteSessionStore` never prunes expired rows. Add a periodic cleanup (e.g. on every 100th request or a setInterval).
-2. **500 error handler** — No catch-all error middleware. Unhandled DB or runtime errors show Express default HTML.
-3. **HTTPS / reverse proxy** — App listens on HTTP only. Deploy behind nginx or Caddy with TLS. Then set `SECURE_COOKIES=1`.
-4. **Replace default secrets** — Change `SESSION_SECRET` and `N8N_API_TOKEN` in `docker-compose.yml` before real deployment.
+## Release acceptance checklist
 
-### Medium priority
-
-5. **Period close / lock** — Prevent modifications to transactions in reconciled or closed months.
-6. **Database backup endpoint** — Admin-only route to download the SQLite file for off-site backup.
-7. **Approval workflow** — Require second-user approval for large expenses or welfare payouts above a threshold.
-
-### Low priority / cleanup
-
-8. **Remove `login.html`** — Unused static file at project root (leftover from prototyping).
-9. **Gitignore `.history/`** — Local history directory should not be tracked.
-10. **Remove `storage/test.db`** — Test artifact that should not be committed.
-11. **Statement upload / matching** — For bank and mobile money reconciliation at scale.
-12. **Integer currency** — Migrate `REAL` columns to integer pesewas before large-scale use to avoid floating-point drift.
-
-## Environment variables
-
-| Variable | Default | Notes |
-|----------|---------|-------|
-| `PORT` | 3000 | Server port |
-| `DB_PATH` | `./storage/accounts.db` | SQLite file location |
-| `SESSION_SECRET` | `dev-secret-change-in-production` | **Must change in production** |
-| `N8N_API_TOKEN` | `dev-n8n-token` | Bearer token for API access |
-| `NODE_ENV` | (unset) | Set to `production` to enforce secret and enable optimizations |
-| `SECURE_COOKIES` | `0` | Set to `1` when serving over HTTPS |
-| `WORKBOOK_PATH` | (unset) | Path to Excel file for member import |
-
-## Accounting design note
-
-Welfare collected from assessments is treated as a liability, not spendable income. The dashboard shows both total raw cash position and an estimated spendable balance after subtracting welfare liability.
-
-## Docker commands
-
-```powershell
-# Start
-docker compose up -d --build
-
-# Import workbook
-docker compose run --rm `
-  -e WORKBOOK_PATH=/import/GroupManagementTemplate.xlsx `
-  -v "C:\Users\steps\Downloads:/import:ro" `
-  accounts npm run import:workbook
-
-# Backup database
-docker compose cp accounts:/app/storage/accounts.db ./backup-accounts.db
-
-# View logs
-docker compose logs -f accounts
-```
-
-## Local development
-
-```powershell
-npm.cmd install
-npm.cmd run seed
-npm.cmd start        # http://localhost:3000
-npm.cmd test         # Jest tests
-```
-
-Default login: `admin@example.com` / `ChangeMe123!`
+- CI is green for the exact production commit.
+- The production hostname resolves to the VPS and TLS succeeds.
+- Required GitHub secrets and variables exist; no production secret is supplied to the development workflow.
+- The pre-deployment S3 object is present and verifiable.
+- `/health`, login/setup, desktop navigation, and 390-pixel mobile layout pass smoke testing.
+- Database role isolation is verified in both directions.
+- The latest database archive can be restored into an isolated rehearsal database and queried successfully.

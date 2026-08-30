@@ -36,4 +36,16 @@ if (!config.databaseUrl && !(process.env.PGHOST && process.env.PGDATABASE && pro
   process.exit(1);
 }
 
+if (config.requireSecret) {
+  if (config.sessionSecret === 'dev-secret-change-in-production' || config.sessionSecret.length < 32) {
+    throw new Error('SESSION_SECRET must be set to at least 32 characters in production');
+  }
+  if (['dev-n8n-token', 'dev-token', 'prod-token'].includes(config.n8nApiToken) || config.n8nApiToken.length < 32) {
+    throw new Error('N8N_API_TOKEN must be set to at least 32 characters in production');
+  }
+  if (!config.databaseUrl && config.pgPassword.length < 24) {
+    throw new Error('PGPASSWORD must be set to at least 24 characters in production');
+  }
+}
+
 module.exports = config;

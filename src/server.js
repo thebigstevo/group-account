@@ -67,6 +67,7 @@ const pdf = require('./pdfReports');
 const { calculateAllocations } = require('./allocationService');
 const { createReversal } = require('./reversalService');
 const { validateTransactionEdit } = require('./transactionLifecycle');
+const { uploadTypeFor, validateUploadedFile } = require('./fileSecurity');
 
 const app = express();
 const publicDirectory = path.join(__dirname, 'public');
@@ -102,22 +103,18 @@ app.use(express.static(publicDirectory));
 // Upload directory for receipts/vouchers
 const uploadsDir = process.env.UPLOADS_DIR || path.join('/app', 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-app.use('/uploads', express.static(uploadsDir));
 
 const upload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadsDir),
     filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname);
-      cb(null, `tx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `tx-${Date.now()}-${crypto.randomUUID()}${ext}`);
     }
   }),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
   fileFilter: (req, file, cb) => {
-    const allowed = /jpeg|jpg|png|gif|pdf|webp/;
-    const ext = allowed.test(path.extname(file.originalname).toLowerCase());
-    const mime = allowed.test(file.mimetype);
-    cb(null, ext && mime);
+    cb(null, Boolean(uploadTypeFor(file.originalname, file.mimetype)));
   }
 });
 
@@ -355,16 +352,12 @@ app.post('/login', loginLimiter, asyncHandler(async (req, res) => {
     await dal.audit(null, 'login_failed', 'user', null, req.body.email, { ip_address: getClientIp(req) });
     return res.status(401).render('login', { error: 'Invalid email or password.', values: { email: req.body.email } });
   }
+  await new Promise((resolve, reject) => req.session.regenerate((error) => error ? reject(error) : resolve()));
   req.session.user = { id: user.id, name: user.name, email: user.email, role: user.role };
-  // Resolve commandery for the session (single-commandery app)
   const cmdRow = await dal.queryOne('SELECT id FROM commanderies WHERE active = true ORDER BY id LIMIT 1');
   if (cmdRow) req.session.user.commandery_id = cmdRow.id;
   await dal.audit(user.id, 'login', 'user', user.id, user.email, { ip_address: getClientIp(req) });
-  // Redirect trustees to their dedicated financial overview dashboard
-  if (user.role === 'trustee') {
-    return res.redirect('/trustee-dashboard');
-  }
-  res.redirect('/');
+  res.redirect(user.role === 'trustee' ? '/trustee-dashboard' : '/');
 }));
 
 app.post('/logout', requireLogin, (req, res) => {
@@ -460,6 +453,7 @@ app.post('/members/import', allow('admin', 'secretary'), (req, res) => {
 
     let fileBuffer = null;
     let filename = '';
+    let csrfToken = '';
 
     for (const part of parts) {
       const headerEnd = part.indexOf('\r\n\r\n');
@@ -471,7 +465,13 @@ app.post('/members/import', allow('admin', 'secretary'), (req, res) => {
       if (filenameMatch) {
         filename = filenameMatch[1];
         fileBuffer = Buffer.from(content, 'binary');
+      } else if (/name="_csrf"/.test(headers)) {
+        csrfToken = content;
       }
+    }
+
+    if (!csrfToken || csrfToken !== req.session._csrf) {
+      return res.status(403).render('error', { message: 'Form expired. Please reload the import page and try again.' });
     }
 
     if (!fileBuffer || !filename) {
@@ -1101,23 +1101,25 @@ app.post('/admin/send-arrears-reminders', allow('admin', 'finance_secretary', 't
 }));
 
 app.get('/admin/backup', allow('admin'), asyncHandler(async (req, res) => {
-  const { exec } = require('child_process');
+  const { spawn } = require('child_process');
   const { databaseUrl, pgHost, pgPort, pgDatabase, pgUser, pgPassword } = config;
 
   const timestamp = new Date().toISOString().slice(0, 10);
   const filename = `treasurio-backup-${timestamp}.sql`;
 
-  let pgDumpCmd;
+  let commandArgs;
+  const childEnv = { ...process.env };
   if (databaseUrl) {
-    pgDumpCmd = `pg_dump "${databaseUrl}" --no-owner --no-privileges`;
+    commandArgs = [databaseUrl, '--no-owner', '--no-privileges'];
   } else {
-    pgDumpCmd = `PGPASSWORD="${pgPassword}" pg_dump -h ${pgHost} -p ${pgPort} -U ${pgUser} ${pgDatabase} --no-owner --no-privileges`;
+    childEnv.PGPASSWORD = pgPassword;
+    commandArgs = ['-h', pgHost, '-p', String(pgPort), '-U', pgUser, pgDatabase, '--no-owner', '--no-privileges'];
   }
 
   res.setHeader('Content-Type', 'application/sql');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
-  const child = exec(pgDumpCmd, { maxBuffer: 100 * 1024 * 1024 });
+  const child = spawn('pg_dump', commandArgs, { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.pipe(res);
   child.stderr.on('data', (data) => console.error('[backup]', data));
   child.on('error', (err) => {
@@ -1155,7 +1157,7 @@ app.post('/organization', allow('admin'), asyncHandler(async (req, res) => {
       signatory1_title = $17, signatory1_name = $18,
       signatory2_title = $19, signatory2_name = $20,
       signatory3_title = $21, signatory3_name = $22,
-      sms_api_key = $23, sms_sender_id = $24, sms_enabled = $25,
+      sms_api_key = COALESCE($23, sms_api_key), sms_sender_id = $24, sms_enabled = $25,
       sms_event_reminder_days = $26, sms_payment_notify = $27,
       sms_tpl_event_reminder = $28, sms_tpl_payment = $29, sms_tpl_assessment = $30,
       updated_at = NOW()
@@ -2412,20 +2414,44 @@ app.post('/transactions/:id/attach', allow('admin', 'finance_secretary', 'treasu
     return res.redirect(tx.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses');
   }
 
-  await dal.run(`
-    INSERT INTO transaction_attachments (transaction_id, filename, original_name, mime_type, size_bytes, uploaded_by)
-    VALUES ($1, $2, $3, $4, $5, $6)
-  `, [txId, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.session.user.id]);
+  if (!(await validateUploadedFile(req.file))) {
+    await fs.promises.unlink(req.file.path).catch(() => {});
+    req.session.flash = { type: 'error', message: 'The uploaded file contents do not match an allowed JPG, PNG, GIF, WebP, or PDF format.' };
+    return res.redirect(tx.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses');
+  }
+
+  try {
+    await dal.run(`
+      INSERT INTO transaction_attachments (transaction_id, filename, original_name, mime_type, size_bytes, uploaded_by)
+      VALUES ($1, $2, $3, $4, $5, $6)
+    `, [txId, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.session.user.id]);
+  } catch (error) {
+    await fs.promises.unlink(req.file.path).catch(() => {});
+    throw error;
+  }
 
   await dal.audit(req.session.user.id, 'create', 'attachment', txId, req.file.originalname);
   req.session.flash = { type: 'success', message: `Receipt "${req.file.originalname}" attached.` };
   res.redirect(tx.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses');
 }));
 
-app.get('/transactions/:id/attachments', requireLogin, asyncHandler(async (req, res) => {
+app.get('/transactions/:id/attachments', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'trustee'), asyncHandler(async (req, res) => {
   const txId = Number(req.params.id);
   const attachments = await dal.query('SELECT * FROM transaction_attachments WHERE transaction_id = $1 ORDER BY uploaded_at', [txId]);
-  res.json(attachments);
+  res.json(attachments.map(({ id, original_name, mime_type, size_bytes, uploaded_at }) => ({
+    id, original_name, mime_type, size_bytes, uploaded_at,
+    download_url: `/attachments/${id}/download`
+  })));
+}));
+
+app.get('/attachments/:id/download', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'trustee'), asyncHandler(async (req, res) => {
+  const attachment = await dal.queryOne('SELECT * FROM transaction_attachments WHERE id = $1', [Number(req.params.id)]);
+  if (!attachment) return res.status(404).render('error', { message: 'Attachment not found.' });
+  const filePath = path.join(uploadsDir, attachment.filename);
+  if (!fs.existsSync(filePath)) return res.status(404).render('error', { message: 'Attachment file is missing.' });
+  res.type(attachment.mime_type);
+  res.setHeader('Content-Disposition', `attachment; filename="${path.basename(attachment.original_name).replace(/["\r\n]/g, '_')}"`);
+  res.sendFile(filePath);
 }));
 
 app.post('/transactions/:id/attachments/:attId/delete', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
@@ -2470,7 +2496,7 @@ app.post('/transactions/:id/reverse', allow('admin', 'finance_secretary', 'treas
   res.redirect(original.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses');
 }));
 
-app.post('/transactions/:id/reconcile', allow('admin', 'finance_secretary', 'treasurer', 'auditor'), asyncHandler(async (req, res) => {
+app.post('/transactions/:id/reconcile', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
   const txId = Number(req.params.id);
   const tx = await dal.queryOne('SELECT * FROM transactions WHERE id = $1', [txId]);
   if (!tx) return res.status(404).render('error', { message: 'Transaction not found.' });
@@ -3809,6 +3835,16 @@ app.use('/secretary/meetings', require('./secretaryRoutes'));
 
 app.use((req, res) => {
   res.status(404).render('error', { message: 'Page not found.' });
+});
+
+app.use((err, req, res, next) => {
+  console.error('Unhandled request error:', err);
+  if (res.headersSent) return next(err);
+  if (err instanceof multer.MulterError) {
+    const message = err.code === 'LIMIT_FILE_SIZE' ? 'File too large. Maximum size is 5MB.' : 'The uploaded file could not be processed.';
+    return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).render('error', { message });
+  }
+  res.status(500).render('error', { message: 'Something went wrong. Please try again or contact the system administrator.' });
 });
 
 app.listen(port, () => {

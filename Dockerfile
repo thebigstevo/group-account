@@ -9,6 +9,8 @@ FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 
+RUN apk add --no-cache postgresql-client
+
 COPY --from=builder /app/node_modules ./node_modules
 COPY src/ ./src/
 COPY package.json ./

@@ -92,6 +92,7 @@
       <% } %>
 
       <form method="POST" action="/setup" data-validate>
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <!-- Section 1: Admin Account -->
         <div class="setup-section">
           <h2>1. Admin Account</h2>
@@ -130,9 +131,9 @@
           <div class="form-group">
             <label for="group_name">Organization Name</label>
             <input type="text" id="group_name" name="group_name"
-                   value="<%= (values && values.group_name) || '' %>"
+                   value="<%= (values && values.group_name) || 'KSJI' %>"
                    placeholder="e.g., KSJI Brotherhood">
-            <small class="field-hint">Displayed in headers and reports. Can be changed later via environment variable.</small>
+            <small class="field-hint">Displayed in headers and reports. It can be changed later in Organization settings.</small>
           </div>
 
           <div class="form-group">
