@@ -247,6 +247,7 @@ async function sendAssessmentReminders(year, memberDueFn, sentBy) {
       FROM transactions t
       JOIN transaction_categories c ON c.name = t.category
       WHERE t.member_id = $1 AND t.tx_type = 'receipt' AND t.status = 'posted'
+        AND t.reverses_transaction_id IS NULL
         AND c.purpose = 'assessment'
         AND t.tx_date >= $2 AND t.tx_date <= $3
     `, [member.id, `${year}-01-01`, `${year}-12-31`]);

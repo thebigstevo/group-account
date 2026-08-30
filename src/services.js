@@ -436,13 +436,13 @@ async function auditEvidence(year) {
   const [summary, transactions, balances, reconciliations] = await Promise.all([
     dal.queryOne(`
       SELECT
-        COUNT(*) FILTER (WHERE status = 'posted')::int AS posted_count,
+        COUNT(*) FILTER (WHERE status = 'posted' AND reverses_transaction_id IS NULL)::int AS posted_count,
         COUNT(*) FILTER (WHERE status = 'reversed')::int AS reversed_count,
-        COUNT(*) FILTER (WHERE status = 'posted' AND tx_type <> 'transfer' AND reconciled = false)::int AS unreconciled_count,
-        COUNT(*) FILTER (WHERE status = 'posted' AND tx_type <> 'transfer' AND COALESCE(TRIM(reference), '') = '')::int AS missing_reference_count,
-        COUNT(*) FILTER (WHERE status = 'posted' AND tx_type <> 'transfer' AND COALESCE(TRIM(description), '') = '')::int AS missing_description_count,
-        COALESCE(SUM(amount) FILTER (WHERE status = 'posted' AND tx_type = 'receipt'), 0) AS receipts,
-        COALESCE(SUM(amount) FILTER (WHERE status = 'posted' AND tx_type IN ('expense','welfare_payout')), 0) AS outflows
+        COUNT(*) FILTER (WHERE status = 'posted' AND reverses_transaction_id IS NULL AND tx_type <> 'transfer' AND reconciled = false)::int AS unreconciled_count,
+        COUNT(*) FILTER (WHERE status = 'posted' AND reverses_transaction_id IS NULL AND tx_type <> 'transfer' AND COALESCE(TRIM(reference), '') = '')::int AS missing_reference_count,
+        COUNT(*) FILTER (WHERE status = 'posted' AND reverses_transaction_id IS NULL AND tx_type <> 'transfer' AND COALESCE(TRIM(description), '') = '')::int AS missing_description_count,
+        COALESCE(SUM(amount) FILTER (WHERE status = 'posted' AND reverses_transaction_id IS NULL AND tx_type = 'receipt'), 0) AS receipts,
+        COALESCE(SUM(amount) FILTER (WHERE status = 'posted' AND reverses_transaction_id IS NULL AND tx_type IN ('expense','welfare_payout')), 0) AS outflows
       FROM transactions
       WHERE tx_date >= $1 AND tx_date <= $2
     `, [startDate, endDate]),
@@ -618,6 +618,7 @@ async function auditCountSummary(reviewId) {
       SELECT COUNT(*)::int AS count
       FROM transactions
       WHERE status = 'posted'
+        AND reverses_transaction_id IS NULL
         AND tx_type <> 'transfer'
         AND reconciled = false
         AND tx_date >= $1 AND tx_date <= $2

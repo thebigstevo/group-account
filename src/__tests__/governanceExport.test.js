@@ -31,5 +31,6 @@ describe('governance evidence exports', () => {
     expect(csv).toContain('Recorded At');
     expect(csv).toContain('RCPT-10');
     expect(csv).toContain('Finance Secretary');
+    expect(dal.query.mock.calls[0][0]).toContain("t.status = 'posted' AND t.reverses_transaction_id IS NULL");
   });
 });

@@ -33,12 +33,12 @@ async function runAutoAudit(year) {
   // ─── 2. Transactions Without Descriptions ───
   const noDescRow = await dal.queryOne(`
     SELECT COUNT(*) AS count FROM transactions
-    WHERE status = 'posted' AND tx_type != 'transfer'
+    WHERE status = 'posted' AND reverses_transaction_id IS NULL AND tx_type != 'transfer'
       AND (description IS NULL OR TRIM(description) = '')
       AND tx_date >= $1 AND tx_date <= $2
   `, [yearStart, yearEnd]);
   const noDescCount = Number(noDescRow.count);
-  const totalTxRow = await dal.queryOne(`SELECT COUNT(*) AS count FROM transactions WHERE status = 'posted' AND tx_date >= $1 AND tx_date <= $2`, [yearStart, yearEnd]);
+  const totalTxRow = await dal.queryOne(`SELECT COUNT(*) AS count FROM transactions WHERE status = 'posted' AND reverses_transaction_id IS NULL AND tx_date >= $1 AND tx_date <= $2`, [yearStart, yearEnd]);
   const totalTx = Number(totalTxRow.count);
   const descPct = totalTx > 0 ? Math.round((1 - noDescCount / totalTx) * 100) : 100;
   checks.push({
@@ -85,11 +85,11 @@ async function runAutoAudit(year) {
   // ─── 4. Welfare Fund Integrity ───
   const welfareCollectedRow = await dal.queryOne(`
     SELECT COALESCE(SUM(welfare_component), 0) AS total FROM transactions
-    WHERE tx_type = 'receipt' AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2
+    WHERE tx_type = 'receipt' AND status = 'posted' AND reverses_transaction_id IS NULL AND tx_date >= $1 AND tx_date <= $2
   `, [yearStart, yearEnd]);
   const welfarePaidRow = await dal.queryOne(`
     SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
-    WHERE tx_type = 'welfare_payout' AND status = 'posted' AND tx_date >= $1 AND tx_date <= $2
+    WHERE tx_type = 'welfare_payout' AND status = 'posted' AND reverses_transaction_id IS NULL AND tx_date >= $1 AND tx_date <= $2
   `, [yearStart, yearEnd]);
   const welfareCollected = Number(welfareCollectedRow.total);
   const welfarePaid = Number(welfarePaidRow.total);
@@ -110,6 +110,7 @@ async function runAutoAudit(year) {
     const actualExpenses = await dal.query(`
       SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions
       WHERE tx_type IN ('expense','welfare_payout') AND status = 'posted'
+        AND reverses_transaction_id IS NULL
         AND tx_date >= $1 AND tx_date <= $2
       GROUP BY category
     `, [yearStart, yearEnd]);
@@ -139,8 +140,8 @@ async function runAutoAudit(year) {
   // ─── 6. Negative Account Balances ───
   const accountBalances = [];
   for (const account of accounts) {
-    const incRow = await dal.queryOne(`SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND account_id = $1 AND status = 'posted' AND tx_date <= $2`, [account.id, yearEnd]);
-    const outRow = await dal.queryOne(`SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type IN ('expense','welfare_payout') AND account_id = $1 AND status = 'posted' AND tx_date <= $2`, [account.id, yearEnd]);
+    const incRow = await dal.queryOne(`SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND account_id = $1 AND status = 'posted' AND reverses_transaction_id IS NULL AND tx_date <= $2`, [account.id, yearEnd]);
+    const outRow = await dal.queryOne(`SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type IN ('expense','welfare_payout') AND account_id = $1 AND status = 'posted' AND reverses_transaction_id IS NULL AND tx_date <= $2`, [account.id, yearEnd]);
     const balance = Number(account.opening_balance) + Number(incRow.total) - Number(outRow.total);
     if (balance < 0) accountBalances.push({ name: account.name, balance });
   }
@@ -161,6 +162,7 @@ async function runAutoAudit(year) {
     SELECT COUNT(DISTINCT member_id) AS count FROM transactions t
     JOIN transaction_categories c ON c.name = t.category
     WHERE t.tx_type = 'receipt' AND c.purpose = 'assessment' AND t.status = 'posted'
+      AND t.reverses_transaction_id IS NULL
       AND t.tx_date >= $1 AND t.tx_date <= $2
   `, [yearStart, yearEnd]);
   const totalActive = Number(activeMembers.count);
@@ -178,7 +180,7 @@ async function runAutoAudit(year) {
   // ─── 8. Monthly Activity Gaps ───
   const monthsActive = await dal.query(`
     SELECT DISTINCT EXTRACT(MONTH FROM tx_date::date) AS m FROM transactions
-    WHERE status = 'posted' AND tx_date >= $1 AND tx_date <= $2
+    WHERE status = 'posted' AND reverses_transaction_id IS NULL AND tx_date >= $1 AND tx_date <= $2
     ORDER BY m
   `, [yearStart, yearEnd]);
   const activeMonths = monthsActive.map(r => Number(r.m));
@@ -200,7 +202,7 @@ async function runAutoAudit(year) {
   // ─── 9. Transactions Outside Fiscal Year ───
   const outsideRow = await dal.queryOne(`
     SELECT COUNT(*) AS count FROM transactions
-    WHERE status = 'posted' AND (tx_date < $1 OR tx_date > $2)
+    WHERE status = 'posted' AND reverses_transaction_id IS NULL AND (tx_date < $1 OR tx_date > $2)
       AND created_at >= $3::timestamp AND created_at <= $4::timestamp
   `, [yearStart, yearEnd, `${yearStart} 00:00:00`, `${yearEnd} 23:59:59`]);
   const outsideCount = Number(outsideRow.count);
@@ -219,7 +221,7 @@ async function runAutoAudit(year) {
   const duplicates = await dal.query(`
     SELECT tx_date, member_id, amount, category, COUNT(*) AS count
     FROM transactions
-    WHERE status = 'posted' AND tx_date >= $1 AND tx_date <= $2
+    WHERE status = 'posted' AND reverses_transaction_id IS NULL AND tx_date >= $1 AND tx_date <= $2
     GROUP BY tx_date, member_id, amount, category
     HAVING COUNT(*) > 1
   `, [yearStart, yearEnd]);
@@ -231,11 +233,11 @@ async function runAutoAudit(year) {
       SELECT t.id, t.tx_date, t.amount, t.category, t.description, t.reference, m.name AS member_name
       FROM transactions t
       LEFT JOIN members m ON m.id = t.member_id
-      WHERE t.status = 'posted' AND t.tx_date >= $1 AND t.tx_date <= $2
+      WHERE t.status = 'posted' AND t.reverses_transaction_id IS NULL AND t.tx_date >= $1 AND t.tx_date <= $2
         AND (t.tx_date, t.member_id, t.amount, t.category) IN (
           SELECT tx_date, member_id, amount, category
           FROM transactions
-          WHERE status = 'posted' AND tx_date >= $1 AND tx_date <= $2
+          WHERE status = 'posted' AND reverses_transaction_id IS NULL AND tx_date >= $1 AND tx_date <= $2
           GROUP BY tx_date, member_id, amount, category
           HAVING COUNT(*) > 1
         )
