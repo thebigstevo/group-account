@@ -65,6 +65,7 @@ const {
 } = require('./downloadableReports');
 const pdf = require('./pdfReports');
 const { calculateAllocations, calculateExpenseAllocations } = require('./allocationService');
+const { createAccountTransfer, TransferValidationError } = require('./transferService');
 const { createReversal } = require('./reversalService');
 const { validateTransactionEdit } = require('./transactionLifecycle');
 const { uploadTypeFor, validateUploadedFile } = require('./fileSecurity');
@@ -2000,6 +2001,27 @@ async function financeFormData(kind) {
   return { members, accounts, categories, kind };
 }
 
+async function transferPageData(req, values = {}) {
+  const year = selectedYear(req);
+  const [accounts, transfers] = await Promise.all([
+    accountBalances(),
+    dal.query(`
+      SELECT t.*, source.name AS from_account_name, destination.name AS to_account_name,
+             u.name AS recorded_by
+      FROM transactions t
+      JOIN accounts source ON source.id = t.account_id
+      JOIN accounts destination ON destination.id = t.to_account_id
+      LEFT JOIN users u ON u.id = t.created_by
+      WHERE t.tx_type = 'transfer'
+        AND t.reverses_transaction_id IS NULL
+        AND t.tx_date >= $1 AND t.tx_date <= $2
+      ORDER BY t.tx_date DESC, t.id DESC
+      LIMIT 100
+    `, [`${year}-01-01`, `${year}-12-31`])
+  ]);
+  return { accounts, transfers, values };
+}
+
 async function financeTransactions(kind, limit = 100, year = null, month = '', category = '', memberId = '', excludeAccountId = null) {
   const types = kind === 'income' ? ['receipt'] : ['expense', 'welfare_payout'];
   let query = `
@@ -2166,6 +2188,10 @@ app.post('/finance/batch-income', allow('admin', 'finance_secretary', 'treasurer
 
 app.get('/finance/expenses/new', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
   res.render('finance_form', await financeFormData('expense'));
+}));
+
+app.get('/finance/transfers', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  res.render('finance_transfer', await transferPageData(req));
 }));
 
 app.get('/finance/income', requireLogin, asyncHandler(async (req, res) => {
@@ -2343,21 +2369,31 @@ app.post('/transactions/expense', allow('admin', 'treasurer'), asyncHandler(asyn
 app.post('/transactions/transfer', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
   const transferYearError = await transactionYearError(req, req.body.tx_date);
   if (transferYearError) {
-    const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
-    const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
-    const incomeCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind IN ('income','both') ORDER BY sort_order, name");
-    const expenseCategories = await dal.query("SELECT name FROM transaction_categories WHERE active = true AND kind IN ('expense','both') ORDER BY sort_order, name");
-    const transactions = await dal.query(`SELECT t.*, m.name AS member_name, a.name AS account_name, ta.name AS to_account_name FROM transactions t LEFT JOIN members m ON m.id = t.member_id LEFT JOIN accounts a ON a.id = t.account_id LEFT JOIN accounts ta ON ta.id = t.to_account_id ORDER BY t.tx_date DESC, t.id DESC LIMIT 100`);
-    return res.status(400).render('transactions', { transactions, members, accounts, incomeCategories, expenseCategories, errors: [transferYearError], values: req.body });
+    return res.status(400).render('finance_transfer', {
+      ...(await transferPageData(req, req.body)), errors: [transferYearError]
+    });
   }
-  const result = await dal.run(`
-    INSERT INTO transactions (tx_date, tx_type, account_id, to_account_id, category, description, amount, created_by)
-    VALUES ($1, 'transfer', $2, $3, 'Transfer', $4, $5, $6)
-    RETURNING id
-  `, [req.body.tx_date, Number(req.body.account_id), Number(req.body.to_account_id), req.body.description || null, Number(req.body.amount || 0), req.session.user.id]);
-  await dal.audit(req.session.user.id, 'create', 'transfer', result.rows[0].id, req.body.amount);
-  req.session.flash = { type: 'success', message: 'Transfer saved successfully.' };
-  res.redirect('/transactions');
+  try {
+    const transfer = await createAccountTransfer({
+      txDate: req.body.tx_date,
+      fromAccountId: req.body.account_id,
+      toAccountId: req.body.to_account_id,
+      amount: req.body.amount,
+      reference: req.body.reference,
+      description: req.body.description,
+      userId: req.session.user.id
+    });
+    req.session.flash = {
+      type: 'success',
+      message: `Transferred ${groupCurrency} ${transfer.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} from ${transfer.fromAccount} to ${transfer.toAccount}.`
+    };
+    return res.redirect('/finance/transfers');
+  } catch (error) {
+    if (!(error instanceof TransferValidationError)) throw error;
+    return res.status(400).render('finance_transfer', {
+      ...(await transferPageData(req, req.body)), errors: [error.message]
+    });
+  }
 }));
 
 // ─── Transaction Edit ────────────────────────────────────────────────────────
@@ -2534,7 +2570,9 @@ app.post('/transactions/:id/reverse', allow('admin', 'finance_secretary', 'treas
 
   const { reversalId } = await createReversal(original, reason, req.session.user.id);
   req.session.flash = { type: 'success', message: 'Transaction reversed successfully.' };
-  res.redirect(original.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses');
+  res.redirect(original.tx_type === 'receipt'
+    ? '/finance/income'
+    : (original.tx_type === 'transfer' ? '/finance/transfers' : '/finance/expenses'));
 }));
 
 app.post('/transactions/:id/reconcile', allow('admin', 'finance_secretary', 'treasurer'), asyncHandler(async (req, res) => {
@@ -2545,7 +2583,9 @@ app.post('/transactions/:id/reconcile', allow('admin', 'finance_secretary', 'tre
   const isReconciled = tx.reconciled ? false : true;
   await dal.run('UPDATE transactions SET reconciled = $1, updated_at = NOW() WHERE id = $2', [isReconciled, txId]);
   await dal.audit(req.session.user.id, 'update', 'transaction', txId, `Reconciled: ${isReconciled ? 'Yes' : 'No'}`);
-  res.redirect(tx.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses');
+  res.redirect(tx.tx_type === 'receipt'
+    ? '/finance/income'
+    : (tx.tx_type === 'transfer' ? '/finance/transfers' : '/finance/expenses'));
 }));
 
 app.get('/reconciliation', allow('admin', 'treasurer', 'auditor', 'viewer'), asyncHandler(async (req, res) => {
