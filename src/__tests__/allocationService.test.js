@@ -8,7 +8,7 @@ jest.mock('../fundClassifications', () => ({
 
 const dal = require('../dal');
 const funds = require('../fundClassifications');
-const { calculateAllocations } = require('../allocationService');
+const { calculateAllocations, calculateExpenseAllocations } = require('../allocationService');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -57,5 +57,25 @@ describe('receipt fund allocations', () => {
   test.each([-1, 101, Number.NaN])('rejects invalid welfare amount %s', async (welfare) => {
     await expect(calculateAllocations(100, 'Assessment', 2024, 1, welfare))
       .rejects.toThrow('Welfare component must be between zero and the receipt amount');
+  });
+});
+
+describe('expense fund allocations', () => {
+  test('charges welfare payouts entirely to joint welfare', async () => {
+    await expect(calculateExpenseAllocations(600, 'welfare_payout')).resolves.toEqual([
+      { fund_classification_id: 2, amount: 600 }
+    ]);
+    expect(funds.getFundByCode).toHaveBeenCalledWith('joint_welfare');
+  });
+
+  test('charges standard expenses entirely to operating funds', async () => {
+    await expect(calculateExpenseAllocations(26, 'standard')).resolves.toEqual([
+      { fund_classification_id: 1, amount: 26 }
+    ]);
+    expect(funds.getFundByCode).toHaveBeenCalledWith('mens_operating');
+  });
+
+  test.each([0, -1, Number.NaN])('rejects invalid expense amount %s', async (amount) => {
+    await expect(calculateExpenseAllocations(amount, 'standard')).rejects.toThrow('Amount must be positive');
   });
 });

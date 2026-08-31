@@ -87,15 +87,18 @@ async function computeFundBalances(asOfDate = null) {
     SELECT
       fc.code,
       fc.name,
-      COALESCE(SUM(ra.amount), 0) AS balance
+      COALESCE(SUM(
+        CASE
+          WHEN t.id IS NULL THEN 0
+          WHEN t.tx_type IN ('expense', 'welfare_payout') THEN -ra.amount
+          ELSE ra.amount
+        END
+      ), 0) AS balance
     FROM fund_classifications fc
     LEFT JOIN receipt_allocations ra ON ra.fund_classification_id = fc.id
-      AND EXISTS (
-        SELECT 1 FROM transactions t
-        WHERE t.id = ra.transaction_id
-          AND t.status = 'posted'
-          AND t.reverses_transaction_id IS NULL${dateFilter}
-      )
+    LEFT JOIN transactions t ON t.id = ra.transaction_id
+      AND t.status = 'posted'
+      AND t.reverses_transaction_id IS NULL${dateFilter}
     WHERE fc.active = true
     GROUP BY fc.id, fc.code, fc.name
     ORDER BY fc.id

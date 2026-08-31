@@ -67,6 +67,16 @@ describe('separated finance workflows', () => {
     expect(serverSource).toContain("res.redirect('/finance/income')");
     expect(serverSource).toContain("res.redirect('/finance/expenses')");
     expect(serverSource).toContain("SELECT id FROM accounts WHERE id = $1 AND active = true");
+    expect(serverSource).toContain('calculateExpenseAllocations(expenseAmount, expenseCategory.purpose)');
+    expect(serverSource).toMatch(/app\.post\('\/transactions\/expense'[\s\S]*?dal\.transaction\(async \(client\)[\s\S]*?INSERT INTO receipt_allocations/);
+  });
+
+  test('category purpose changes select a compatible direction and persist when history is compatible', async () => {
+    const template = fs.readFileSync(path.join(views, 'config.ejs'), 'utf8');
+    expect(template).toContain("if (purpose.value === 'welfare_payout') kind.value = 'expense'");
+    expect(serverSource).toContain("AND tx_type IN ('expense', 'welfare_payout')");
+    expect(serverSource).toContain('const directionCompatible =');
+    expect(serverSource).not.toContain('it cannot be narrowed or assigned a different accounting purpose');
   });
 });
 

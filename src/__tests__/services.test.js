@@ -24,6 +24,7 @@ const {
   latestCompletedAudit,
   periodComparison,
   auditCountSummary,
+  computeFundBalances,
 } = require('../services');
 
 afterEach(() => {
@@ -103,6 +104,26 @@ describe('Services: calculateWelfareComponent', () => {
 describe('Services: currentYear', () => {
   test('returns the current calendar year', () => {
     expect(currentYear()).toBe(new Date().getFullYear());
+  });
+});
+
+describe('Services: computeFundBalances', () => {
+  test('subtracts expenses and welfare payouts from their allocated funds', async () => {
+    dal.query.mockResolvedValue([
+      { code: 'mens_operating', name: "Men's Operating", balance: '1000.00' },
+      { code: 'joint_welfare', name: 'Joint Welfare', balance: '3204.92' }
+    ]);
+
+    await expect(computeFundBalances()).resolves.toEqual({
+      mens_operating: 1000,
+      joint_welfare: 3204.92
+    });
+
+    const sql = dal.query.mock.calls[0][0];
+    expect(sql).toContain('WHEN t.id IS NULL THEN 0');
+    expect(sql).toContain("WHEN t.tx_type IN ('expense', 'welfare_payout') THEN -ra.amount");
+    expect(sql).toContain("t.status = 'posted'");
+    expect(sql).toContain('t.reverses_transaction_id IS NULL');
   });
 });
 

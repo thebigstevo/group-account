@@ -141,7 +141,7 @@
   <div class="grid two">
     <% categories.forEach(function(category) { %>
       <div class="card">
-        <form method="post" action="/config/categories/<%= category.id %>" class="stack compact-form" data-validate>
+        <form method="post" action="/config/categories/<%= category.id %>" class="stack compact-form category-form" data-validate>
           <%- include('partials/csrf') %>
           <div class="form-group"><label for="category-name-<%= category.id %>">Name</label><input id="category-name-<%= category.id %>" name="name" value="<%= category.name %>" required></div>
           <div class="grid two"><div class="form-group"><label for="category-kind-<%= category.id %>">Type</label><select id="category-kind-<%= category.id %>" name="kind"><option value="income" <%= category.kind === 'income' ? 'selected' : '' %>>Income</option><option value="expense" <%= category.kind === 'expense' ? 'selected' : '' %>>Expense</option><option value="both" <%= category.kind === 'both' ? 'selected' : '' %>>Income &amp; expense</option></select></div><div class="form-group"><label for="category-purpose-<%= category.id %>">Purpose</label><select id="category-purpose-<%= category.id %>" name="purpose"><option value="standard" <%= category.purpose === 'standard' ? 'selected' : '' %>>Standard</option><option value="assessment" <%= category.purpose === 'assessment' ? 'selected' : '' %>>Member assessment</option><option value="welfare_income" <%= category.purpose === 'welfare_income' ? 'selected' : '' %>>Welfare collection</option><option value="welfare_payout" <%= category.purpose === 'welfare_payout' ? 'selected' : '' %>>Welfare payout</option></select></div></div>
@@ -252,4 +252,15 @@
     </table>
   </div>
 </section>
+<script>
+  document.querySelectorAll('.category-form').forEach(function (form) {
+    var kind = form.querySelector('[name="kind"]');
+    var purpose = form.querySelector('[name="purpose"]');
+    if (!kind || !purpose) return;
+    purpose.addEventListener('change', function () {
+      if (purpose.value === 'welfare_payout') kind.value = 'expense';
+      if (purpose.value === 'assessment' || purpose.value === 'welfare_income') kind.value = 'income';
+    });
+  });
+</script>
 <%- include('partials/footer') %>
