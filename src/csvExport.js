@@ -104,7 +104,7 @@ async function exportTransactionsCsv(filters = {}) {
  * deposit slips, and bank statements. Reversal audit rows are omitted, while
  * reversed original transfers remain visible and are excluded from the total.
  */
-async function exportTransfersCsv({ startDate, endDate }) {
+async function transferRegisterReport({ startDate, endDate }) {
   const rows = await dal.query(`
     SELECT
       t.id,
@@ -133,6 +133,12 @@ async function exportTransfersCsv({ startDate, endDate }) {
   const postedTotal = rows
     .filter((row) => row.status === 'posted')
     .reduce((sum, row) => sum + Number(row.amount), 0);
+
+  return { rows, postedTotal };
+}
+
+async function exportTransfersCsv({ startDate, endDate }) {
+  const { rows, postedTotal } = await transferRegisterReport({ startDate, endDate });
 
   const formatted = rows.map((row) => ({
     'Transaction ID': row.id,
@@ -410,6 +416,7 @@ async function exportBudgetActualCsv(year) {
 
 module.exports = {
   exportTransactionsCsv,
+  transferRegisterReport,
   exportTransfersCsv,
   exportArrearsCsv,
   exportMemberCleanupCsv,

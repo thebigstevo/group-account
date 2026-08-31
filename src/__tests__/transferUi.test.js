@@ -42,6 +42,8 @@ describe('account transfer workflow', () => {
     expect(html).toContain('preventSameAccount');
     expect(html).toContain('<h2>Transfer register report</h2>');
     expect(html).toContain('/export/transfers?startDate=2024-01-01&endDate=2024-12-31');
+    expect(html).toContain('/export/transfers?startDate=2024-01-01&endDate=2024-12-31&format=pdf');
+    expect(html).toContain('Download PDF');
     expect(html).toContain('GHS 500.00 posted');
   });
 
@@ -55,12 +57,24 @@ describe('account transfer workflow', () => {
     expect(navViewer).not.toContain('href="/finance/transfers"');
   });
 
+  test('downloads page offers annual transfer registers in both CSV and PDF', async () => {
+    const html = await ejs.renderFile(path.join(views, 'download_reports.ejs'), {
+      ...locals,
+      year: 2024,
+      members: []
+    });
+    expect(html).toContain('Transfer Register');
+    expect(html).toContain('/export/transfers?startDate=2024-01-01&amp;endDate=2024-12-31');
+    expect(html).toContain('/export/transfers?startDate=2024-01-01&amp;endDate=2024-12-31&amp;format=pdf');
+  });
+
   test('server uses the atomic service and returns validation errors to the transfer page', () => {
     expect(serverSource).toContain("app.get('/finance/transfers', allow('admin', 'treasurer')");
     expect(serverSource).toContain('await createAccountTransfer({');
     expect(serverSource).toContain('error instanceof TransferValidationError');
     expect(serverSource).toContain("res.redirect('/finance/transfers')");
     expect(serverSource).toContain("app.get('/export/transfers', requireLogin");
+    expect(serverSource).toContain('pdf.createTransferRegisterDoc');
     expect(serverSource).toContain("'export', 'transfer_register'");
   });
 
@@ -70,9 +84,9 @@ describe('account transfer workflow', () => {
     expect(serverSource).toContain("original.tx_type === 'transfer' ? '/finance/transfers'");
   });
 
-  test('in-app guidance points users to the live transfer register and its CSV comparison report', () => {
+  test('in-app guidance points users to the live transfer register and its PDF/CSV comparison reports', () => {
     expect(helpSource).toContain("href: '/finance/transfers', label: 'Open Transfers'");
-    expect(helpSource).toContain('download a CSV for comparison with the cashbook');
+    expect(helpSource).toContain('download a PDF or CSV for comparison with the cashbook');
     expect(helpSource).not.toContain("href: '/transactions', label: 'Open Transactions'");
   });
 });
