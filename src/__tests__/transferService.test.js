@@ -9,6 +9,7 @@ const dal = require('../dal');
 const {
   TransferValidationError,
   normalizeTransferInput,
+  normalizeTransferPeriod,
   createAccountTransfer
 } = require('../transferService');
 
@@ -39,9 +40,26 @@ describe('transfer input validation', () => {
     [{ ...validInput, amount: 0 }, 'Amount must be greater than zero'],
     [{ ...validInput, amount: '10.001' }, 'more than two decimal places'],
     [{ ...validInput, txDate: '' }, 'valid transfer date'],
+    [{ ...validInput, txDate: '2024-02-30' }, 'valid transfer date'],
     [{ ...validInput, toAccountId: 'bad' }, 'Select the account money is moving to']
   ])('rejects invalid transfer input %#', (input, message) => {
     expect(() => normalizeTransferInput(input)).toThrow(message);
+  });
+});
+
+describe('transfer report period validation', () => {
+  test('defaults to the full active fiscal year', () => {
+    expect(normalizeTransferPeriod(2024)).toEqual({
+      startDate: '2024-01-01', endDate: '2024-12-31'
+    });
+  });
+
+  test.each([
+    [2024, '2023-12-01', '2024-12-31', 'within fiscal year 2024'],
+    [2024, '2024-09-01', '2024-08-31', 'start date must be on or before'],
+    [2024, 'bad', '2024-08-31', 'valid report start and end dates']
+  ])('rejects an invalid report period %#', (year, start, end, message) => {
+    expect(() => normalizeTransferPeriod(year, start, end)).toThrow(message);
   });
 });
 

@@ -35,6 +35,7 @@ const {
 } = require('./services');
 const {
   exportTransactionsCsv,
+  exportTransfersCsv,
   exportArrearsCsv,
   exportMemberCleanupCsv,
   exportReportCsv,
@@ -65,7 +66,7 @@ const {
 } = require('./downloadableReports');
 const pdf = require('./pdfReports');
 const { calculateAllocations, calculateExpenseAllocations } = require('./allocationService');
-const { createAccountTransfer, TransferValidationError } = require('./transferService');
+const { createAccountTransfer, normalizeTransferPeriod, TransferValidationError } = require('./transferService');
 const { createReversal } = require('./reversalService');
 const { validateTransactionEdit } = require('./transactionLifecycle');
 const { uploadTypeFor, validateUploadedFile } = require('./fileSecurity');
@@ -2003,6 +2004,7 @@ async function financeFormData(kind) {
 
 async function transferPageData(req, values = {}) {
   const year = selectedYear(req);
+  const filters = normalizeTransferPeriod(year, req.query.startDate, req.query.endDate);
   const [accounts, transfers] = await Promise.all([
     accountBalances(),
     dal.query(`
@@ -2017,9 +2019,9 @@ async function transferPageData(req, values = {}) {
         AND t.tx_date >= $1 AND t.tx_date <= $2
       ORDER BY t.tx_date DESC, t.id DESC
       LIMIT 100
-    `, [`${year}-01-01`, `${year}-12-31`])
+    `, [filters.startDate, filters.endDate])
   ]);
-  return { accounts, transfers, values };
+  return { accounts, transfers, values, filters };
 }
 
 async function financeTransactions(kind, limit = 100, year = null, month = '', category = '', memberId = '', excludeAccountId = null) {
@@ -2191,7 +2193,12 @@ app.get('/finance/expenses/new', allow('admin', 'treasurer'), asyncHandler(async
 }));
 
 app.get('/finance/transfers', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
-  res.render('finance_transfer', await transferPageData(req));
+  try {
+    res.render('finance_transfer', await transferPageData(req));
+  } catch (error) {
+    if (!(error instanceof TransferValidationError)) throw error;
+    res.status(400).render('error', { message: error.message });
+  }
 }));
 
 app.get('/finance/income', requireLogin, asyncHandler(async (req, res) => {
@@ -3764,6 +3771,24 @@ app.get('/export/transactions', requireLogin, asyncHandler(async (req, res) => {
   } catch (error) {
     console.error('Export error:', error);
     res.status(500).render('error', { message: 'Failed to export transactions.' });
+  }
+}));
+
+app.get('/export/transfers', requireLogin, asyncHandler(async (req, res) => {
+  try {
+    const year = selectedYear(req);
+    const period = normalizeTransferPeriod(year, req.query.startDate, req.query.endDate);
+    const csv = await exportTransfersCsv(period);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="transfer-register-${period.startDate}-to-${period.endDate}.csv"`);
+    res.send(csv);
+    await dal.audit(req.session.user.id, 'export', 'transfer_register', null, period);
+  } catch (error) {
+    if (error instanceof TransferValidationError) {
+      return res.status(400).render('error', { message: error.message });
+    }
+    console.error('Export error:', error);
+    res.status(500).render('error', { message: 'Failed to export the transfer register.' });
   }
 }));
 

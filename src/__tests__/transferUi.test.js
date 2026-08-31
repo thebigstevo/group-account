@@ -8,6 +8,7 @@ const src = path.join(__dirname, '..');
 const views = path.join(src, 'views');
 const serverSource = fs.readFileSync(path.join(src, 'server.js'), 'utf8');
 const servicesSource = fs.readFileSync(path.join(src, 'services.js'), 'utf8');
+const helpSource = fs.readFileSync(path.join(src, 'helpContent.js'), 'utf8');
 
 const locals = {
   user: { id: 1, name: 'Treasurer', role: 'treasurer' },
@@ -24,6 +25,7 @@ const locals = {
     to_account_name: 'Republic Bank', amount: 500, status: 'posted',
     reference: 'DEP-100', description: 'Cash deposit'
   }],
+  filters: { startDate: '2024-01-01', endDate: '2024-12-31' },
   values: {}
 };
 
@@ -38,6 +40,9 @@ describe('account transfer workflow', () => {
     expect(html).toContain('Does not record income or an expense.');
     expect(html).toContain('class="mobile-list"');
     expect(html).toContain('preventSameAccount');
+    expect(html).toContain('<h2>Transfer register report</h2>');
+    expect(html).toContain('/export/transfers?startDate=2024-01-01&endDate=2024-12-31');
+    expect(html).toContain('GHS 500.00 posted');
   });
 
   test('finance navigation and overview expose transfers only to authorised roles', async () => {
@@ -55,11 +60,19 @@ describe('account transfer workflow', () => {
     expect(serverSource).toContain('await createAccountTransfer({');
     expect(serverSource).toContain('error instanceof TransferValidationError');
     expect(serverSource).toContain("res.redirect('/finance/transfers')");
+    expect(serverSource).toContain("app.get('/export/transfers', requireLogin");
+    expect(serverSource).toContain("'export', 'transfer_register'");
   });
 
   test('balance accounting debits the source, credits the destination, and nets transfers to zero', () => {
     expect(servicesSource).toContain("tx_type = 'transfer' AND to_account_id = $1");
     expect(servicesSource).toContain("tx_type = 'transfer' AND account_id = $1 AND to_account_id IS NOT NULL");
     expect(serverSource).toContain("original.tx_type === 'transfer' ? '/finance/transfers'");
+  });
+
+  test('in-app guidance points users to the live transfer register and its CSV comparison report', () => {
+    expect(helpSource).toContain("href: '/finance/transfers', label: 'Open Transfers'");
+    expect(helpSource).toContain('download a CSV for comparison with the cashbook');
+    expect(helpSource).not.toContain("href: '/transactions', label: 'Open Transactions'");
   });
 });

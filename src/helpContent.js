@@ -125,7 +125,8 @@ const TOPICS = Object.freeze([
       { text: 'Select the account the money left, choose the category, and enter the exact amount.' },
       { text: 'Add the voucher/reference number and explain what was paid for.' },
       { text: 'Save and attach the invoice, receipt, authorization, or voucher where available.' },
-      { text: 'For money moved between your own accounts, use a Transfer—not an income and an expense.', href: '/transactions', label: 'Open Transactions' },
+      { text: 'For money moved between your own accounts, open Finance → Transfers. Select the source and destination accounts, date, amount, and deposit reference.', href: '/finance/transfers', label: 'Open Transfers' },
+      { text: 'Use the Transfer register report to choose a date range and download a CSV for comparison with the cashbook, deposit slips, and bank statement.', href: '/finance/transfers', label: 'Transfer Register' },
       { text: 'If a posted entry is wrong, reverse it and record the correct entry. Do not disguise corrections.' }
     ],
     warning: 'Confirm approval and available funds before paying. A transfer must not change total funds.'
