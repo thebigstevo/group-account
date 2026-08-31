@@ -988,14 +988,20 @@
      * Open the Add Member modal dialog.
      * Sets active class, prevents background scroll, installs focus trap and keyboard handlers.
      */
-    function open() {
+    function open(trigger) {
       modalEl = document.getElementById('add-member-modal');
       if (!modalEl) return;
 
-      triggerElement = document.activeElement;
+      triggerElement = trigger && trigger.matches && trigger.matches('[data-add-member-open]')
+        ? trigger
+        : document.activeElement;
 
       // Show the modal
       modalEl.classList.add('active');
+      modalEl.setAttribute('aria-hidden', 'false');
+      if (triggerElement && triggerElement.matches('[data-add-member-open]')) {
+        triggerElement.setAttribute('aria-expanded', 'true');
+      }
       document.body.classList.add('modal-open');
 
       // Focus the first visible input field
@@ -1020,6 +1026,7 @@
       if (!modalEl) return;
 
       modalEl.classList.remove('active');
+      modalEl.setAttribute('aria-hidden', 'true');
       document.body.classList.remove('modal-open');
 
       // Remove event handlers
@@ -1031,6 +1038,9 @@
 
       // Return focus to the triggering element
       if (triggerElement && typeof triggerElement.focus === 'function') {
+        if (triggerElement.matches('[data-add-member-open]')) {
+          triggerElement.setAttribute('aria-expanded', 'false');
+        }
         triggerElement.focus();
       }
       triggerElement = null;
@@ -1130,6 +1140,13 @@
     function init() {
       modalEl = document.getElementById('add-member-modal');
       if (!modalEl) return;
+
+      document.querySelectorAll('[data-add-member-open]').forEach(function (button) {
+        button.addEventListener('click', function () { open(button); });
+      });
+      modalEl.querySelectorAll('[data-add-member-close]').forEach(function (button) {
+        button.addEventListener('click', close);
+      });
 
       // Only auto-open if there is an error-summary OUTSIDE the modal (server returned form errors)
       // AND the modal's own error container has content or the page has form validation errors
@@ -1312,14 +1329,6 @@
   } else {
     initApp();
   }
-
-  // Expose global helper functions for inline onclick handlers
-  window.openAddMemberModal = function () {
-    Treasurio.AddMemberModal.open();
-  };
-  window.closeAddMemberModal = function () {
-    Treasurio.AddMemberModal.close();
-  };
 
   // Expose globally
   window.Treasurio = Treasurio;
