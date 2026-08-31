@@ -4,7 +4,7 @@
 <section class="page-title">
   <div><span class="eyebrow">Commandery register</span><h1>Members</h1><p>The shared membership record used by administration, dues, receipts, welfare, and reporting.</p></div>
   <div class="hero-actions">
-    <% if (canEdit) { %><button class="btn btn--primary" type="button" onclick="openAddMemberModal()">Add Member</button><% } %>
+    <% if (canEdit) { %><button class="btn btn--primary" type="button" data-add-member-open aria-controls="add-member-modal" aria-expanded="false">Add Member</button><% } %>
     <% if (canEdit) { %><a class="btn btn--secondary" href="/members/import">Import register</a><% } %>
   </div>
 </section>
@@ -20,11 +20,11 @@
 
 <% if (canEdit) { %>
 <!-- Add Member Modal -->
-<div id="add-member-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="add-member-modal-title">
+<div id="add-member-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="add-member-modal-title" aria-hidden="true">
   <div class="modal modal--form" role="document">
     <div class="modal__header">
       <h2 id="add-member-modal-title" class="modal__title">Add Member</h2>
-      <button class="modal__close" type="button" onclick="closeAddMemberModal()" aria-label="Close dialog">&times;</button>
+      <button class="modal__close" type="button" data-add-member-close aria-label="Close dialog">&times;</button>
     </div>
     <div class="modal__body">
       <p>A permanent membership number will be assigned automatically.</p>
@@ -53,19 +53,13 @@
           <div class="form-group"><label for="modal-member-admitted">Date first admitted</label><input id="modal-member-admitted" name="date_first_admitted" type="date" value="<%= (locals.values && locals.values.date_first_admitted) || '' %>"></div>
         </fieldset>
         <div class="modal__actions">
-          <button class="btn btn--secondary" type="button" onclick="closeAddMemberModal()">Cancel</button>
+          <button class="btn btn--secondary" type="button" data-add-member-close>Cancel</button>
           <button class="btn btn--primary" type="submit">Create member record</button>
         </div>
       </form>
     </div>
   </div>
 </div>
-
-<script>
-  // The openAddMemberModal/closeAddMemberModal functions are provided by public/app.js
-  // (Treasurio.AddMemberModal) and exposed as window globals for the inline onclick handlers.
-  // The app.js init() auto-opens the modal when validation errors are present on the page.
-</script>
 <% } %>
 
 <%- include('partials/footer') %>
