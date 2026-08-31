@@ -100,6 +100,76 @@ async function exportTransactionsCsv(filters = {}) {
 }
 
 /**
+ * Export the original transfer register for comparison with cashbooks,
+ * deposit slips, and bank statements. Reversal audit rows are omitted, while
+ * reversed original transfers remain visible and are excluded from the total.
+ */
+async function exportTransfersCsv({ startDate, endDate }) {
+  const rows = await dal.query(`
+    SELECT
+      t.id,
+      t.tx_date,
+      source.name AS from_account,
+      destination.name AS to_account,
+      t.amount,
+      t.reference,
+      t.description,
+      t.status,
+      t.reconciled,
+      t.reversal_reason,
+      u.name AS recorded_by,
+      t.created_at
+    FROM transactions t
+    JOIN accounts source ON source.id = t.account_id
+    JOIN accounts destination ON destination.id = t.to_account_id
+    LEFT JOIN users u ON u.id = t.created_by
+    WHERE t.tx_type = 'transfer'
+      AND t.reverses_transaction_id IS NULL
+      AND t.tx_date >= $1
+      AND t.tx_date <= $2
+    ORDER BY t.tx_date, t.id
+  `, [startDate, endDate]);
+
+  const postedTotal = rows
+    .filter((row) => row.status === 'posted')
+    .reduce((sum, row) => sum + Number(row.amount), 0);
+
+  const formatted = rows.map((row) => ({
+    'Transaction ID': row.id,
+    Date: row.tx_date,
+    'From Account': row.from_account,
+    'To Account': row.to_account,
+    Amount: formatCurrency(row.amount),
+    Reference: row.reference || '',
+    Description: row.description || '',
+    Status: row.status,
+    'Included in Account Balances': row.status === 'posted' ? 'Yes' : 'No',
+    Cleared: row.reconciled ? 'Yes' : 'No',
+    'Reversal Reason': row.reversal_reason || '',
+    'Recorded By': row.recorded_by || '',
+    'Recorded At': row.created_at || ''
+  }));
+
+  formatted.push({
+    'Transaction ID': '',
+    Date: 'TOTAL POSTED TRANSFERS',
+    'From Account': '',
+    'To Account': '',
+    Amount: formatCurrency(postedTotal),
+    Reference: '',
+    Description: `${startDate} to ${endDate}`,
+    Status: '',
+    'Included in Account Balances': '',
+    Cleared: '',
+    'Reversal Reason': '',
+    'Recorded By': '',
+    'Recorded At': ''
+  });
+
+  return arrayToCsv(formatted);
+}
+
+/**
  * Export arrears report as CSV
  */
 async function exportArrearsCsv(year) {
@@ -340,6 +410,7 @@ async function exportBudgetActualCsv(year) {
 
 module.exports = {
   exportTransactionsCsv,
+  exportTransfersCsv,
   exportArrearsCsv,
   exportMemberCleanupCsv,
   exportReportCsv,

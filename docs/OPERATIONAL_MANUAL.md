@@ -393,9 +393,17 @@ Path: `Finance → Expenses → Record Expense`
 
 ### Transfer money between accounts
 
-Direct page: [Combined transactions page](https://ksji825.tilcsaas.com/transactions)
+Direct page: [Transfer Money](https://ksji825.tilcsaas.com/finance/transfers)
 
-Under **Transfer money**, select the source account, destination account, date, amount, and description. The source and destination must be different. Select **Save transfer**.
+1. Open `Finance → Transfers`.
+2. Select the date and amount.
+3. Under **Move from**, select the account the money left.
+4. Under **Move to**, select the account that received the money.
+5. Enter the deposit-slip/reference number and a useful description.
+6. Select **Save Transfer**.
+7. Confirm that the source balance fell and the destination balance rose by the same amount. Total commandery funds must not change.
+
+To compare Treasurio with local records, use **Transfer register report** on the same page. Choose the start and end dates, select **View period**, then **Download CSV**. The report includes account direction, amount, reference, description, status, recorder, and timestamp. Reversed transfers remain visible for audit but are excluded from the posted total.
 
 ### Correct a posted transaction
 
