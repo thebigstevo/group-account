@@ -7,6 +7,8 @@ const serverSource = fs.readFileSync(path.join(root, 'src', 'server.js'), 'utf8'
 const setupSource = fs.readFileSync(path.join(root, 'src', 'setup.js'), 'utf8');
 const backupSource = fs.readFileSync(path.join(root, 'deploy', 'backup.sh'), 'utf8');
 const composeSource = fs.readFileSync(path.join(root, 'deploy', 'docker-compose.yml'), 'utf8');
+const devDeploySource = fs.readFileSync(path.join(root, '.github', 'workflows', 'deploy-dev.yml'), 'utf8');
+const prodDeploySource = fs.readFileSync(path.join(root, '.github', 'workflows', 'deploy-prod.yml'), 'utf8');
 
 describe('production security contracts', () => {
   const originalEnv = { ...process.env };
@@ -67,6 +69,16 @@ describe('production security contracts', () => {
     expect(backupSource).toContain('--metadata "sha256=${checksum}"');
     expect(backupSource).toContain('remote_checksum');
     expect(backupSource).toContain('extension="tar.gz"');
+  });
+
+  test('GitOps uploads the tested checkout and does not require anonymous server-side GitHub access', () => {
+    for (const workflow of [devDeploySource, prodDeploySource]) {
+      expect(workflow).toContain('uses: appleboy/scp-action@v1');
+      expect(workflow).toContain('Uploaded release SHA does not match');
+      expect(workflow).toContain('.release-sha');
+      expect(workflow).not.toContain('git fetch origin');
+      expect(workflow).not.toContain('git clone -b');
+    }
   });
 
   test('setup and organization forms do not expose secrets and include CSRF', async () => {

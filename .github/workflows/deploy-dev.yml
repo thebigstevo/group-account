@@ -56,6 +56,19 @@ jobs:
           npm audit --omit=dev --audit-level=high
           docker compose -f deploy/docker-compose.yml config --quiet
 
+      - name: Prepare release metadata
+        run: printf '%s\n' "$GITHUB_SHA" > .release-sha
+
+      - name: Upload tested release to VPS
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: ".dockerignore,Dockerfile,package.json,package-lock.json,src,deploy,docs,README.md,.release-sha"
+          target: "/tmp/treasurio-release-${{ github.sha }}"
+          overwrite: true
+
       - name: Deploy to VPS (Dev)
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -66,16 +79,16 @@ jobs:
           script: |
             set -eu
             APP_DIR="/opt/${PROJECT_NAME}"
-            BRANCH="${{ github.ref_name }}"
-            if [ -d "$APP_DIR/.git" ]; then
-              cd "$APP_DIR"
-              git fetch origin
-              git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH" "origin/$BRANCH"
-              git reset --hard "origin/$BRANCH"
-            else
-              rm -rf "$APP_DIR"
-              git clone -b "$BRANCH" https://github.com/thebigstevo/group-account.git "$APP_DIR"
-            fi
+            RELEASE_DIR="/tmp/treasurio-release-${{ github.sha }}"
+            [ -f "$RELEASE_DIR/.release-sha" ] || { echo "Uploaded release metadata is missing" >&2; exit 1; }
+            [ "$(cat "$RELEASE_DIR/.release-sha")" = "${{ github.sha }}" ] || { echo "Uploaded release SHA does not match" >&2; exit 1; }
+            mkdir -p "$APP_DIR"
+            rm -rf "$APP_DIR/src" "$APP_DIR/deploy" "$APP_DIR/docs"
+            cp -a "$RELEASE_DIR/src" "$RELEASE_DIR/deploy" "$RELEASE_DIR/docs" "$APP_DIR/"
+            install -m 644 "$RELEASE_DIR/Dockerfile" "$APP_DIR/Dockerfile"
+            install -m 644 "$RELEASE_DIR/.dockerignore" "$APP_DIR/.dockerignore"
+            install -m 644 "$RELEASE_DIR/package.json" "$RELEASE_DIR/package-lock.json" "$RELEASE_DIR/README.md" "$RELEASE_DIR/.release-sha" "$APP_DIR/"
+            rm -rf "$RELEASE_DIR"
             cd "$APP_DIR/deploy"
             [ ${#POSTGRES_PASSWORD} -ge 24 ] || { echo "POSTGRES_PASSWORD must be at least 24 characters" >&2; exit 1; }
             [ ${#DEV_DB_PASSWORD} -ge 24 ] || { echo "DEV_DB_PASSWORD must be at least 24 characters" >&2; exit 1; }
