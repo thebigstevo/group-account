@@ -64,7 +64,7 @@ const {
   memberStatementReport
 } = require('./downloadableReports');
 const pdf = require('./pdfReports');
-const { calculateAllocations } = require('./allocationService');
+const { calculateAllocations, calculateExpenseAllocations } = require('./allocationService');
 const { createReversal } = require('./reversalService');
 const { validateTransactionEdit } = require('./transactionLifecycle');
 const { uploadTypeFor, validateUploadedFile } = require('./fileSecurity');
@@ -1396,6 +1396,8 @@ app.post('/config/categories/:id', allow('admin', 'finance_secretary', 'treasure
   const dependencies = await dal.queryOne(`
     SELECT
       (SELECT COUNT(*)::int FROM transactions WHERE category = $1) AS transactions,
+      (SELECT COUNT(*)::int FROM transactions WHERE category = $1 AND tx_type = 'receipt') AS receipts,
+      (SELECT COUNT(*)::int FROM transactions WHERE category = $1 AND tx_type IN ('expense', 'welfare_payout')) AS outgoings,
       (SELECT COUNT(*)::int FROM payment_splits WHERE category = $1) AS splits,
       (SELECT COUNT(*)::int FROM annual_budget_lines WHERE category = $1) AS budget_lines
   `, [category.name]);
@@ -1403,12 +1405,17 @@ app.post('/config/categories/:id', allow('admin', 'finance_secretary', 'treasure
     && validated.values.purpose === 'standard'
     && ['income', 'expense'].includes(category.kind)
     && validated.values.kind === 'both';
-  if ((Number(dependencies.transactions) > 0 || Number(dependencies.splits) > 0 || Number(dependencies.budget_lines) > 0)
-      && (validated.values.kind !== category.kind || validated.values.purpose !== category.purpose)) {
-    if (!safeDirectionWidening) {
-      req.session.flash = { type: 'error', message: 'A category with financial history may be renamed, deactivated, or widened to Income & expense, but it cannot be narrowed or assigned a different accounting purpose.' };
-      return res.redirect('/config');
-    }
+  const classificationChanged = validated.values.kind !== category.kind || validated.values.purpose !== category.purpose;
+  const directionCompatible = validated.values.kind === 'both'
+    || (validated.values.kind === 'income' && Number(dependencies.outgoings) === 0)
+    || (validated.values.kind === 'expense' && Number(dependencies.receipts) === 0);
+  const purposeChangedWithRules = validated.values.purpose !== category.purpose
+    && (Number(dependencies.splits) > 0 || Number(dependencies.budget_lines) > 0);
+  if (classificationChanged && !safeDirectionWidening && (!directionCompatible || purposeChangedWithRules)) {
+    req.session.flash = { type: 'error', message: purposeChangedWithRules
+      ? 'Remove this category from payment splits and budget lines before changing its accounting purpose.'
+      : 'This category has transactions in the opposite direction. Reclassify those transactions before changing its type or accounting purpose.' };
+    return res.redirect('/config');
   }
   const active = req.body.active === 'on';
   if (active && validated.values.purpose !== 'standard') {
@@ -2310,12 +2317,25 @@ app.post('/transactions/expense', allow('admin', 'treasurer'), asyncHandler(asyn
   const expenseAmount = Number(req.body.amount || 0);
   if (!Number.isFinite(expenseAmount) || expenseAmount <= 0) return res.status(400).render('finance_form', { ...(await financeFormData('expense')), errors: ['Amount must be greater than zero.'], values: req.body });
   const type = expenseCategory.purpose === 'welfare_payout' ? 'welfare_payout' : 'expense';
-  const result = await dal.run(`
-    INSERT INTO transactions (tx_date, tx_type, account_id, category, description, amount, reference, created_by)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    RETURNING id
-  `, [req.body.tx_date, type, Number(req.body.account_id), expenseCategory.name, req.body.description || null, expenseAmount, req.body.reference || null, req.session.user.id]);
-  await dal.audit(req.session.user.id, 'create', type, result.rows[0].id, `${req.body.category} ${req.body.amount}`);
+  const allocations = await calculateExpenseAllocations(expenseAmount, expenseCategory.purpose);
+
+  await dal.transaction(async (client) => {
+    const result = await client.query(`
+      INSERT INTO transactions (tx_date, tx_type, account_id, category, description, amount, reference, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING id
+    `, [req.body.tx_date, type, Number(req.body.account_id), expenseCategory.name, req.body.description || null, expenseAmount, req.body.reference || null, req.session.user.id]);
+    const txId = result.rows[0].id;
+
+    for (const allocation of allocations) {
+      await client.query(`
+        INSERT INTO receipt_allocations (transaction_id, fund_classification_id, amount, category)
+        VALUES ($1, $2, $3, $4)
+      `, [txId, allocation.fund_classification_id, allocation.amount, expenseCategory.name]);
+    }
+
+    await dal.audit(req.session.user.id, 'create', type, txId, `${req.body.category} ${req.body.amount}`, { client });
+  });
   req.session.flash = { type: 'success', message: 'Expense saved successfully.' };
   res.redirect('/finance/expenses');
 }));
