@@ -11,6 +11,7 @@
   <section class="quick-actions" aria-label="Finance actions">
     <% if (['admin','finance_secretary','treasurer'].includes(user.role)) { %><a class="btn btn--primary" href="/finance/income/new">Add income</a><% } %>
     <% if (['admin','treasurer'].includes(user.role)) { %><a class="btn btn--primary" href="/finance/expenses/new">Add expense</a><% } %>
+    <% if (['admin','treasurer'].includes(user.role)) { %><a class="btn btn--secondary" href="/finance/transfers">Transfer money</a><% } %>
     <% if (['admin','treasurer','auditor','viewer'].includes(user.role)) { %><a class="btn btn--secondary" href="/finance/reconciliation">Reconcile</a><% } %>
     <a class="btn btn--secondary" href="/finance/reports">Reports</a>
   </section>
@@ -32,7 +33,7 @@
       <div class="dashboard-section">
         <div class="section-head"><div><h2>Recent transactions</h2><p>Latest posted financial activity.</p></div></div>
         <% if (!recent.length) { %><div class="empty-state"><p>No transactions have been recorded.</p></div><% } else { %>
-        <div class="mobile-list" style="display:block"><% recent.forEach(function(row) { %><a class="transaction-card" href="<%= row.tx_type === 'receipt' ? '/finance/income' : '/finance/expenses' %>"><div class="transaction-card__top"><strong><%= row.category %></strong><span class="transaction-card__amount"><%= formatMoney(row.amount) %></span></div><div class="transaction-card__meta"><span><%= formatDate(row.tx_date) %></span><span><%= row.account_name || 'No account' %></span><span class="badge status-badge <%= row.reconciled ? 'badge--success' : 'badge--warning' %>"><%= row.reconciled ? 'Reconciled' : 'Unreconciled' %></span></div></a><% }) %></div><% } %>
+        <div class="mobile-list" style="display:block"><% recent.forEach(function(row) { %><a class="transaction-card" href="<%= row.tx_type === 'receipt' ? '/finance/income' : (row.tx_type === 'transfer' ? '/finance/transfers' : '/finance/expenses') %>"><div class="transaction-card__top"><strong><%= row.category %></strong><span class="transaction-card__amount"><%= formatMoney(row.amount) %></span></div><div class="transaction-card__meta"><span><%= formatDate(row.tx_date) %></span><span><%= row.account_name || 'No account' %></span><span class="badge status-badge <%= row.reconciled ? 'badge--success' : 'badge--warning' %>"><%= row.reconciled ? 'Reconciled' : 'Unreconciled' %></span></div></a><% }) %></div><% } %>
       </div>
     </div>
     <aside class="dashboard-stack">

@@ -79,6 +79,12 @@
         <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v3.586L7.707 7.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 8.586V5z" clip-rule="evenodd" transform="rotate(180 10 10)"/></svg>
         <span>Expenses</span>
       </a>
+      <% if (['admin','treasurer'].includes(user.role)) { %>
+      <a href="/finance/transfers" class="sidebar__link<%= navActive('/finance/transfers') ? ' active' : '' %>" <%- navActive('/finance/transfers') ? 'aria-current="page"' : '' %>>
+        <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M4 6h9.586l-2.293-2.293a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L13.586 8H4a1 1 0 010-2zm12 8H6.414l2.293 2.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L6.414 12H16a1 1 0 010 2z"/></svg>
+        <span>Transfers</span>
+      </a>
+      <% } %>
       <% if (canReconcile) { %>
       <a href="/finance/reconciliation" class="sidebar__link<%= navActive('/finance/reconciliation') ? ' active' : '' %>">
         <svg class="sidebar__icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
