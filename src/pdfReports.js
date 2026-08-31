@@ -32,6 +32,7 @@ const COLORS = {
 function createDoc(opts = {}) {
   const doc = new PDFDocument({
     size: 'A4',
+    bufferPages: Boolean(opts.bufferPages),
     margins: { top: 40, bottom: 50, left: MARGIN, right: MARGIN },
     info: {
       Title: opts.title || 'Report',
@@ -334,6 +335,79 @@ function addPageNumbers(doc) {
   doc.fillColor(COLORS.dark);
 }
 
+function compactCell(value, maxLength) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+}
+
+/**
+ * Build a formal transfer register suitable for comparison with source
+ * cashbooks, deposit slips, and bank statements. Reversed originals remain
+ * visible, while the total includes posted transfers only.
+ */
+function createTransferRegisterDoc({ rows, postedTotal, startDate, endDate, groupName, org }) {
+  const doc = createDoc({
+    title: 'Transfer Register',
+    period: `For the period: ${startDate} to ${endDate}`,
+    groupName,
+    org,
+    bufferPages: true
+  });
+
+  sectionHeading(doc, 'Register summary');
+  tableRow(doc, 'Transfers recorded', String(rows.length));
+  tableRow(doc, 'Posted transfers', String(rows.filter((row) => row.status === 'posted').length));
+  tableRow(doc, 'Reversed transfers retained for audit', String(rows.filter((row) => row.status !== 'posted').length));
+  subtotalLine(doc);
+  tableRow(doc, 'TOTAL POSTED TRANSFERS', fmtMoney(postedTotal), { bold: true });
+
+  sectionHeading(doc, 'Transfer entries');
+  const columns = [
+    { label: 'Date', width: 55 },
+    { label: 'From', width: 73 },
+    { label: 'To', width: 73 },
+    { label: 'Reference', width: 68 },
+    { label: 'Description / reversal', width: 110 },
+    { label: 'Status', width: 48 },
+    { label: 'Amount', width: 78, align: 'right' }
+  ];
+
+  if (!rows.length) {
+    labelRow(doc, 'No transfers were recorded in the selected period.');
+  } else {
+    tableHeader(doc, columns);
+    rows.forEach((row, index) => {
+      if (doc.y > 720) {
+        doc.addPage();
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(COLORS.dark);
+        doc.text('TRANSFER REGISTER - CONTINUED', MARGIN, doc.y, { width: CONTENT_WIDTH });
+        doc.moveDown(0.5);
+        tableHeader(doc, columns);
+      }
+      const detail = row.status === 'posted'
+        ? row.description
+        : (row.reversal_reason || row.description || 'Reversed');
+      dataRow(doc, columns, [
+        String(row.tx_date || '').slice(0, 10),
+        compactCell(row.from_account, 17),
+        compactCell(row.to_account, 17),
+        compactCell(row.reference || '-', 15),
+        compactCell(detail || '-', 26),
+        row.status === 'posted' ? 'Posted' : 'Reversed',
+        fmtMoney(row.amount)
+      ], { rowIndex: index });
+    });
+  }
+
+  doc.moveDown(0.7);
+  subtotalLine(doc);
+  tableRow(doc, 'TOTAL POSTED TRANSFERS', fmtMoney(postedTotal), { bold: true });
+  labelRow(doc, 'Reversed entries are shown for audit evidence and are excluded from the total.');
+  signatureBlock(doc, org);
+  addPageNumbers(doc);
+  return doc;
+}
+
 module.exports = {
   createDoc,
   sectionHeading,
@@ -347,6 +421,7 @@ module.exports = {
   fmtMoney,
   sendPdf,
   addPageNumbers,
+  createTransferRegisterDoc,
   MARGIN,
   CONTENT_WIDTH,
   COLORS

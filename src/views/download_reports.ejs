@@ -43,7 +43,7 @@
           <td><strong>Transfer Register</strong></td>
           <td>Account-to-account transfers for comparison with cashbooks, deposit slips, and bank statements</td>
           <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/export/transfers?startDate=<%= year %>-01-01&amp;endDate=<%= year %>-12-31" download>CSV</a></td>
-          <td style="text-align:center">—</td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/export/transfers?startDate=<%= year %>-01-01&amp;endDate=<%= year %>-12-31&amp;format=pdf" download style="color:var(--danger-base)">PDF</a></td>
         </tr>
       </tbody>
     </table>
