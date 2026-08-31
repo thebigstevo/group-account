@@ -35,6 +35,7 @@ const {
 } = require('./services');
 const {
   exportTransactionsCsv,
+  transferRegisterReport,
   exportTransfersCsv,
   exportArrearsCsv,
   exportMemberCleanupCsv,
@@ -3778,11 +3779,23 @@ app.get('/export/transfers', requireLogin, asyncHandler(async (req, res) => {
   try {
     const year = selectedYear(req);
     const period = normalizeTransferPeriod(year, req.query.startDate, req.query.endDate);
-    const csv = await exportTransfersCsv(period);
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="transfer-register-${period.startDate}-to-${period.endDate}.csv"`);
-    res.send(csv);
-    await dal.audit(req.session.user.id, 'export', 'transfer_register', null, period);
+    const format = req.query.format === 'pdf' ? 'pdf' : 'csv';
+    if (format === 'pdf') {
+      const report = await transferRegisterReport(period);
+      const doc = pdf.createTransferRegisterDoc({
+        ...report,
+        ...period,
+        groupName: config.groupName,
+        org: res.locals.org
+      });
+      pdf.sendPdf(res, doc, `transfer-register-${period.startDate}-to-${period.endDate}.pdf`);
+    } else {
+      const csv = await exportTransfersCsv(period);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="transfer-register-${period.startDate}-to-${period.endDate}.csv"`);
+      res.send(csv);
+    }
+    await dal.audit(req.session.user.id, 'export', 'transfer_register', null, { ...period, format });
   } catch (error) {
     if (error instanceof TransferValidationError) {
       return res.status(400).render('error', { message: error.message });

@@ -403,7 +403,7 @@ Direct page: [Transfer Money](https://ksji825.tilcsaas.com/finance/transfers)
 6. Select **Save Transfer**.
 7. Confirm that the source balance fell and the destination balance rose by the same amount. Total commandery funds must not change.
 
-To compare Treasurio with local records, use **Transfer register report** on the same page. Choose the start and end dates, select **View period**, then **Download CSV**. The report includes account direction, amount, reference, description, status, recorder, and timestamp. Reversed transfers remain visible for audit but are excluded from the posted total.
+To compare Treasurio with local records, use **Transfer register report** on the same page. Choose the start and end dates and select **View period**. Use **Download PDF** for a formal printable register or **Download CSV** for spreadsheet comparison. The report includes account direction, amount, reference, description, and status. The CSV also includes the recorder and timestamp. Reversed transfers remain visible for audit but are excluded from the posted total.
 
 ### Correct a posted transaction
 
