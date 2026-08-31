@@ -9,6 +9,12 @@ class TransferValidationError extends Error {
   }
 }
 
+function isValidIsoDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
 function normalizeTransferInput(input) {
   const fromAccountId = Number(input.fromAccountId);
   const toAccountId = Number(input.toAccountId);
@@ -18,7 +24,7 @@ function normalizeTransferInput(input) {
   const reference = String(input.reference || '').trim();
   const userId = Number(input.userId);
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(txDate)) {
+  if (!isValidIsoDate(txDate)) {
     throw new TransferValidationError('Enter a valid transfer date.');
   }
   if (!Number.isInteger(fromAccountId) || fromAccountId <= 0) {
@@ -58,6 +64,27 @@ function normalizeTransferInput(input) {
     reference: reference || null,
     userId
   };
+}
+
+function normalizeTransferPeriod(year, startDate = '', endDate = '') {
+  const fiscalYear = Number(year);
+  if (!Number.isInteger(fiscalYear) || fiscalYear < 2000 || fiscalYear > 2100) {
+    throw new TransferValidationError('Select a valid fiscal year.');
+  }
+
+  const start = String(startDate || `${fiscalYear}-01-01`).trim();
+  const end = String(endDate || `${fiscalYear}-12-31`).trim();
+  if (!isValidIsoDate(start) || !isValidIsoDate(end)) {
+    throw new TransferValidationError('Enter valid report start and end dates.');
+  }
+  if (!start.startsWith(`${fiscalYear}-`) || !end.startsWith(`${fiscalYear}-`)) {
+    throw new TransferValidationError(`Transfer reports must remain within fiscal year ${fiscalYear}.`);
+  }
+  if (start > end) {
+    throw new TransferValidationError('Report start date must be on or before the end date.');
+  }
+
+  return { startDate: start, endDate: end };
 }
 
 async function createAccountTransfer(input) {
@@ -158,5 +185,6 @@ async function createAccountTransfer(input) {
 module.exports = {
   TransferValidationError,
   normalizeTransferInput,
+  normalizeTransferPeriod,
   createAccountTransfer
 };
