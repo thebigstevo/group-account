@@ -105,4 +105,27 @@ async function calculateAllocations(amount, category, year, memberId = null, wel
   return allocations;
 }
 
-module.exports = { calculateAllocations };
+/**
+ * Allocate an outgoing transaction to the fund that bears the cost.
+ * Allocation amounts are stored as positive magnitudes; reporting applies the
+ * transaction type's sign when calculating a fund balance.
+ *
+ * @param {number} amount - Positive expense amount
+ * @param {string} purpose - Transaction category purpose
+ * @returns {Promise<Array<{fund_classification_id: number, amount: number}>>}
+ */
+async function calculateExpenseAllocations(amount, purpose) {
+  if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+    throw new Error('Amount must be positive');
+  }
+
+  const fundCode = purpose === 'welfare_payout' ? 'joint_welfare' : 'mens_operating';
+  const fund = await getFundByCode(fundCode);
+  if (!fund) {
+    throw new Error(`Fund classification (${fundCode}) not found`);
+  }
+
+  return [{ fund_classification_id: fund.id, amount: Number(amount) }];
+}
+
+module.exports = { calculateAllocations, calculateExpenseAllocations };
