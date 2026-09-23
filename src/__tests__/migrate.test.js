@@ -86,7 +86,11 @@ describe('Phase 1 migration contract', () => {
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS migration_history');
     const params = client.query.mock.calls.flatMap(call => call[1] || []);
     expect(params).toContain('2026-08-effective-welfare-allocations-v1');
+    expect(params).toContain('2026-09-missing-outflow-allocations-v1');
+    expect(sql).toContain('THEN $1::integer');
+    expect(sql).toContain('ELSE $2::integer');
     expect(fs.readFileSync(path.join(__dirname, '..', 'migrate.js'), 'utf8')).toContain('Effective dues welfare repair');
+    expect(sql).toContain('Missing outgoing allocation repair');
     expect(sql).toContain("'migration', 'schema'");
   });
 });

@@ -974,6 +974,67 @@ async function migrate() {
       details JSONB NOT NULL DEFAULT '{}'::jsonb
     )
   `);
+
+  // Repair outgoing entries that were loaded directly after the original
+  // one-time allocation backfill. Keep this idempotent so a restored database
+  // receives the same correction exactly once.
+  const outgoingRepairKey = '2026-09-missing-outflow-allocations-v1';
+  const outgoingRepairDone = await run('SELECT key FROM migration_history WHERE key = $1', [outgoingRepairKey]);
+  if (outgoingRepairDone.rows.length === 0) {
+    const opFund = await run("SELECT id FROM fund_classifications WHERE code = 'mens_operating' AND active = true");
+    const wfFund = await run("SELECT id FROM fund_classifications WHERE code = 'joint_welfare' AND active = true");
+    if (!opFund.rows[0] || !wfFund.rows[0]) throw new Error('Required fund classifications are missing');
+
+    // This legacy category was superseded when category-purpose editing was
+    // corrected. Preserve it for history but give its existing transactions
+    // the accounting treatment their descriptions and source records require.
+    const legacyWelfare = await run(`
+      UPDATE transaction_categories
+      SET active=false, purpose='welfare_payout'
+      WHERE name='Old Welfare Benefits'
+      RETURNING id
+    `);
+    const normalizedWelfare = await run(`
+      UPDATE transactions
+      SET tx_type='welfare_payout', updated_at=NOW()
+      WHERE category='Old Welfare Benefits' AND tx_type='expense'
+      RETURNING id
+    `);
+
+    const repaired = await run(`
+      INSERT INTO receipt_allocations (
+        transaction_id, fund_classification_id, amount, category, description
+      )
+      SELECT t.id,
+        CASE
+          WHEN t.tx_type='welfare_payout' OR tc.purpose='welfare_payout' THEN $1::integer
+          ELSE $2::integer
+        END,
+        t.amount, t.category, 'Missing outgoing allocation repair'
+      FROM transactions t
+      JOIN transaction_categories tc ON tc.name=t.category
+      WHERE t.status='posted'
+        AND t.reverses_transaction_id IS NULL
+        AND t.tx_type IN ('expense','welfare_payout')
+        AND NOT EXISTS (
+          SELECT 1 FROM receipt_allocations ra WHERE ra.transaction_id=t.id
+        )
+      RETURNING transaction_id
+    `, [wfFund.rows[0].id, opFund.rows[0].id]);
+
+    await run('INSERT INTO migration_history (key, details) VALUES ($1, $2::jsonb)', [
+      outgoingRepairKey,
+      JSON.stringify({
+        repairedTransactions: repaired.rows.length,
+        normalizedWelfareTransactions: normalizedWelfare.rows.length,
+        legacyWelfareCategories: legacyWelfare.rows.length
+      })
+    ]);
+    console.log(`[migrate]   ✓ missing outgoing allocations repaired (${repaired.rows.length} transactions)`);
+  } else {
+    console.log('[migrate]   ✓ missing outgoing allocation repair already applied (skipped)');
+  }
+
   const welfareRepairKey = '2026-08-effective-welfare-allocations-v1';
   const welfareRepairDone = await run('SELECT key FROM migration_history WHERE key = $1', [welfareRepairKey]);
   if (welfareRepairDone.rows.length === 0) {
