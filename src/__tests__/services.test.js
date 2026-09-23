@@ -25,6 +25,7 @@ const {
   periodComparison,
   auditCountSummary,
   computeFundBalances,
+  memberOpeningBalance,
 } = require('../services');
 
 afterEach(() => {
@@ -104,6 +105,19 @@ describe('Services: calculateWelfareComponent', () => {
 describe('Services: currentYear', () => {
   test('returns the current calendar year', () => {
     expect(currentYear()).toBe(new Date().getFullYear());
+  });
+});
+
+describe('Services: memberOpeningBalance', () => {
+  test('uses a year-specific carry-forward when one exists', async () => {
+    dal.queryOne.mockResolvedValueOnce({ opening_arrears: '245.50' });
+    await expect(memberOpeningBalance({ id: 8, opening_arrears: '99.00' }, 2025)).resolves.toBe(245.5);
+    expect(dal.queryOne.mock.calls[0][1]).toEqual([8, 2025]);
+  });
+
+  test('falls back to the legacy member opening balance for an older installation', async () => {
+    dal.queryOne.mockResolvedValueOnce(null);
+    await expect(memberOpeningBalance({ id: 8, opening_arrears: '99.00' }, 2024)).resolves.toBe(99);
   });
 });
 

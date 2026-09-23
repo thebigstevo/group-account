@@ -640,7 +640,7 @@ Use PDF for signed meeting/audit packs and CSV for analysis.
 
 Only the administrator can permanently close a year.
 
-## Before closing
+## Before submitting the year for audit
 
 - [ ] All receipts and expenses are posted.
 - [ ] Errors have been reversed and corrected.
@@ -649,30 +649,40 @@ Only the administrator can permanently close a year.
 - [ ] Member arrears are checked.
 - [ ] Budget versus actual has been reviewed.
 - [ ] Automated audit findings are resolved or explained.
-- [ ] Trustees/auditors have completed the annual audit.
-- [ ] Required reports and backups have been saved.
+- [ ] Required reports and a backup have been saved.
 
-## Close the year
+## Submit the old year and continue in the next year
 
 Path: `Administration → Fiscal years`  
 Direct page: [Fiscal years](https://ksji825.tilcsaas.com/fiscal-years)
 
-1. Select the correct year under **Close a year**.
-2. Enter a closing note.
-3. Read the permanent-action warning.
-4. Select **Close year permanently** and confirm.
+1. Select the old year under **Submit year for audit**.
+2. Enter a preparation note and select **Submit for audit**.
+3. The system freezes routine entries and prepares provisional opening arrears for the next year.
+4. Under **Open a new year**, enter the new year and select **Open year**.
+5. Confirm the new year is **Active**, review copied dues and welfare rules, verify provisional balances, and enter the new budget.
 
-Closing locks transactions and carries member balances forward. It cannot be undone through the normal interface.
+Normal work can continue in the new year while the old year waits for audit.
 
-## Open the next year
+## If the audit finds a missed receipt or expense
 
-On the same page:
+Path: `Reports → Trustee Audit → Controlled audit adjustments`
 
-1. Enter the new year under **Open a new year**.
-2. Select **Open year**.
-3. Confirm it is marked **Active**.
-4. Review copied dues rules and welfare splits.
-5. Enter and approve the new budget.
+1. An Administrator or Treasurer enters the original date, entry type, account, category, member where required, amount, reference, evidence description, and a clear reason.
+2. Select **Submit adjustment for approval**. This does not yet change the books.
+3. A different Trustee or Auditor compares the proposal with the source document.
+4. The Trustee or Auditor selects **Approve and post**, or enters a rejection reason and selects **Reject**. The requester cannot approve their own proposal.
+5. If the audit had already been signed, approval reopens it. The previous signature remains in **Audit signature history**; review the checklist and sign the new revision.
+
+## Permanently close the audited year
+
+After the audit is signed and no adjustment is awaiting a decision:
+
+1. Return to `Administration → Fiscal years`.
+2. Select the year under **Permanently close audited year**.
+3. Enter a final note, read the warning, and confirm.
+
+Permanent close finalizes carried-forward member balances and cannot be undone through the normal interface.
 
 ---
 

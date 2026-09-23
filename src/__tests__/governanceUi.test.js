@@ -38,7 +38,9 @@ describe('financial governance user interfaces', () => {
   test('trustee workspace renders evidence, checklist, budget, and completion controls', async () => {
     const itemByKey = Object.fromEntries(AUDIT_CHECKLIST.map((item, index) => [item.key, { id: index + 1, status: 'pending', notes: '' }]));
     const html = await ejs.renderFile(path.join(views, 'trustee_audit.ejs'), {
-      ...locals, year: 2026, years: [{ year: 2026, status: 'open' }], canReview: true,
+      ...locals, year: 2026, years: [{ year: 2026, status: 'pending_audit' }], canReview: true,
+      canProposeAdjustment: false, fiscalYear: { year: 2026, status: 'pending_audit' },
+      accounts: [], categories: [], members: [], adjustments: [], signoffs: [],
       evidence: {
         startDate: '2026-01-01', endDate: '2026-12-31',
         summary: { receipts: 1200, outflows: 500, unreconciledCount: 2, missingReferenceCount: 1, missingDescriptionCount: 1, reversedCount: 0 },
@@ -54,6 +56,7 @@ describe('financial governance user interfaces', () => {
     expect(html).toContain('Budget variance evidence');
     expect(html).toContain('Complete and sign audit');
     expect(html).toContain('Transaction evidence');
+    expect(html).toContain('Controlled audit adjustments');
   });
 
   test('dual-purpose categories are offered and accepted for both transaction directions', () => {
@@ -67,6 +70,9 @@ describe('financial governance user interfaces', () => {
   test('trustees can review and export evidence but budget approval remains administrator-only', () => {
     expect(serverSource).toContain("app.get('/trustee-audit', allow('admin', 'auditor', 'trustee', 'treasurer')");
     expect(serverSource).toContain("app.post('/trustee-audit/start', allow('auditor', 'trustee')");
+    expect(serverSource).toContain("app.post('/trustee-audit/adjustments', allow('admin', 'treasurer')");
+    expect(serverSource).toContain("app.post('/trustee-audit/adjustments/:id/approve', allow('auditor', 'trustee')");
+    expect(serverSource).toContain("doc.fontSize(14).font('Helvetica-Bold').text('Controlled Audit Adjustments')");
     expect(serverSource).toContain("app.post('/budgets/:year/approve', allow('admin')");
     expect(serverSource).toContain("app.get('/export/audit-log', allow('admin', 'auditor', 'trustee')");
   });

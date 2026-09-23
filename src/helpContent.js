@@ -190,6 +190,9 @@ const TOPICS = Object.freeze([
       { text: 'Begin with Auto audit to identify missing references, missing descriptions, unreconciled items, and other exceptions.', href: '/auto-audit', label: 'Run Auto audit' },
       { text: 'Open Trustee audit, select the year, and compare receipts, payments, balances, reconciliations, and budget variances.', href: '/trustee-audit', label: 'Open Trustee audit' },
       { text: 'Trustees or Auditors start the review, inspect transaction evidence and attachments, and add notes or flags.' },
+      { text: 'If a genuine receipt or expense was missed, an Administrator or Treasurer proposes it under Controlled audit adjustments with the original date, evidence, and reason.' },
+      { text: 'A different Trustee or Auditor checks the source evidence and either approves and posts the adjustment or rejects it with a reason. The requester cannot approve their own proposal.' },
+      { text: 'An approved adjustment after sign-off reopens the checklist. The previous signature remains in the history and Trustees or Auditors must review and sign the new revision.' },
       { text: 'Work through every checklist item. Mark it passed only when the evidence supports that conclusion.' },
       { text: 'Resolve or explain exceptions, record the overall conclusion, and complete and sign the audit.' },
       { text: 'Use Audit trail to verify who created, changed, reversed, approved, or reviewed records.', href: '/audit', label: 'Open Audit trail', roles: ['admin', 'trustee', 'auditor'] }
@@ -209,16 +212,17 @@ const TOPICS = Object.freeze([
   },
   {
     id: 'year-end', title: 'Fiscal year close and new-year opening',
-    summary: 'Finish the old year safely and carry member balances into the next year.',
+    summary: 'Freeze routine entries, continue into the next year while audit is delayed, and permanently close only after sign-off.',
     roles: ['admin', 'finance_secretary', 'treasurer'],
     steps: [
-      { text: 'Before closing: enter all known transactions, attach evidence, reconcile every account, review arrears, resolve audit flags, and approve final reports.' },
-      { text: 'Download and retain the reports and a backup before closing.' },
-      { text: 'Administrator: choose Administration → Fiscal years, select the correct year, add closing notes, and use Close year.', href: '/fiscal-years', label: 'Open Fiscal years' },
-      { text: 'Read the warning carefully. Closing locks the year and carries member balances forward.' },
-      { text: 'Open the new year, review copied dues and welfare rules, enter the new budget, and verify carried-forward balances before new transactions.' }
+      { text: 'Before submission: enter all known transactions, attach evidence, reconcile every account, review arrears, and download a backup.' },
+      { text: 'Administrator: choose Administration → Fiscal years and use Submit for audit. Routine entries are frozen and provisional member arrears are prepared for the next year.', href: '/fiscal-years', label: 'Open Fiscal years' },
+      { text: 'Open the next year. Review copied dues and welfare rules, enter the new budget, verify provisional balances, and continue normal work without waiting for the audit.' },
+      { text: 'Trustees or Auditors complete the audit. Missed items use Controlled audit adjustments; they are never entered through the ordinary income or expense forms for the frozen year.' },
+      { text: 'If an adjustment is approved after an audit signature, complete and sign the reopened audit revision.' },
+      { text: 'Administrator: when the audit is signed and no adjustment is awaiting a decision, return to Fiscal years and permanently close the audited year.' }
     ],
-    warning: 'Closing a fiscal year cannot be undone through the application. Never close it merely to test the button.'
+    warning: 'Permanent close cannot be undone through the application. Do not permanently close until the signed audit and all proposed adjustments are complete.'
   },
   {
     id: 'safe-working', title: 'Safe working and common problems',

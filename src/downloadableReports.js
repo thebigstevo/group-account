@@ -1,6 +1,6 @@
 const { stringify } = require('csv-stringify/sync');
 const dal = require('./dal');
-const { accountBalances, welfareLiability } = require('./services');
+const { accountBalances, memberOpeningBalance, welfareLiability } = require('./services');
 
 function fmt(value) {
   return Number(value || 0).toFixed(2);
@@ -299,6 +299,7 @@ async function financialPositionReport(asOfDate, periodLabel) {
 async function memberStatementReport(memberId, year) {
   const member = await dal.queryOne('SELECT * FROM members WHERE id = $1', [memberId]);
   if (!member) return '';
+  const openingBalance = await memberOpeningBalance(member, year);
 
   const startDate = `${year}-01-01`;
   const endDate = `${year}-12-31`;
@@ -339,7 +340,7 @@ async function memberStatementReport(memberId, year) {
   const totalPaid = transactions
     .filter(t => t.tx_type === 'receipt' && t.category_purpose === 'assessment')
     .reduce((s, t) => s + Number(t.amount), 0);
-  const balance = Number(member.opening_arrears) + Number(assessmentDue) - totalPaid;
+  const balance = openingBalance + Number(assessmentDue) - totalPaid;
 
   const rows = [
     ['KSJI MEMBER STATEMENT'],
@@ -349,7 +350,7 @@ async function memberStatementReport(memberId, year) {
     [`Generated: ${new Date().toISOString().slice(0, 10)}`],
     [],
     ['SUMMARY', '', 'Amount (GHS)'],
-    ['', 'Opening Arrears', fmt(member.opening_arrears)],
+    ['', 'Opening Arrears', fmt(openingBalance)],
     ['', 'Annual Assessment Due', fmt(assessmentDue)],
     ['', 'Welfare Portion (of assessment)', fmt(welfarePortion)],
     ['', 'Total Paid', fmt(totalPaid)],

@@ -183,7 +183,7 @@ async function exportArrearsCsv(year) {
     SELECT 
       m.name,
       m.phone,
-      m.opening_arrears,
+      COALESCE(myo.opening_arrears, m.opening_arrears) AS opening_arrears,
       COALESCE(md.assessment_due, dr.annual_assessment, 0) as assessment_due,
       COALESCE(md.welfare_portion, dr.welfare_portion, 0) as welfare_portion,
       COALESCE((
@@ -197,7 +197,7 @@ async function exportArrearsCsv(year) {
           AND t.status = 'posted'
           AND t.reverses_transaction_id IS NULL
       ), 0) as paid,
-      m.opening_arrears + COALESCE(md.assessment_due, dr.annual_assessment, 0) - COALESCE((
+      COALESCE(myo.opening_arrears, m.opening_arrears) + COALESCE(md.assessment_due, dr.annual_assessment, 0) - COALESCE((
         SELECT SUM(amount)
         FROM transactions t
         JOIN transaction_categories c ON c.name = t.category
@@ -209,6 +209,7 @@ async function exportArrearsCsv(year) {
           AND t.reverses_transaction_id IS NULL
       ), 0) as balance
     FROM members m
+    LEFT JOIN member_year_openings myo ON myo.member_id = m.id AND myo.year = $3
     LEFT JOIN member_dues md ON md.member_id = m.id AND md.year = $3
     LEFT JOIN dues_rules dr ON dr.year = $4 AND dr.active = true AND (
       (dr.min_age IS NULL OR EXTRACT(YEAR FROM AGE(CURRENT_DATE, m.dob::date)) >= dr.min_age) AND

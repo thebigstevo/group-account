@@ -202,14 +202,12 @@
   <% } %>
   <% if (yearlyBreakdown && yearlyBreakdown.length) { %>
   <div class="table-wrap"><table class="data-table">
-    <thead><tr><th>Year</th><th class="num">Assessment Due</th><th class="num">Assessment Paid</th><th class="num">Total Paid</th><th class="num">Year Balance</th><th class="num">Cumulative</th></tr></thead>
+    <thead><tr><th>Year</th><th class="num">Opening balance</th><th class="num">Assessment Due</th><th class="num">Assessment Paid</th><th class="num">Total Paid</th><th class="num">Annual activity</th><th class="num">Closing balance</th></tr></thead>
     <tbody>
-      <% if (member.opening_arrears && Number(member.opening_arrears) !== 0) { %>
-      <tr><td><em>Opening</em></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num"><%= formatMoney(member.opening_arrears) %></td></tr>
-      <% } %>
       <% yearlyBreakdown.forEach(function(row) { %>
       <tr>
         <td><%= row.year %></td>
+        <td class="num"><%= formatMoney(row.opening_balance) %></td>
         <td class="num"><%= formatMoney(row.assessment_due) %></td>
         <td class="num"><%= formatMoney(row.assessment_paid) %></td>
         <td class="num"><%= formatMoney(row.total_paid) %></td>

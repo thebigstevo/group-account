@@ -258,6 +258,10 @@ async function migrate() {
     )
   `);
   await run(`ALTER TABLE fiscal_years ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT false`);
+  await run(`ALTER TABLE fiscal_years ADD COLUMN IF NOT EXISTS pending_audit_at TIMESTAMP`);
+  await run(`ALTER TABLE fiscal_years ADD COLUMN IF NOT EXISTS pending_audit_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await run(`ALTER TABLE fiscal_years DROP CONSTRAINT IF EXISTS fiscal_years_status_check`);
+  await run(`ALTER TABLE fiscal_years ADD CONSTRAINT fiscal_years_status_check CHECK (status IN ('open','pending_audit','closed'))`);
   await run(`UPDATE fiscal_years SET is_active = false WHERE status = 'closed' AND is_active = true`);
   await run(`
     UPDATE fiscal_years SET is_active = true
@@ -266,6 +270,19 @@ async function migrate() {
   `);
   await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_fiscal_years_one_active ON fiscal_years(is_active) WHERE is_active = true`);
   await run(`ALTER TABLE member_import_batches ADD COLUMN IF NOT EXISTS fiscal_year INTEGER REFERENCES fiscal_years(year) ON DELETE RESTRICT`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS member_year_openings (
+      member_id INTEGER NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+      year INTEGER NOT NULL,
+      opening_arrears NUMERIC(12,2) NOT NULL DEFAULT 0,
+      source_year INTEGER REFERENCES fiscal_years(year) ON DELETE RESTRICT,
+      provisional BOOLEAN NOT NULL DEFAULT true,
+      updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (member_id, year)
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_member_year_openings_year ON member_year_openings(year)`);
   console.log('[migrate]   ✓ fiscal_years');
 
   await run(`
@@ -608,6 +625,86 @@ async function migrate() {
   // Enhance audit_reviews with overall_conclusion and recommendation columns
   await run(`ALTER TABLE audit_reviews ADD COLUMN IF NOT EXISTS overall_conclusion TEXT`);
   await run(`ALTER TABLE audit_reviews ADD COLUMN IF NOT EXISTS recommendation VARCHAR(5000)`);
+  await run(`ALTER TABLE audit_reviews ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1`);
+  await run(`ALTER TABLE audit_reviews ADD COLUMN IF NOT EXISTS reopened_at TIMESTAMP`);
+  await run(`ALTER TABLE audit_reviews ADD COLUMN IF NOT EXISTS reopened_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await run(`ALTER TABLE audit_reviews ADD COLUMN IF NOT EXISTS reopen_reason TEXT`);
+  await run(`
+    CREATE TABLE IF NOT EXISTS audit_review_signoffs (
+      id SERIAL PRIMARY KEY,
+      review_id INTEGER NOT NULL REFERENCES audit_reviews(id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL,
+      overall_conclusion TEXT NOT NULL,
+      overall_notes TEXT,
+      recommendation VARCHAR(5000),
+      completed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      completed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      UNIQUE(review_id, revision)
+    )
+  `);
+  await run(`
+    INSERT INTO audit_review_signoffs (
+      review_id, revision, overall_conclusion, overall_notes, recommendation, completed_by, completed_at
+    )
+    SELECT id, COALESCE(revision, 1), COALESCE(overall_conclusion, overall_notes, 'Completed audit'),
+      overall_notes, recommendation, completed_by, COALESCE(completed_at, NOW())
+    FROM audit_reviews
+    WHERE status = 'completed'
+    ON CONFLICT (review_id, revision) DO NOTHING
+  `);
+  await run(`
+    CREATE TABLE IF NOT EXISTS audit_adjustments (
+      id SERIAL PRIMARY KEY,
+      year INTEGER NOT NULL REFERENCES fiscal_years(year) ON DELETE RESTRICT,
+      review_id INTEGER NOT NULL REFERENCES audit_reviews(id) ON DELETE RESTRICT,
+      tx_type VARCHAR(20) NOT NULL CHECK (tx_type IN ('receipt','expense')),
+      tx_date VARCHAR(10) NOT NULL,
+      member_id INTEGER REFERENCES members(id) ON DELETE SET NULL,
+      account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+      category VARCHAR(255) NOT NULL,
+      description TEXT,
+      amount NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+      welfare_component NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (welfare_component >= 0),
+      reference TEXT,
+      reason TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','approved','rejected')),
+      requested_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      requested_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      decided_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      decided_at TIMESTAMP,
+      decision_notes TEXT,
+      applied_transaction_id INTEGER REFERENCES transactions(id) ON DELETE RESTRICT
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_audit_adjustments_year_status ON audit_adjustments(year, status)`);
+  await run(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_audit_adjustment BOOLEAN NOT NULL DEFAULT false`);
+  await run(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS audit_adjustment_id INTEGER REFERENCES audit_adjustments(id) ON DELETE RESTRICT`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_audit_adjustment ON transactions(audit_adjustment_id) WHERE audit_adjustment_id IS NOT NULL`);
+  await run(`
+    CREATE OR REPLACE FUNCTION enforce_transaction_fiscal_year_status()
+    RETURNS TRIGGER AS $$
+    DECLARE year_status VARCHAR(20);
+    BEGIN
+      PERFORM pg_advisory_xact_lock(92301, EXTRACT(YEAR FROM NEW.tx_date::date)::int);
+      SELECT status INTO year_status FROM fiscal_years
+      WHERE year = EXTRACT(YEAR FROM NEW.tx_date::date)::int;
+      IF NEW.is_audit_adjustment THEN
+        IF year_status IS DISTINCT FROM 'pending_audit' THEN
+          RAISE EXCEPTION 'Audit adjustments require a fiscal year pending audit';
+        END IF;
+      ELSIF year_status IS DISTINCT FROM 'open' THEN
+        RAISE EXCEPTION 'Routine transactions require an open fiscal year';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  await run(`DROP TRIGGER IF EXISTS trg_transaction_fiscal_year_status ON transactions`);
+  await run(`
+    CREATE TRIGGER trg_transaction_fiscal_year_status
+    BEFORE INSERT ON transactions
+    FOR EACH ROW EXECUTE FUNCTION enforce_transaction_fiscal_year_status()
+  `);
   console.log('[migrate]   ✓ audit_reviews enhanced (overall_conclusion, recommendation)');
 
   // Sessions table for connect-pg-simple

@@ -5,7 +5,7 @@
   <div>
     <span class="eyebrow">Year management</span>
     <h1>Fiscal years</h1>
-    <p>Open a new year to begin recording transactions. Close a year to lock it and carry arrears forward.</p>
+    <p>Move each year through active entry, independent audit, and permanent close without delaying the next accounting year.</p>
   </div>
 </section>
 <p class="context-help no-print">New to year setup? <a href="/help#year-end">Read the fiscal-year guide</a>.</p>
@@ -43,7 +43,7 @@
             <% years.forEach(function(fy) { %>
               <tr>
                 <td><strong><%= fy.year %></strong></td>
-                <td><span class="badge <%= fy.status === 'open' ? 'badge--success' : 'badge--soft' %>"><%= fy.status %></span></td>
+                <td><span class="badge <%= fy.status === 'open' ? 'badge--success' : (fy.status === 'pending_audit' ? 'badge--warning' : 'badge--soft') %>"><%= fy.status.replace('_', ' ') %></span></td>
                 <td>
                   <% if (fy.is_active) { %>
                     <span class="badge badge--success">Active</span>
@@ -84,39 +84,49 @@
 
     <% const openYears = years.filter(function(y) { return y.status === 'open' && y.is_active; }); %>
     <% if (openYears.length > 0) { %>
-      <h2 style="margin-top: var(--space-6);">Close a year</h2>
-      <p class="text-muted text-sm">
-        Closing a year will:
-      </p>
+      <h2 style="margin-top: var(--space-6);">Submit year for audit</h2>
+      <p class="text-muted text-sm">Use this when routine entries are complete, even if the trustees cannot audit immediately.</p>
       <ul class="text-muted text-sm" style="margin: 0 0 var(--space-3) var(--space-4); padding: 0;">
-        <li>Lock all transactions in that year (no new entries, no reversals)</li>
-        <li>Calculate each member's outstanding balance</li>
-        <li>Set that balance as their opening arrears for the next year</li>
+        <li>Locks routine entries and reversals in the submitted year</li>
+        <li>Creates provisional opening arrears for the next year</li>
+        <li>Allows the next year to be opened while audit work continues</li>
       </ul>
       <div class="warning-box">
-        <strong>This action cannot be undone.</strong> Make sure all transactions are entered and reconciled before closing.
+        <strong>Check the books first.</strong> Corrections after submission must use the controlled audit-adjustment workflow and independent approval.
       </div>
-      <form method="post" action="/fiscal-years/close" class="stack" data-validate>
+      <form method="post" action="/fiscal-years/pending-audit" class="stack" data-validate>
         <%- include('partials/csrf') %>
         <fieldset class="fieldset">
-          <legend>Close year</legend>
+          <legend>Submit for audit</legend>
           <div class="form-group">
-            <label for="close-year">Year to close *</label>
-            <select id="close-year" name="year" required>
+            <label for="audit-year-submit">Year *</label>
+            <select id="audit-year-submit" name="year" required>
               <% openYears.forEach(function(fy) { %>
                 <option value="<%= fy.year %>"><%= fy.year %></option>
               <% }) %>
             </select>
           </div>
           <div class="form-group">
-            <label for="close-notes">Notes (optional)</label>
-            <input id="close-notes" name="notes" placeholder="End of year close">
+            <label for="audit-submit-notes">Notes (optional)</label>
+            <input id="audit-submit-notes" name="notes" maxlength="1000" placeholder="Year-end preparation notes">
           </div>
         </fieldset>
-        <button class="btn btn--danger" type="submit"
+        <button class="btn btn--primary" type="submit"
           data-modal-confirm
-          data-modal-title="Close Fiscal Year"
-          data-modal-body="Are you sure you want to permanently close this fiscal year? This will lock all transactions and carry forward arrears. This action cannot be undone.">Close year permanently</button>
+          data-modal-title="Submit Fiscal Year for Audit"
+          data-modal-body="This will lock routine entries for this year and create provisional opening balances for the next year. Later corrections require independent approval.">Submit for audit</button>
+      </form>
+    <% } %>
+
+    <% const pendingYears = years.filter(function(y) { return y.status === 'pending_audit'; }); %>
+    <% if (pendingYears.length > 0) { %>
+      <h2 style="margin-top: var(--space-6);">Permanently close audited year</h2>
+      <p class="text-muted text-sm">Available only after the trustee audit is completed and every proposed adjustment has been decided.</p>
+      <form method="post" action="/fiscal-years/close" class="stack" data-validate>
+        <%- include('partials/csrf') %>
+        <div class="form-group"><label for="close-year">Audited year *</label><select id="close-year" name="year" required><% pendingYears.forEach(function(fy) { %><option value="<%= fy.year %>"><%= fy.year %></option><% }) %></select></div>
+        <div class="form-group"><label for="close-notes">Final close notes (optional)</label><input id="close-notes" name="notes" maxlength="1000" placeholder="Audit completed and approved"></div>
+        <button class="btn btn--danger" type="submit" data-modal-confirm data-modal-title="Permanently Close Fiscal Year" data-modal-body="This permanently locks the audited year and finalises the next year's opening arrears. This cannot be undone.">Permanently close audited year</button>
       </form>
     <% } %>
   </div>
@@ -134,8 +144,8 @@
       <p class="text-sm">Enter receipts, expenses, transfers. Reconcile accounts monthly. Run reports.</p>
     </div>
     <div>
-      <strong class="text-primary">3. Close year</strong>
-      <p class="text-sm">Locks the year. Each member's outstanding balance becomes their opening arrears for next year.</p>
+      <strong class="text-primary">3. Submit and audit</strong>
+      <p class="text-sm">Freeze routine entries, continue in the next year, let trustees audit, approve any corrections independently, then permanently close.</p>
     </div>
   </div>
 </section>
