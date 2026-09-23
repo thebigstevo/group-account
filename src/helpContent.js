@@ -205,6 +205,7 @@ const TOPICS = Object.freeze([
     steps: [
       { text: 'Choose Reports → Financial reports, then select the year and month.', href: '/finance/reports', label: 'Open Financial reports' },
       { text: 'Check the account balances, income, expenses, welfare liability, running balance, and member arrears.' },
+      { text: 'Use the Detailed cashbook to compare each income and expense entry with handwritten books. Filter by dates, account, or entry type, then download the PDF or full-detail CSV.', href: '/finance/cashbook', label: 'Open Detailed cashbook' },
       { text: 'Use Print to print or save the report as a PDF. Use Export CSV for spreadsheet analysis.' },
       { text: 'Choose Reports → Downloads for formal income-and-expenditure, receipts-and-payments, welfare, financial-position, and member-statement reports.', href: '/download-reports', label: 'Open Downloads' },
       { text: 'Always check the selected period and report title before sharing a file.' }

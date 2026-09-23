@@ -609,6 +609,20 @@ Direct page: [Monthly report](https://ksji825.tilcsaas.com/reports)
 5. Select **Print** to print or save as PDF.
 6. Select **Export CSV** when a spreadsheet is required.
 
+## Compare with handwritten cashbooks
+
+Path: `Finance → Cashbook`
+Direct page: [Detailed cashbook](https://ksji825.tilcsaas.com/finance/cashbook)
+
+1. Select the fiscal year and exact start and end dates.
+2. Choose all accounts or one account such as Cash, Republic Bank, or MOMO.
+3. Choose income, expenses, or both.
+4. Compare each transaction ID, date, reference, payer/payee detail, category, account, recorder, status, and amount with the handwritten book and source document.
+5. Download PDF for a readable comparison pack or CSV for full descriptions, timestamps, sorting, and annotations.
+6. Investigate every difference. Do not add a second entry until you have confirmed that the source transaction is genuinely missing.
+
+Reversed original entries remain visible as audit evidence and are excluded from posted totals.
+
 ## Formal downloads
 
 Path: `Reports → Downloads`  
@@ -616,6 +630,7 @@ Direct page: [Downloads](https://ksji825.tilcsaas.com/download-reports)
 
 Available in PDF or CSV:
 
+- Detailed Cashbook
 - Income & Expenditure
 - Receipts & Payments
 - Welfare Fund

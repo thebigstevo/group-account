@@ -5,7 +5,7 @@ jest.mock('../services', () => ({ arrearsReport: jest.fn(), budgetVsActual: jest
 
 const dal = require('../dal');
 const { budgetVsActual } = require('../services');
-const { exportBudgetActualCsv, exportTransactionsCsv, exportTransfersCsv } = require('../csvExport');
+const { exportBudgetActualCsv, exportTransactionsCsv, exportTransfersCsv, exportCashbookCsv } = require('../csvExport');
 
 afterEach(() => jest.clearAllMocks());
 
@@ -57,5 +57,41 @@ describe('governance evidence exports', () => {
     expect(dal.query.mock.calls[0][0]).toContain("t.tx_type = 'transfer'");
     expect(dal.query.mock.calls[0][0]).toContain('t.reverses_transaction_id IS NULL');
     expect(dal.query.mock.calls[0][1]).toEqual(['2024-01-01', '2024-12-31']);
+  });
+
+  test('detailed cashbook exports payer/payee evidence and totals only posted entries', async () => {
+    dal.query.mockResolvedValue([
+      {
+        id: 41, tx_date: '2024-05-11', tx_type: 'receipt', category: 'Assessment',
+        amount: 3100, reference: 'RCPT-41', description: 'Annual assessment', status: 'posted',
+        reconciled: false, reversal_reason: null, is_audit_adjustment: false,
+        member_name: 'Abraham Lynix', account_name: 'Cash', recorded_by: 'Administrator',
+        created_at: '2024-05-11T12:00:00Z'
+      },
+      {
+        id: 42, tx_date: '2024-05-12', tx_type: 'expense', category: 'Stationery',
+        amount: 50, reference: 'VCH-42', description: 'Paid to Print House', status: 'posted',
+        reconciled: false, reversal_reason: null, is_audit_adjustment: false,
+        member_name: null, account_name: 'Cash', recorded_by: 'Administrator',
+        created_at: '2024-05-12T12:00:00Z'
+      },
+      {
+        id: 43, tx_date: '2024-05-13', tx_type: 'expense', category: 'Stationery',
+        amount: 25, reference: 'VCH-43', description: 'Duplicate voucher', status: 'reversed',
+        reconciled: false, reversal_reason: 'Duplicate', is_audit_adjustment: false,
+        member_name: null, account_name: 'Cash', recorded_by: 'Administrator',
+        created_at: '2024-05-13T12:00:00Z'
+      }
+    ]);
+
+    const csv = await exportCashbookCsv({ startDate: '2024-01-01', endDate: '2024-12-31', entryType: 'all' });
+    expect(csv).toContain('Receipt / Voucher Reference');
+    expect(csv).toContain('Payer / Payee / Source');
+    expect(csv).toContain('Abraham Lynix');
+    expect(csv).toContain('Paid to Print House');
+    expect(csv).toContain('Included in Totals');
+    expect(csv).toContain('Income 3100.00 | Expenses 50.00 | Net 3050.00');
+    expect(dal.query.mock.calls[0][0]).toContain("t.tx_type IN ('receipt','expense','welfare_payout')");
+    expect(dal.query.mock.calls[0][0]).toContain('t.reverses_transaction_id IS NULL');
   });
 });
