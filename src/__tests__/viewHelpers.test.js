@@ -12,6 +12,7 @@ describe('view date helpers', () => {
     expect(formatDate(null, '—')).toBe('—');
     expect(formatDate('not-a-date', '—')).toBe('—');
     expect(formatDateTime(new Date('2026-07-13T18:52:43.000Z'))).toBe('2026-07-13 18:52 UTC');
+    expect(formatDateTime('1788132951411')).toBe('2026-08-30 23:35 UTC');
   });
 
   test('renders fiscal years returned as Date objects', async () => {
