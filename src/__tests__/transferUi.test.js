@@ -64,6 +64,9 @@ describe('account transfer workflow', () => {
       members: []
     });
     expect(html).toContain('Transfer Register');
+    expect(html).toContain('Detailed Cashbook');
+    expect(html).toContain('/export/cashbook?year=2024&amp;startDate=2024-01-01&amp;endDate=2024-12-31&amp;entryType=all');
+    expect(html).toContain('/finance/cashbook?year=2024&amp;startDate=2024-01-01&amp;endDate=2024-12-31');
     expect(html).toContain('/export/transfers?startDate=2024-01-01&amp;endDate=2024-12-31');
     expect(html).toContain('/export/transfers?startDate=2024-01-01&amp;endDate=2024-12-31&amp;format=pdf');
   });

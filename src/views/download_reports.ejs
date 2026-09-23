@@ -16,6 +16,12 @@
       </thead>
       <tbody>
         <tr>
+          <td><strong>Detailed Cashbook</strong></td>
+          <td>Every income and expense entry with date, payer/payee detail, reference, account, category, recorder, status and amount</td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/export/cashbook?year=<%= year %>&amp;startDate=<%= year %>-01-01&amp;endDate=<%= year %>-12-31&amp;entryType=all" download>CSV</a></td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/export/cashbook?year=<%= year %>&amp;startDate=<%= year %>-01-01&amp;endDate=<%= year %>-12-31&amp;entryType=all&amp;format=pdf" download style="color:var(--danger-base)">PDF</a></td>
+        </tr>
+        <tr>
           <td><strong>Income &amp; Expenditure</strong></td>
           <td>Income less expenses, surplus or deficit</td>
           <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/income-expenditure?year=<%= year %>" download>CSV</a></td>
@@ -47,6 +53,8 @@
         </tr>
       </tbody>
     </table>
+
+    <p style="margin-top:var(--space-4)"><a class="btn btn--primary" href="/finance/cashbook?year=<%= year %>&amp;startDate=<%= year %>-01-01&amp;endDate=<%= year %>-12-31">Open detailed cashbook with filters</a></p>
 
     <h2 style="margin-top: var(--space-5);">Member Statement</h2>
     <form method="get" action="/download/member-statement" style="display:flex; align-items:end; gap: var(--space-3); flex-wrap:wrap;">

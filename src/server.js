@@ -38,6 +38,8 @@ const {
   exportTransactionsCsv,
   transferRegisterReport,
   exportTransfersCsv,
+  cashbookRegisterReport,
+  exportCashbookCsv,
   exportArrearsCsv,
   exportMemberCleanupCsv,
   exportReportCsv,
@@ -3518,10 +3520,38 @@ app.get('/audit', allow('admin', 'auditor', 'trustee'), asyncHandler(async (req,
   res.render('audit', { rows });
 }));
 
+// Detailed cashbook register for comparing Treasurio with handwritten books.
+app.get('/finance/cashbook', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'viewer'), asyncHandler(async (req, res) => {
+  const year = Number(req.query.year || selectedYear(req));
+  let period;
+  try {
+    period = normalizeTransferPeriod(year, req.query.startDate, req.query.endDate);
+  } catch (error) {
+    if (error instanceof TransferValidationError) return res.status(400).render('error', { message: error.message });
+    throw error;
+  }
+  const entryType = ['income', 'expense'].includes(req.query.entryType) ? req.query.entryType : 'all';
+  const accountId = req.query.accountId ? Number(req.query.accountId) : null;
+  const accounts = await dal.query('SELECT id, name FROM accounts WHERE active=true ORDER BY name');
+  const selectedAccount = accountId ? accounts.find((account) => Number(account.id) === accountId) : null;
+  if (accountId && !selectedAccount) return res.status(400).render('error', { message: 'Select a valid account.' });
+  const report = await cashbookRegisterReport({ ...period, entryType, accountId });
+  res.render('cashbook', {
+    year,
+    period,
+    entryType,
+    accountId,
+    accountName: selectedAccount ? selectedAccount.name : null,
+    accounts,
+    ...report
+  });
+}));
+
 // Downloadable reports page
 app.get('/download-reports', requireLogin, asyncHandler(async (req, res) => {
+  const year = Number(req.query.year || selectedYear(req));
   const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
-  res.render('download_reports', { year: selectedYear(req), members });
+  res.render('download_reports', { year, members });
 }));
 
 // Downloadable report endpoints
@@ -3909,6 +3939,45 @@ app.get('/export/transactions', requireLogin, asyncHandler(async (req, res) => {
   } catch (error) {
     console.error('Export error:', error);
     res.status(500).render('error', { message: 'Failed to export transactions.' });
+  }
+}));
+
+app.get('/export/cashbook', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'viewer'), asyncHandler(async (req, res) => {
+  try {
+    const year = Number(req.query.year || selectedYear(req));
+    const period = normalizeTransferPeriod(year, req.query.startDate, req.query.endDate);
+    const entryType = ['income', 'expense'].includes(req.query.entryType) ? req.query.entryType : 'all';
+    const accountId = req.query.accountId ? Number(req.query.accountId) : null;
+    const account = accountId
+      ? await dal.queryOne('SELECT id, name FROM accounts WHERE id=$1 AND active=true', [accountId])
+      : null;
+    if (accountId && !account) return res.status(400).render('error', { message: 'Select a valid account.' });
+    const filters = { ...period, entryType, accountId };
+    const format = req.query.format === 'pdf' ? 'pdf' : 'csv';
+
+    if (format === 'pdf') {
+      const report = await cashbookRegisterReport(filters);
+      const doc = pdf.createCashbookRegisterDoc({
+        ...report,
+        ...period,
+        accountName: account ? account.name : null,
+        groupName: config.groupName,
+        org: res.locals.org
+      });
+      pdf.sendPdf(res, doc, `cashbook-${entryType}-${period.startDate}-to-${period.endDate}.pdf`);
+    } else {
+      const csv = await exportCashbookCsv(filters);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="cashbook-${entryType}-${period.startDate}-to-${period.endDate}.csv"`);
+      res.send(csv);
+    }
+    await dal.audit(req.session.user.id, 'export', 'cashbook_register', null, { ...filters, format });
+  } catch (error) {
+    if (error instanceof TransferValidationError) {
+      return res.status(400).render('error', { message: error.message });
+    }
+    console.error('Export error:', error);
+    res.status(500).render('error', { message: 'Failed to export the detailed cashbook.' });
   }
 }));
 
