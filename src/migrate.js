@@ -1006,7 +1006,10 @@ async function migrate() {
         transaction_id, fund_classification_id, amount, category, description
       )
       SELECT t.id,
-        CASE WHEN t.tx_type='welfare_payout' OR tc.purpose='welfare_payout' THEN $1 ELSE $2 END,
+        CASE
+          WHEN t.tx_type='welfare_payout' OR tc.purpose='welfare_payout' THEN $1::integer
+          ELSE $2::integer
+        END,
         t.amount, t.category, 'Missing outgoing allocation repair'
       FROM transactions t
       JOIN transaction_categories tc ON tc.name=t.category
