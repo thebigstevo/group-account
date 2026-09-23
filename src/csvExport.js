@@ -176,6 +176,98 @@ async function exportTransfersCsv({ startDate, endDate }) {
 }
 
 /**
+ * Detailed cashbook rows for line-by-line comparison with handwritten books.
+ * Reversal entries are omitted, while reversed originals remain visible so the
+ * report preserves the audit trail without including them in posted totals.
+ */
+async function cashbookRegisterReport({ startDate, endDate, entryType = 'all', accountId = null }) {
+  const params = [startDate, endDate];
+  let typeFilter = "t.tx_type IN ('receipt','expense','welfare_payout')";
+  if (entryType === 'income') typeFilter = "t.tx_type = 'receipt'";
+  if (entryType === 'expense') typeFilter = "t.tx_type IN ('expense','welfare_payout')";
+  let accountFilter = '';
+  if (accountId) {
+    params.push(Number(accountId));
+    accountFilter = `AND t.account_id = $${params.length}`;
+  }
+
+  const rows = await dal.query(`
+    SELECT
+      t.id,
+      t.tx_date,
+      t.tx_type,
+      t.category,
+      t.amount,
+      t.reference,
+      t.description,
+      t.status,
+      t.reconciled,
+      t.reversal_reason,
+      t.is_audit_adjustment,
+      m.name AS member_name,
+      a.name AS account_name,
+      u.name AS recorded_by,
+      t.created_at
+    FROM transactions t
+    LEFT JOIN members m ON m.id = t.member_id
+    JOIN accounts a ON a.id = t.account_id
+    LEFT JOIN users u ON u.id = t.created_by
+    WHERE ${typeFilter}
+      AND t.reverses_transaction_id IS NULL
+      AND t.tx_date >= $1
+      AND t.tx_date <= $2
+      ${accountFilter}
+    ORDER BY t.tx_date, t.id
+  `, params);
+
+  const postedRows = rows.filter((row) => row.status === 'posted');
+  const incomeTotal = postedRows
+    .filter((row) => row.tx_type === 'receipt')
+    .reduce((sum, row) => sum + Number(row.amount), 0);
+  const expenseTotal = postedRows
+    .filter((row) => ['expense', 'welfare_payout'].includes(row.tx_type))
+    .reduce((sum, row) => sum + Number(row.amount), 0);
+
+  return { rows, incomeTotal, expenseTotal, netMovement: incomeTotal - expenseTotal };
+}
+
+async function exportCashbookCsv(filters) {
+  const report = await cashbookRegisterReport(filters);
+  const formatted = report.rows.map((row) => ({
+    'Transaction ID': row.id,
+    Date: row.tx_date,
+    'Entry Type': row.tx_type === 'receipt' ? 'Income' : 'Expense',
+    'Receipt / Voucher Reference': row.reference || '',
+    'Payer / Payee / Source': row.member_name || row.description || '',
+    Member: row.member_name || '',
+    Description: row.description || '',
+    Category: row.category,
+    Account: row.account_name,
+    Amount: formatCurrency(row.amount),
+    Status: row.status,
+    'Included in Totals': row.status === 'posted' ? 'Yes' : 'No',
+    Reconciled: row.reconciled ? 'Yes' : 'No',
+    'Audit Adjustment': row.is_audit_adjustment ? 'Yes' : 'No',
+    'Reversal Reason': row.reversal_reason || '',
+    'Recorded By': row.recorded_by || '',
+    'Recorded At': row.created_at || ''
+  }));
+
+  formatted.push({
+    'Transaction ID': '',
+    Date: 'TOTALS',
+    'Entry Type': '',
+    'Receipt / Voucher Reference': '',
+    'Payer / Payee / Source': `Income ${formatCurrency(report.incomeTotal)} | Expenses ${formatCurrency(report.expenseTotal)} | Net ${formatCurrency(report.netMovement)}`,
+    Member: '', Description: '', Category: '', Account: '', Amount: '', Status: '',
+    'Included in Totals': '', Reconciled: '', 'Audit Adjustment': '',
+    'Reversal Reason': '', 'Recorded By': '', 'Recorded At': ''
+  });
+
+  return arrayToCsv(formatted);
+}
+
+/**
  * Export arrears report as CSV
  */
 async function exportArrearsCsv(year) {
@@ -419,6 +511,8 @@ module.exports = {
   exportTransactionsCsv,
   transferRegisterReport,
   exportTransfersCsv,
+  cashbookRegisterReport,
+  exportCashbookCsv,
   exportArrearsCsv,
   exportMemberCleanupCsv,
   exportReportCsv,

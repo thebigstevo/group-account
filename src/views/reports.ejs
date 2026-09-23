@@ -8,7 +8,7 @@
       <h1>Monthly executive report</h1>
       <p><%= period.label %>. Review the period position or use browser print to save a PDF.</p>
     </div>
-    <a class="btn btn--secondary btn--sm no-print" href="/export/report?year=<%= year %>&month=<%= month %>">Export CSV</a>
+    <div class="actions no-print"><a class="btn btn--secondary btn--sm" href="/finance/cashbook?year=<%= year %>&amp;startDate=<%= year %>-01-01&amp;endDate=<%= year %>-12-31">Detailed cashbook</a><a class="btn btn--secondary btn--sm" href="/export/report?year=<%= year %>&amp;month=<%= month %>">Export CSV</a></div>
   </section>
 
   <form method="get" action="/reports" class="report-toolbar no-print" aria-label="Report period">

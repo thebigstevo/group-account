@@ -232,11 +232,16 @@ function dataRow(doc, columns, values, opts = {}) {
     doc.rect(MARGIN, y - 1, CONTENT_WIDTH, 13).fill(COLORS.surface);
   }
 
-  doc.font(isBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(8).fillColor(COLORS.dark);
+  doc.font(isBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(opts.fontSize || 8).fillColor(COLORS.dark);
   let x = MARGIN;
   columns.forEach((col, i) => {
     const val = String(values[i] || '');
-    doc.text(val, x + 4, y + 1, { width: col.width - 8, align: col.align || 'left' });
+    doc.text(val, x + 4, y + 1, {
+      width: col.width - 8,
+      align: col.align || 'left',
+      lineBreak: false,
+      ellipsis: true
+    });
     x += col.width;
   });
 
@@ -408,6 +413,79 @@ function createTransferRegisterDoc({ rows, postedTotal, startDate, endDate, grou
   return doc;
 }
 
+/**
+ * Build a detailed income and expense cashbook for line-by-line comparison
+ * with handwritten source books. The PDF is intentionally split into income
+ * and expense sections so payer/source and payee/detail labels stay clear.
+ */
+function createCashbookRegisterDoc({ rows, incomeTotal, expenseTotal, netMovement, startDate, endDate, groupName, org, accountName }) {
+  const doc = createDoc({
+    title: 'Detailed Cashbook Register',
+    period: `For the period: ${startDate} to ${endDate}${accountName ? ` | Account: ${accountName}` : ''}`,
+    groupName,
+    org,
+    bufferPages: true
+  });
+
+  sectionHeading(doc, 'Register summary');
+  tableRow(doc, 'Income entries shown', String(rows.filter((row) => row.tx_type === 'receipt').length));
+  tableRow(doc, 'Expense entries shown', String(rows.filter((row) => ['expense', 'welfare_payout'].includes(row.tx_type)).length));
+  tableRow(doc, 'Total posted income', fmtMoney(incomeTotal), { bold: true });
+  tableRow(doc, 'Total posted expenses', fmtMoney(expenseTotal), { bold: true });
+  subtotalLine(doc);
+  tableRow(doc, 'NET CASH MOVEMENT', fmtMoney(netMovement), { bold: true });
+
+  const columns = [
+    { label: 'Date', width: 48 },
+    { label: 'Reference', width: 66 },
+    { label: 'Payer / payee / detail', width: 86 },
+    { label: 'Category', width: 78 },
+    { label: 'Account', width: 54 },
+    { label: 'Recorded by', width: 56 },
+    { label: 'Status', width: 45 },
+    { label: 'Amount', width: 72, align: 'right' }
+  ];
+
+  const drawSection = (title, sectionRows, total, emptyText) => {
+    sectionHeading(doc, title);
+    if (!sectionRows.length) {
+      labelRow(doc, emptyText);
+      return;
+    }
+    tableHeader(doc, columns);
+    sectionRows.forEach((row, index) => {
+      if (doc.y > 720) {
+        doc.addPage();
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(COLORS.dark);
+        doc.text(`${title.toUpperCase()} - CONTINUED`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+        doc.moveDown(0.5);
+        tableHeader(doc, columns);
+      }
+      const party = [row.member_name, row.description].filter(Boolean).join(' - ') || '-';
+      dataRow(doc, columns, [
+        String(row.tx_date || '').slice(0, 10),
+        compactCell(row.reference || '-', 14),
+        compactCell(party, 21),
+        compactCell(row.category, 18),
+        compactCell(row.account_name, 13),
+        compactCell(row.recorded_by || 'System', 13),
+        row.status === 'posted' ? 'Posted' : 'Reversed',
+        fmtMoney(row.amount)
+      ], { rowIndex: index, fontSize: 6.8 });
+    });
+    doc.moveDown(0.5);
+    subtotalLine(doc);
+    tableRow(doc, `TOTAL POSTED ${title.toUpperCase()}`, fmtMoney(total), { bold: true });
+  };
+
+  drawSection('Income', rows.filter((row) => row.tx_type === 'receipt'), incomeTotal, 'No income was recorded in the selected period.');
+  drawSection('Expenses', rows.filter((row) => ['expense', 'welfare_payout'].includes(row.tx_type)), expenseTotal, 'No expenses were recorded in the selected period.');
+  labelRow(doc, 'Reversed original entries remain visible for audit evidence and are excluded from posted totals. Full descriptions and timestamps are available in the CSV version.');
+  signatureBlock(doc, org);
+  addPageNumbers(doc);
+  return doc;
+}
+
 module.exports = {
   createDoc,
   sectionHeading,
@@ -422,6 +500,7 @@ module.exports = {
   sendPdf,
   addPageNumbers,
   createTransferRegisterDoc,
+  createCashbookRegisterDoc,
   MARGIN,
   CONTENT_WIDTH,
   COLORS

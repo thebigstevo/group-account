@@ -147,6 +147,36 @@ describe('finance and dashboard template rendering', () => {
     expect(html).toContain('No expenses recorded for this month.');
   });
 
+  test('detailed cashbook renders separate source-book registers and export controls', async () => {
+    const html = await ejs.renderFile(path.join(views, 'cashbook.ejs'), {
+      ...baseLocals,
+      currentPath: '/finance/cashbook',
+      year: 2024,
+      period: { startDate: '2024-01-01', endDate: '2024-12-31' },
+      entryType: 'all',
+      accountId: null,
+      accountName: null,
+      accounts: [{ id: 1, name: 'Cash' }],
+      rows: [
+        { ...transaction, tx_date: '2024-05-11', member_name: 'Abraham Lynix', description: 'Assessment payment', account_name: 'Cash', amount: 3100, is_audit_adjustment: false },
+        { ...transaction, id: 2, tx_date: '2024-05-12', tx_type: 'expense', member_name: null, description: 'Paid to Print House', category: 'Stationery', account_name: 'Cash', amount: 50, is_audit_adjustment: false }
+      ],
+      incomeTotal: 3100,
+      expenseTotal: 50,
+      netMovement: 3050
+    });
+    expect(html).toContain('<h1>Detailed cashbook</h1>');
+    expect(html).toContain('Income register');
+    expect(html).toContain('Expense register');
+    expect(html).toContain('Abraham Lynix');
+    expect(html).toContain('Paid to Print House');
+    expect(html).toContain('Download CSV');
+    expect(html).toContain('Download PDF');
+    expect(html).toContain('class="mobile-list"');
+    expect(serverSource).toContain("app.get('/finance/cashbook'");
+    expect(serverSource).toContain("app.get('/export/cashbook'");
+  });
+
   test('income register excludes posted reversal audit entries from desktop and mobile totals', async () => {
     const html = await ejs.renderFile(path.join(views, 'finance_list.ejs'), {
       ...baseLocals,

@@ -1,0 +1,68 @@
+<%- include('partials/header') %>
+<% locals.title = 'Detailed Cashbook'; %>
+<%
+  const queryParts = [
+    'year=' + encodeURIComponent(year),
+    'startDate=' + encodeURIComponent(period.startDate),
+    'endDate=' + encodeURIComponent(period.endDate),
+    'entryType=' + encodeURIComponent(entryType)
+  ];
+  if (accountId) queryParts.push('accountId=' + encodeURIComponent(accountId));
+  const exportQuery = queryParts.join('&');
+  const incomeRows = rows.filter(function(row) { return row.tx_type === 'receipt'; });
+  const expenseRows = rows.filter(function(row) { return row.tx_type === 'expense' || row.tx_type === 'welfare_payout'; });
+%>
+
+<div class="page-container">
+  <section class="page-title">
+    <div>
+      <span class="eyebrow">Finance · Source-book comparison</span>
+      <h1>Detailed cashbook</h1>
+      <p>Compare every income and expense entry with handwritten cashbooks, receipts, vouchers, and account statements.</p>
+    </div>
+    <div class="actions no-print">
+      <a class="btn btn--secondary" href="/export/cashbook?<%= exportQuery %>">Download CSV</a>
+      <a class="btn btn--secondary" href="/export/cashbook?<%= exportQuery %>&format=pdf">Download PDF</a>
+      <button class="btn btn--secondary" type="button" data-print>Print</button>
+    </div>
+  </section>
+  <%- include('partials/finance-nav') %>
+
+  <section class="panel no-print">
+    <form method="get" action="/finance/cashbook" class="report-toolbar" aria-label="Cashbook report filters">
+      <div class="report-toolbar__fields">
+        <div class="form-group"><label for="cashbook-year">Fiscal year</label><input id="cashbook-year" name="year" type="number" value="<%= year %>" required></div>
+        <div class="form-group"><label for="cashbook-start">Start date</label><input id="cashbook-start" name="startDate" type="date" value="<%= period.startDate %>" required></div>
+        <div class="form-group"><label for="cashbook-end">End date</label><input id="cashbook-end" name="endDate" type="date" value="<%= period.endDate %>" required></div>
+        <div class="form-group"><label for="cashbook-type">Entries</label><select id="cashbook-type" name="entryType"><option value="all" <%= entryType === 'all' ? 'selected' : '' %>>Income and expenses</option><option value="income" <%= entryType === 'income' ? 'selected' : '' %>>Income only</option><option value="expense" <%= entryType === 'expense' ? 'selected' : '' %>>Expenses only</option></select></div>
+        <div class="form-group"><label for="cashbook-account">Account</label><select id="cashbook-account" name="accountId"><option value="">All accounts</option><% accounts.forEach(function(account) { %><option value="<%= account.id %>" <%= Number(accountId) === Number(account.id) ? 'selected' : '' %>><%= account.name %></option><% }) %></select></div>
+      </div>
+      <div class="report-toolbar__actions"><button class="btn btn--primary" type="submit">View report</button></div>
+    </form>
+  </section>
+
+  <section class="summary-strip" aria-label="Cashbook totals">
+    <div class="summary-strip__item"><span class="summary-strip__label">Posted income</span><strong class="summary-strip__value"><%= formatMoney(incomeTotal) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Posted expenses</span><strong class="summary-strip__value"><%= formatMoney(expenseTotal) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Net cash movement</span><strong class="summary-strip__value"><%= formatMoney(netMovement) %></strong></div>
+    <div class="summary-strip__item"><span class="summary-strip__label">Report period</span><strong class="summary-strip__value"><%= period.startDate %><br><small>to <%= period.endDate %></small></strong></div>
+  </section>
+
+  <% function renderRegister(title, list, partyLabel, total) { const totalLabel = title.replace(' register', '').toLowerCase(); %>
+  <section class="panel">
+    <div class="section-head"><div><h2><%= title %></h2><p><%= list.length %> source-book entries<%= accountName ? ' for ' + accountName : '' %>.</p></div><strong><%= formatMoney(total) %></strong></div>
+    <% if (!list.length) { %><div class="empty-state"><h2>No <%= title.toLowerCase() %></h2><p>No entries match the selected period and account.</p></div><% } else { %>
+    <div class="table-wrap desktop-table"><table class="data-table"><thead><tr><th>ID</th><th>Date</th><th>Reference</th><th><%= partyLabel %></th><th>Description</th><th>Category</th><th>Account</th><th>Recorded by</th><th>Status</th><th class="num">Amount</th></tr></thead><tbody>
+      <% list.forEach(function(row) { %><tr><td>#<%= row.id %></td><td><%= formatDate(row.tx_date) %></td><td><%= row.reference || '—' %></td><td><%= row.member_name || row.description || '—' %></td><td><%= row.description || '—' %></td><td><%= row.category %><% if (row.is_audit_adjustment) { %><br><span class="badge badge--warning">Audit adjustment</span><% } %></td><td><%= row.account_name %></td><td><%= row.recorded_by || 'System' %></td><td><span class="badge <%= row.status === 'posted' ? 'badge--success' : 'badge--danger' %>"><%= row.status %></span><br><small><%= row.reconciled ? 'Reconciled' : 'Unreconciled' %></small></td><td class="num"><%= formatMoney(row.amount) %></td></tr><% }) %>
+    </tbody><tfoot><tr class="data-table__total-row"><td colspan="9"><strong>Total posted <%= totalLabel %></strong></td><td class="num"><strong><%= formatMoney(total) %></strong></td></tr></tfoot></table></div>
+    <div class="mobile-list"><% list.forEach(function(row) { %><article class="transaction-card"><div class="transaction-card__top"><strong><%= row.member_name || row.description || row.category %></strong><span class="transaction-card__amount"><%= formatMoney(row.amount) %></span></div><div class="transaction-card__meta"><span>#<%= row.id %></span><span><%= formatDate(row.tx_date) %></span><span><%= row.account_name %></span><span class="badge <%= row.status === 'posted' ? 'badge--success' : 'badge--danger' %>"><%= row.status %></span></div><p><%= row.category %><% if (row.description && row.member_name) { %> · <%= row.description %><% } %></p><small>Reference: <%= row.reference || '—' %> · Recorded by <%= row.recorded_by || 'System' %></small></article><% }) %><div class="mobile-list__total"><span>Total posted <%= totalLabel %></span><strong><%= formatMoney(total) %></strong></div></div>
+    <% } %>
+  </section>
+  <% } %>
+
+  <% if (entryType !== 'expense') { renderRegister('Income register', incomeRows, 'Payer or source', incomeTotal); } %>
+  <% if (entryType !== 'income') { renderRegister('Expense register', expenseRows, 'Payee or detail', expenseTotal); } %>
+
+  <div class="info-box"><strong>Comparison rule:</strong> match the transaction ID, date, reference, person/detail, account and amount against the handwritten entry. Reversed entries remain visible for audit evidence but are excluded from posted totals.</div>
+</div>
+<%- include('partials/footer') %>
