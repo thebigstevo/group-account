@@ -60,6 +60,14 @@ describe('Phase 1 migration contract', () => {
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS annual_budget_lines');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS audit_reviews');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS audit_review_items');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS audit_review_signoffs');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS audit_adjustments');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS member_year_openings');
+    expect(sql).toContain("CHECK (status IN ('open','pending_audit','closed'))");
+    expect(sql).toContain('enforce_transaction_fiscal_year_status');
+    expect(sql).toContain('trg_transaction_fiscal_year_status');
+    expect(sql).toContain('pg_advisory_xact_lock(92301');
+    expect(sql).toContain("year_is_active IS DISTINCT FROM true");
     expect(sql).toContain('ADD COLUMN IF NOT EXISTS fiscal_year');
     expect(sql).toContain('CREATE OR REPLACE FUNCTION assign_member_foundation_defaults');
     expect(sql).toContain("CHECK (status IN ('active','suspended','expelled','transferred','resigned'))");

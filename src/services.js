@@ -199,6 +199,14 @@ async function memberPaid(memberId, year) {
   return money(row.total);
 }
 
+async function memberOpeningBalance(member, year) {
+  const row = await dal.queryOne(`
+    SELECT opening_arrears FROM member_year_openings
+    WHERE member_id=$1 AND year=$2
+  `, [member.id, year]);
+  return row ? money(row.opening_arrears) : money(member.opening_arrears);
+}
+
 async function memberDue(member, year) {
   const override = await dal.queryOne(`
     SELECT assessment_due, welfare_portion
@@ -275,12 +283,13 @@ async function arrearsReport(year = currentYear()) {
   for (const member of members) {
     const due = await memberDue(member, year);
     const paid = await memberPaid(member.id, year);
-    const balance = money(member.opening_arrears) + money(due.assessment_due) - paid;
+    const openingArrears = await memberOpeningBalance(member, year);
+    const balance = openingArrears + money(due.assessment_due) - paid;
     results.push({
       member_id: member.id,
       name: member.name,
       phone: member.phone,
-      opening_arrears: money(member.opening_arrears),
+      opening_arrears: openingArrears,
       assessment_due: money(due.assessment_due),
       welfare_portion: money(due.welfare_portion),
       paid,
@@ -451,7 +460,7 @@ async function auditEvidence(year) {
     `, [startDate, endDate]),
     dal.query(`
       SELECT t.id, t.tx_date, t.tx_type, t.category, t.amount, t.reference,
-        t.description, t.reconciled, t.status, a.name AS account_name,
+        t.description, t.reconciled, t.status, t.is_audit_adjustment, a.name AS account_name,
         ta.name AS to_account_name, u.name AS recorded_by
       FROM transactions t
       LEFT JOIN accounts a ON a.id = t.account_id
@@ -652,6 +661,7 @@ module.exports = {
   totalWelfareCollected,
   totalExpenses,
   memberPaid,
+  memberOpeningBalance,
   memberDue,
   arrearsReport,
   reportSummary,
