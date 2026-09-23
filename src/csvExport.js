@@ -1,6 +1,7 @@
 const { stringify } = require('csv-stringify/sync');
 const dal = require('./dal');
 const { arrearsReport, budgetVsActual } = require('./services');
+const { formatDateTime } = require('./viewHelpers');
 
 /**
  * Convert array of objects to CSV string
@@ -93,7 +94,7 @@ async function exportTransactionsCsv(filters = {}) {
     Status: row.status,
     Description: row.description || '',
     'Recorded By': row.recorded_by || '',
-    'Recorded At': row.created_at || ''
+    'Recorded At': formatDateTime(row.created_at)
   }));
 
   return arrayToCsv(formatted);
@@ -153,7 +154,7 @@ async function exportTransfersCsv({ startDate, endDate }) {
     Cleared: row.reconciled ? 'Yes' : 'No',
     'Reversal Reason': row.reversal_reason || '',
     'Recorded By': row.recorded_by || '',
-    'Recorded At': row.created_at || ''
+    'Recorded At': formatDateTime(row.created_at)
   }));
 
   formatted.push({
@@ -250,7 +251,7 @@ async function exportCashbookCsv(filters) {
     'Audit Adjustment': row.is_audit_adjustment ? 'Yes' : 'No',
     'Reversal Reason': row.reversal_reason || '',
     'Recorded By': row.recorded_by || '',
-    'Recorded At': row.created_at || ''
+    'Recorded At': formatDateTime(row.created_at)
   }));
 
   formatted.push({

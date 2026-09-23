@@ -2,7 +2,12 @@
 
 function asValidDate(value) {
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-  const parsed = new Date(value);
+  // Legacy SQLite imports stored timestamps as Unix milliseconds. PostgreSQL
+  // returns those BIGINT values as strings, so normalize them before parsing.
+  const normalized = typeof value === 'string' && /^\d{11,}$/.test(value.trim())
+    ? Number(value)
+    : value;
+  const parsed = new Date(normalized);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 

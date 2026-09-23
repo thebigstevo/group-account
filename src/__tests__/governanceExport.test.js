@@ -89,6 +89,7 @@ describe('governance evidence exports', () => {
     expect(csv).toContain('Payer / Payee / Source');
     expect(csv).toContain('Abraham Lynix');
     expect(csv).toContain('Paid to Print House');
+    expect(csv).toContain('2024-05-12 12:00 UTC');
     expect(csv).toContain('Included in Totals');
     expect(csv).toContain('Income 3100.00 | Expenses 50.00 | Net 3050.00');
     expect(dal.query.mock.calls[0][0]).toContain("t.tx_type IN ('receipt','expense','welfare_payout')");
