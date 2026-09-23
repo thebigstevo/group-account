@@ -684,16 +684,17 @@ async function migrate() {
     CREATE OR REPLACE FUNCTION enforce_transaction_fiscal_year_status()
     RETURNS TRIGGER AS $$
     DECLARE year_status VARCHAR(20);
+    DECLARE year_is_active BOOLEAN;
     BEGIN
       PERFORM pg_advisory_xact_lock(92301, EXTRACT(YEAR FROM NEW.tx_date::date)::int);
-      SELECT status INTO year_status FROM fiscal_years
+      SELECT status, is_active INTO year_status, year_is_active FROM fiscal_years
       WHERE year = EXTRACT(YEAR FROM NEW.tx_date::date)::int;
       IF NEW.is_audit_adjustment THEN
         IF year_status IS DISTINCT FROM 'pending_audit' THEN
           RAISE EXCEPTION 'Audit adjustments require a fiscal year pending audit';
         END IF;
-      ELSIF year_status IS DISTINCT FROM 'open' THEN
-        RAISE EXCEPTION 'Routine transactions require an open fiscal year';
+      ELSIF year_status IS DISTINCT FROM 'open' OR year_is_active IS DISTINCT FROM true THEN
+        RAISE EXCEPTION 'Routine transactions require the active open fiscal year';
       END IF;
       RETURN NEW;
     END;

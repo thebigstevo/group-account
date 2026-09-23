@@ -67,6 +67,7 @@ describe('Phase 1 migration contract', () => {
     expect(sql).toContain('enforce_transaction_fiscal_year_status');
     expect(sql).toContain('trg_transaction_fiscal_year_status');
     expect(sql).toContain('pg_advisory_xact_lock(92301');
+    expect(sql).toContain("year_is_active IS DISTINCT FROM true");
     expect(sql).toContain('ADD COLUMN IF NOT EXISTS fiscal_year');
     expect(sql).toContain('CREATE OR REPLACE FUNCTION assign_member_foundation_defaults');
     expect(sql).toContain("CHECK (status IN ('active','suspended','expelled','transferred','resigned'))");
