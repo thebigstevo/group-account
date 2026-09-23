@@ -26,6 +26,7 @@ const {
   latestCompletedAudit,
   latestReconciliations,
   memberDue,
+  memberOpeningBalance,
   runningBalanceRows,
   reportSummary,
   periodComparison,
@@ -72,6 +73,16 @@ const { createReversal } = require('./reversalService');
 const { validateTransactionEdit } = require('./transactionLifecycle');
 const { uploadTypeFor, validateUploadedFile } = require('./fileSecurity');
 const { helpForRole } = require('./helpContent');
+const {
+  YearEndValidationError,
+  approveAuditAdjustment,
+  finalizeFiscalYear,
+  listAuditAdjustments,
+  listAuditSignoffs,
+  proposeAuditAdjustment,
+  rejectAuditAdjustment,
+  submitYearForAudit
+} = require('./yearEndService');
 
 const app = express();
 const publicDirectory = path.join(__dirname, 'public');
@@ -237,7 +248,7 @@ app.use(async (req, res, next) => {
     );
     req.activeFiscalYear = activeFiscalYear;
     res.locals.activeFiscalYear = activeFiscalYear;
-    if (activeFiscalYear || req.path.startsWith('/fiscal-years') || req.path === '/logout' || req.path === '/trustee-dashboard' || req.path === '/help') return next();
+    if (activeFiscalYear || req.path.startsWith('/fiscal-years') || req.path.startsWith('/trustee-audit') || req.path.startsWith('/auto-audit') || req.path === '/logout' || req.path === '/trustee-dashboard' || req.path === '/help') return next();
     if (FISCAL_SETUP_ROLES.has(req.session.user.role)) return res.redirect('/fiscal-years?setup=1');
     return res.status(503).render('setup_required');
   } catch (error) {
@@ -653,16 +664,18 @@ app.get('/members/:id', requireLogin, asyncHandler(async (req, res) => {
   let cumulativeBalance = Number(member.opening_arrears || 0);
   for (const fy of fiscalYears) {
     const due = await memberDue(member, fy.year);
+    const openingBalance = await memberOpeningBalance(member, fy.year);
     const payments = lifetimePayments.find(p => Number(p.year) === fy.year);
     const assessmentPaid = payments ? Number(payments.assessment_paid) : 0;
-    const yearBalance = Number(due.assessment_due) - assessmentPaid;
-    cumulativeBalance += yearBalance;
+    const yearBalance = openingBalance + Number(due.assessment_due) - assessmentPaid;
+    cumulativeBalance = yearBalance;
     yearlyBreakdown.push({
       year: fy.year,
+      opening_balance: openingBalance,
       assessment_due: Number(due.assessment_due),
       assessment_paid: assessmentPaid,
       total_paid: payments ? Number(payments.total_paid) : 0,
-      year_balance: yearBalance,
+      year_balance: Number(due.assessment_due) - assessmentPaid,
       cumulative_balance: cumulativeBalance
     });
   }
@@ -1681,7 +1694,7 @@ app.post('/fiscal-years/open', allow('admin', 'finance_secretary', 'treasurer'),
     const years = await dal.query('SELECT * FROM fiscal_years ORDER BY year DESC');
     return res.status(400).render('fiscal_years', {
       years, currentYear: currentYear(), values: req.body,
-      errors: [`Fiscal year ${currentlyActive.year} is active. Close it before opening a new year.`]
+      errors: [`Fiscal year ${currentlyActive.year} is active. Submit it for audit before opening a new year.`]
     });
   }
 
@@ -1742,33 +1755,50 @@ app.post('/fiscal-years/:year/activate', allow('admin', 'finance_secretary', 'tr
   res.redirect('/fiscal-years');
 }));
 
+app.post('/fiscal-years/pending-audit', allow('admin'), asyncHandler(async (req, res) => {
+  const year = Number(req.body.year);
+  try {
+    const result = await submitYearForAudit({
+      year,
+      userId: req.session.user.id,
+      notes: String(req.body.notes || '').trim() || null
+    });
+    req.session.flash = {
+      type: 'success',
+      message: `Fiscal year ${year} is pending audit. Routine entries are locked and provisional arrears were carried forward for ${result.memberCount} members.`
+    };
+    res.redirect('/fiscal-years');
+  } catch (error) {
+    if (!(error instanceof YearEndValidationError)) throw error;
+    const years = await dal.query('SELECT * FROM fiscal_years ORDER BY year DESC');
+    res.status(400).render('fiscal_years', {
+      years, currentYear: currentYear(), currentYearExists: years.some((item) => item.year === currentYear()),
+      errors: [error.message], values: req.body
+    });
+  }
+}));
+
 app.post('/fiscal-years/close', allow('admin'), asyncHandler(async (req, res) => {
   const year = Number(req.body.year);
-  const fy = await dal.queryOne('SELECT * FROM fiscal_years WHERE year = $1', [year]);
-  if (!fy || fy.status !== 'open' || !fy.is_active) {
+  try {
+    const result = await finalizeFiscalYear({
+      year,
+      userId: req.session.user.id,
+      notes: String(req.body.notes || '').trim() || null
+    });
+    req.session.flash = {
+      type: 'success',
+      message: `Fiscal year ${year} permanently closed after audit. Final arrears were carried forward for ${result.memberCount} members.`
+    };
+    res.redirect('/fiscal-years');
+  } catch (error) {
+    if (!(error instanceof YearEndValidationError)) throw error;
     const years = await dal.query('SELECT * FROM fiscal_years ORDER BY year DESC');
-    return res.status(400).render('fiscal_years', { years, currentYear: currentYear(), errors: [`Year ${year} is not the active open fiscal year.`], values: req.body });
+    res.status(400).render('fiscal_years', {
+      years, currentYear: currentYear(), currentYearExists: years.some((item) => item.year === currentYear()),
+      errors: [error.message], values: req.body
+    });
   }
-
-  // Calculate closing arrears for each active member and carry forward
-  const arrears = await arrearsReport(year);
-
-  await dal.transaction(async (client) => {
-    for (const row of arrears) {
-      // Carry both arrears (positive) and member credits (negative) forward.
-      const carryForward = row.balance;
-      await client.query('UPDATE members SET opening_arrears = $1 WHERE id = $2', [carryForward, row.member_id]);
-    }
-
-    await client.query(
-      "UPDATE fiscal_years SET status = 'closed', is_active = false, closed_at = NOW(), closed_by = $1, notes = $2 WHERE year = $3",
-      [req.session.user.id, req.body.notes || null, year]
-    );
-  });
-
-  await dal.audit(req.session.user.id, 'close', 'fiscal_year', year, `Closed year ${year}. Arrears carried forward for ${arrears.length} members.`);
-  req.session.flash = { type: 'success', message: `Fiscal year ${year} closed. Arrears carried forward for ${arrears.length} members.` };
-  res.redirect('/fiscal-years');
 }));
 
 app.get('/dues', allow('admin', 'finance_secretary', 'treasurer', 'auditor', 'viewer'), asyncHandler(async (req, res) => {
@@ -3009,7 +3039,7 @@ app.get('/trustee-audit', allow('admin', 'auditor', 'trustee', 'treasurer'), asy
   const years = await dal.query('SELECT year, status FROM fiscal_years ORDER BY year DESC');
   const requestedYear = Number(req.query.year || selectedYear(req));
   const year = years.some((item) => Number(item.year) === requestedYear) ? requestedYear : selectedYear(req);
-  const [evidence, budget, review] = await Promise.all([
+  const [evidence, budget, review, fiscalYear, accounts, categories, members] = await Promise.all([
     auditEvidence(year),
     budgetVsActual(year),
     dal.queryOne(`
@@ -3018,7 +3048,11 @@ app.get('/trustee-audit', allow('admin', 'auditor', 'trustee', 'treasurer'), asy
       LEFT JOIN users starter ON starter.id=r.started_by
       LEFT JOIN users completer ON completer.id=r.completed_by
       WHERE r.year=$1
-    `, [year])
+    `, [year]),
+    dal.queryOne('SELECT * FROM fiscal_years WHERE year=$1', [year]),
+    dal.query('SELECT id, name FROM accounts WHERE active=true ORDER BY name'),
+    dal.query("SELECT name, kind, purpose FROM transaction_categories WHERE active=true AND kind IN ('income','expense','both') ORDER BY name"),
+    dal.query("SELECT id, name FROM members WHERE status='active' ORDER BY name")
   ]);
   const items = review ? await dal.query(`
     SELECT i.*, u.name AS reviewed_by_name
@@ -3026,9 +3060,15 @@ app.get('/trustee-audit', allow('admin', 'auditor', 'trustee', 'treasurer'), asy
     WHERE i.review_id=$1 ORDER BY i.id
   `, [review.id]) : [];
   const itemByKey = Object.fromEntries(items.map((item) => [item.item_key, item]));
+  const [adjustments, signoffs] = await Promise.all([
+    listAuditAdjustments(year),
+    listAuditSignoffs(review && review.id)
+  ]);
   res.render('trustee_audit', {
-    year, years, evidence, budget, review, checklist: AUDIT_CHECKLIST, itemByKey,
-    canReview: ['auditor', 'trustee'].includes(req.session.user.role)
+    year, years, evidence, budget, review, fiscalYear, accounts, categories, members,
+    adjustments, signoffs, checklist: AUDIT_CHECKLIST, itemByKey,
+    canReview: ['auditor', 'trustee'].includes(req.session.user.role),
+    canProposeAdjustment: ['admin', 'treasurer'].includes(req.session.user.role)
   });
 }));
 
@@ -3036,6 +3076,10 @@ app.post('/trustee-audit/start', allow('auditor', 'trustee'), asyncHandler(async
   const year = Number(req.body.year);
   const fiscalYear = await dal.queryOne('SELECT * FROM fiscal_years WHERE year=$1', [year]);
   if (!fiscalYear) return res.status(404).render('error', { message: 'Fiscal year not found.' });
+  if (!['pending_audit', 'closed'].includes(fiscalYear.status)) {
+    req.session.flash = { type: 'error', message: 'Submit the fiscal year for audit before starting the trustee review.' };
+    return res.redirect(`/trustee-audit?year=${year}`);
+  }
   const existing = await dal.queryOne('SELECT id FROM audit_reviews WHERE year=$1', [year]);
   if (existing) {
     req.session.flash = { type: 'error', message: 'An audit review already exists for this fiscal year.' };
@@ -3054,6 +3098,53 @@ app.post('/trustee-audit/start', allow('auditor', 'trustee'), asyncHandler(async
   });
   req.session.flash = { type: 'success', message: `Trustee audit for ${year} started.` };
   res.redirect(`/trustee-audit?year=${year}`);
+}));
+
+app.post('/trustee-audit/adjustments', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  const year = Number(req.body.year);
+  try {
+    const result = await proposeAuditAdjustment({ year, userId: req.session.user.id, input: req.body });
+    req.session.flash = { type: 'success', message: `Audit adjustment #${result.id} submitted for independent approval.` };
+  } catch (error) {
+    if (!(error instanceof YearEndValidationError)) throw error;
+    req.session.flash = { type: 'error', message: error.message };
+  }
+  res.redirect(`/trustee-audit?year=${year}`);
+}));
+
+app.post('/trustee-audit/adjustments/:id/approve', allow('auditor', 'trustee'), asyncHandler(async (req, res) => {
+  const fallbackYear = Number(req.body.year);
+  try {
+    const result = await approveAuditAdjustment({
+      adjustmentId: Number(req.params.id), userId: req.session.user.id,
+      decisionNotes: String(req.body.decision_notes || '').trim() || null
+    });
+    req.session.flash = {
+      type: 'success',
+      message: `Adjustment approved and posted as transaction #${result.transactionId}.${result.auditReopened ? ' The audit was reopened for a new review and signature.' : ''}`
+    };
+    return res.redirect(`/trustee-audit?year=${result.year}`);
+  } catch (error) {
+    if (!(error instanceof YearEndValidationError)) throw error;
+    req.session.flash = { type: 'error', message: error.message };
+    res.redirect(`/trustee-audit?year=${fallbackYear}`);
+  }
+}));
+
+app.post('/trustee-audit/adjustments/:id/reject', allow('auditor', 'trustee'), asyncHandler(async (req, res) => {
+  const fallbackYear = Number(req.body.year);
+  try {
+    const result = await rejectAuditAdjustment({
+      adjustmentId: Number(req.params.id), userId: req.session.user.id,
+      decisionNotes: req.body.decision_notes
+    });
+    req.session.flash = { type: 'success', message: `Audit adjustment #${req.params.id} rejected with a recorded reason.` };
+    return res.redirect(`/trustee-audit?year=${result.year}`);
+  } catch (error) {
+    if (!(error instanceof YearEndValidationError)) throw error;
+    req.session.flash = { type: 'error', message: error.message };
+    res.redirect(`/trustee-audit?year=${fallbackYear}`);
+  }
 }));
 
 app.post('/trustee-audit/items/:key', allow('auditor', 'trustee'), asyncHandler(async (req, res) => {
@@ -3246,6 +3337,11 @@ app.post('/trustee-audit/complete', allow('auditor', 'trustee'), asyncHandler(as
   }
 
   await dal.transaction(async (client) => {
+    await client.query(`
+      INSERT INTO audit_review_signoffs (review_id, revision, overall_conclusion, overall_notes, completed_by, completed_at)
+      VALUES ($1,$2,$3,$4,$5,NOW())
+    `, [review.id, review.revision || 1, conclusionValidated.values.conclusion,
+      conclusionValidated.values.conclusion, req.session.user.id]);
     await client.query(
       `UPDATE audit_reviews SET status='completed', overall_conclusion=$1, overall_notes=$2, completed_by=$3, completed_at=NOW() WHERE id=$4`,
       [conclusionValidated.values.conclusion, conclusionValidated.values.conclusion, req.session.user.id, review.id]
@@ -3276,8 +3372,8 @@ app.get('/trustee-audit/report/:year', allow('admin', 'trustee', 'auditor'), asy
     return res.status(404).render('error', { message: `No audit review found for ${year}.` });
   }
 
-  // Load checklist items, flagged transactions, and account balances
-  const [items, flags, balances] = await Promise.all([
+  // Load checklist items, flagged transactions, adjustments, signatures, and balances.
+  const [items, flags, balances, adjustments, signoffs] = await Promise.all([
     dal.query(`
       SELECT i.*, u.name AS reviewed_by_name
       FROM audit_review_items i
@@ -3287,6 +3383,8 @@ app.get('/trustee-audit/report/:year', allow('admin', 'trustee', 'auditor'), asy
     `, [review.id]),
     dal.getAuditFlags(review.id),
     accountBalances(`${year}-12-31`),
+    listAuditAdjustments(year),
+    listAuditSignoffs(review.id),
   ]);
 
   // Generate PDF
@@ -3343,6 +3441,44 @@ app.get('/trustee-audit/report/:year', allow('admin', 'trustee', 'auditor'), asy
         doc.fontSize(10);
       }
       doc.moveDown(0.3);
+    }
+  }
+  doc.moveDown(1);
+
+  // Section: Controlled Audit Adjustments
+  doc.fontSize(14).font('Helvetica-Bold').text('Controlled Audit Adjustments');
+  doc.moveDown(0.5);
+  doc.fontSize(10).font('Helvetica');
+  if (adjustments.length === 0) {
+    doc.text('No audit adjustments were proposed for this year.');
+  } else {
+    for (const adjustment of adjustments) {
+      doc.font('Helvetica-Bold').text(`#${adjustment.id} ${adjustment.tx_type.toUpperCase()} ${pdf.fmtMoney(adjustment.amount)} — ${adjustment.status.toUpperCase()}`);
+      doc.font('Helvetica').fontSize(9).text(
+        `${adjustment.tx_date} · ${adjustment.account_name} · ${adjustment.category}` +
+        `${adjustment.member_name ? ` · ${adjustment.member_name}` : ''}`
+      );
+      doc.text(`Reason: ${adjustment.reason}`);
+      doc.text(`Requested by: ${adjustment.requested_by_name}` +
+        `${adjustment.decided_by_name ? ` · Decided by: ${adjustment.decided_by_name}` : ''}`);
+      if (adjustment.decision_notes) doc.text(`Decision note: ${adjustment.decision_notes}`);
+      doc.moveDown(0.4);
+    }
+  }
+  doc.moveDown(1);
+
+  // Section: Audit Signature History
+  doc.fontSize(14).font('Helvetica-Bold').text('Audit Signature History');
+  doc.moveDown(0.5);
+  doc.fontSize(10).font('Helvetica');
+  if (signoffs.length === 0) {
+    doc.text('The audit has not yet been signed.');
+  } else {
+    for (const signoff of signoffs) {
+      doc.font('Helvetica-Bold').text(`Revision ${signoff.revision} — ${signoff.completed_by_name || 'Trustee/Auditor'}`);
+      doc.font('Helvetica').fontSize(9).text(`Signed: ${formatDateTime(signoff.completed_at)}`);
+      doc.text(signoff.overall_conclusion);
+      doc.moveDown(0.4);
     }
   }
   doc.moveDown(1);
@@ -3699,16 +3835,17 @@ app.get('/download/member-statement', requireLogin, asyncHandler(async (req, res
       const otherTxns = allTransactions.filter(t => !(t.tx_type === 'receipt' && t.category_purpose === 'assessment'));
       const assessmentPaid = assessmentTxns.reduce((s, t) => s + Number(t.amount), 0);
       const otherPaid = otherTxns.filter(t => t.tx_type === 'receipt').reduce((s, t) => s + Number(t.amount), 0);
-      const balance = Number(member.opening_arrears || 0) + Number(due.assessment_due) - assessmentPaid;
+      const openingBalance = await memberOpeningBalance(member, year);
+      const balance = openingBalance + Number(due.assessment_due) - assessmentPaid;
 
       const doc = pdf.createDoc({ title: 'Member Statement', subtitle: `${member.name} — ${member.membership_number || 'N/A'}`, period: `Year: ${year}`, groupName: config.groupName, org: res.locals.org });
 
       // ASSESSMENT ACCOUNT section
       pdf.sectionHeading(doc, 'Assessment Account');
-      pdf.tableRow(doc, 'Opening balance (arrears)', pdf.fmtMoney(member.opening_arrears || 0), { indent: 15 });
+      pdf.tableRow(doc, 'Opening balance (arrears)', pdf.fmtMoney(openingBalance), { indent: 15 });
       pdf.tableRow(doc, 'Annual assessment due', pdf.fmtMoney(due.assessment_due), { indent: 15 });
       pdf.subtotalLine(doc);
-      pdf.tableRow(doc, 'TOTAL BILLED', pdf.fmtMoney(Number(member.opening_arrears || 0) + Number(due.assessment_due)), { bold: true });
+      pdf.tableRow(doc, 'TOTAL BILLED', pdf.fmtMoney(openingBalance + Number(due.assessment_due)), { bold: true });
       doc.moveDown(0.6);
 
       // Less: Assessment payments received
