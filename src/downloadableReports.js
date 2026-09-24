@@ -15,7 +15,7 @@ function csvFromRows(rows) {
  * Standard accounting report showing income categories, expense categories,
  * and net surplus/deficit for a period.
  */
-async function incomeAndExpenditureReport(startDate, endDate, periodLabel) {
+async function incomeAndExpenditureData(startDate, endDate) {
   // Income: SUM of allocations to mens_operating fund from receipts in period
   const income = await dal.query(`
     SELECT t.category, COALESCE(SUM(ra.amount), 0) AS total
@@ -50,6 +50,12 @@ async function incomeAndExpenditureReport(startDate, endDate, periodLabel) {
   const totalExpenses = expenses.reduce((s, r) => s + Number(r.total), 0);
   const surplus = totalIncome - totalExpenses;
 
+  return { income, expenses, totalIncome, totalExpenses, surplus };
+}
+
+async function incomeAndExpenditureReport(startDate, endDate, periodLabel) {
+  const report = await incomeAndExpenditureData(startDate, endDate);
+
   const rows = [
     ['KSJI INCOME AND EXPENDITURE STATEMENT'],
     [`Period: ${periodLabel}`],
@@ -58,14 +64,14 @@ async function incomeAndExpenditureReport(startDate, endDate, periodLabel) {
     ['INCOME', '', 'Amount (GHS)'],
   ];
 
-  income.forEach(r => rows.push(['', r.category, fmt(r.total)]));
-  rows.push(['', 'TOTAL INCOME', fmt(totalIncome)]);
+  report.income.forEach(r => rows.push(['', r.category, fmt(r.total)]));
+  rows.push(['', 'TOTAL INCOME', fmt(report.totalIncome)]);
   rows.push([]);
   rows.push(['EXPENDITURE', '', 'Amount (GHS)']);
-  expenses.forEach(r => rows.push(['', r.category, fmt(r.total)]));
-  rows.push(['', 'TOTAL EXPENDITURE', fmt(totalExpenses)]);
+  report.expenses.forEach(r => rows.push(['', r.category, fmt(r.total)]));
+  rows.push(['', 'TOTAL EXPENDITURE', fmt(report.totalExpenses)]);
   rows.push([]);
-  rows.push([surplus >= 0 ? 'SURPLUS' : 'DEFICIT', '', fmt(Math.abs(surplus))]);
+  rows.push([report.surplus >= 0 ? 'SURPLUS' : 'DEFICIT', '', fmt(Math.abs(report.surplus))]);
 
   return csvFromRows(rows);
 }
@@ -74,20 +80,13 @@ async function incomeAndExpenditureReport(startDate, endDate, periodLabel) {
  * Receipts & Payments Statement
  * Shows all cash movements grouped by account — what came in, what went out.
  */
-async function receiptsAndPaymentsReport(startDate, endDate, periodLabel) {
+async function receiptsAndPaymentsData(startDate, endDate) {
   const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY id');
-
-  const rows = [
-    ['KSJI RECEIPTS AND PAYMENTS STATEMENT'],
-    [`Period: ${periodLabel}`],
-    [`Generated: ${new Date().toISOString().slice(0, 10)}`],
-    [],
-  ];
-
   let grandOpeningTotal = 0;
   let grandReceiptsTotal = 0;
   let grandPaymentsTotal = 0;
   let grandClosingTotal = 0;
+  const accountRows = [];
 
   for (const account of accounts) {
     // Opening balance as of start date (opening_balance + transactions before start)
@@ -130,6 +129,37 @@ async function receiptsAndPaymentsReport(startDate, endDate, periodLabel) {
     grandPaymentsTotal += totalPayments;
     grandClosingTotal += closingBalance;
 
+    accountRows.push({
+      account,
+      openingBalance,
+      receipts,
+      payments,
+      totalReceipts,
+      totalPayments,
+      closingBalance
+    });
+  }
+
+  return {
+    accounts: accountRows,
+    grandOpeningTotal,
+    grandReceiptsTotal,
+    grandPaymentsTotal,
+    grandClosingTotal
+  };
+}
+
+async function receiptsAndPaymentsReport(startDate, endDate, periodLabel) {
+  const report = await receiptsAndPaymentsData(startDate, endDate);
+  const rows = [
+    ['KSJI RECEIPTS AND PAYMENTS STATEMENT'],
+    [`Period: ${periodLabel}`],
+    [`Generated: ${new Date().toISOString().slice(0, 10)}`],
+    [],
+  ];
+
+  for (const item of report.accounts) {
+    const { account, openingBalance, receipts, payments, totalReceipts, totalPayments, closingBalance } = item;
     rows.push([`ACCOUNT: ${account.name} (${account.type})`]);
     rows.push(['Opening Balance', '', fmt(openingBalance)]);
     rows.push([]);
@@ -148,10 +178,10 @@ async function receiptsAndPaymentsReport(startDate, endDate, periodLabel) {
   }
 
   rows.push(['GRAND TOTALS']);
-  rows.push(['Total Opening Balances', '', fmt(grandOpeningTotal)]);
-  rows.push(['Total Receipts', '', fmt(grandReceiptsTotal)]);
-  rows.push(['Total Payments', '', fmt(grandPaymentsTotal)]);
-  rows.push(['Total Closing Balances', '', fmt(grandClosingTotal)]);
+  rows.push(['Total Opening Balances', '', fmt(report.grandOpeningTotal)]);
+  rows.push(['Total Receipts', '', fmt(report.grandReceiptsTotal)]);
+  rows.push(['Total Payments', '', fmt(report.grandPaymentsTotal)]);
+  rows.push(['Total Closing Balances', '', fmt(report.grandClosingTotal)]);
 
   return csvFromRows(rows);
 }
@@ -162,7 +192,7 @@ async function receiptsAndPaymentsReport(startDate, endDate, periodLabel) {
  * Uses receipt_allocations + fund_classifications (code = 'joint_welfare')
  * instead of the legacy is_welfare_fund account lookup.
  */
-async function welfareFundReport(startDate, endDate, periodLabel) {
+async function welfareFundData(startDate, endDate) {
   // Opening welfare balance: SUM of allocations to joint_welfare before period
   // For receipts: positive allocations (collections)
   // For welfare_payout: positive allocations but represent outflows (subtract)
@@ -234,28 +264,41 @@ async function welfareFundReport(startDate, endDate, periodLabel) {
     ORDER BY a.name
   `, [endDate]);
 
+  return {
+    openingBalance,
+    collections,
+    payouts,
+    totalCollected,
+    totalPaidOut,
+    closingBalance,
+    physicalHoldings
+  };
+}
+
+async function welfareFundReport(startDate, endDate, periodLabel) {
+  const report = await welfareFundData(startDate, endDate);
   const rows = [
     ['KSJI JOINT WELFARE FUND STATEMENT'],
     [`Period: ${periodLabel}`],
     [`Generated: ${new Date().toISOString().slice(0, 10)}`],
     [],
-    ['Opening Welfare Balance', '', fmt(openingBalance)],
+    ['Opening Welfare Balance', '', fmt(report.openingBalance)],
     [],
     ['WELFARE COLLECTIONS', 'Member', 'Amount (GHS)'],
   ];
 
-  collections.forEach(r => rows.push(['', r.member || 'Women\'s Section / Other', fmt(r.total)]));
-  rows.push(['', 'Total Collections', fmt(totalCollected)]);
+  report.collections.forEach(r => rows.push(['', r.member || 'Women\'s Section / Other', fmt(r.total)]));
+  rows.push(['', 'Total Collections', fmt(report.totalCollected)]);
   rows.push([]);
   rows.push(['WELFARE PAYOUTS', 'Date', 'Description', 'Amount (GHS)']);
-  payouts.forEach(r => rows.push(['', r.tx_date, r.description || '', fmt(r.amount)]));
-  rows.push(['', '', 'Total Payouts', fmt(totalPaidOut)]);
+  report.payouts.forEach(r => rows.push(['', r.tx_date, r.description || '', fmt(r.amount)]));
+  rows.push(['', '', 'Total Payouts', fmt(report.totalPaidOut)]);
   rows.push([]);
-  rows.push(['Closing Welfare Balance', '', fmt(closingBalance)]);
+  rows.push(['Closing Welfare Balance', '', fmt(report.closingBalance)]);
   rows.push([]);
   rows.push(['WHERE WELFARE MONEY IS HELD', 'Account', 'Amount (GHS)']);
-  physicalHoldings.forEach(r => rows.push(['', r.account_name, fmt(r.balance)]));
-  rows.push(['', 'Total Joint Welfare Held', fmt(closingBalance)]);
+  report.physicalHoldings.forEach(r => rows.push(['', r.account_name, fmt(r.balance)]));
+  rows.push(['', 'Total Joint Welfare Held', fmt(report.closingBalance)]);
 
   return csvFromRows(rows);
 }
@@ -380,8 +423,11 @@ async function memberStatementReport(memberId, year) {
 }
 
 module.exports = {
+  incomeAndExpenditureData,
   incomeAndExpenditureReport,
+  receiptsAndPaymentsData,
   receiptsAndPaymentsReport,
+  welfareFundData,
   welfareFundReport,
   financialPositionReport,
   memberStatementReport

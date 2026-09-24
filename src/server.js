@@ -62,15 +62,18 @@ const {
   validateStatusChange,
 } = require('./memberDomain');
 const {
+  incomeAndExpenditureData,
   incomeAndExpenditureReport,
+  receiptsAndPaymentsData,
   receiptsAndPaymentsReport,
+  welfareFundData,
   welfareFundReport,
   financialPositionReport,
   memberStatementReport
 } = require('./downloadableReports');
 const pdf = require('./pdfReports');
 const { calculateAllocations, calculateExpenseAllocations } = require('./allocationService');
-const { createAccountTransfer, normalizeTransferPeriod, TransferValidationError } = require('./transferService');
+const { createAccountTransfer, downloadableReportPeriod, normalizeTransferPeriod, TransferValidationError } = require('./transferService');
 const { createReversal } = require('./reversalService');
 const { validateTransactionEdit } = require('./transactionLifecycle');
 const { uploadTypeFor, validateUploadedFile } = require('./fileSecurity');
@@ -3561,65 +3564,45 @@ app.get('/finance/cashbook', allow('admin', 'finance_secretary', 'treasurer', 'a
 
 // Downloadable reports page
 app.get('/download-reports', requireLogin, asyncHandler(async (req, res) => {
-  const year = Number(req.query.year || selectedYear(req));
+  let period;
+  try {
+    period = downloadableReportPeriod(req.query.year || selectedYear(req), req.query.month);
+  } catch (error) {
+    if (error instanceof TransferValidationError) return res.status(400).render('error', { message: error.message });
+    throw error;
+  }
+  const years = await dal.query('SELECT year FROM fiscal_years ORDER BY year DESC');
   const members = await dal.query("SELECT id, name FROM members WHERE status = $1 ORDER BY name", ['active']);
-  res.render('download_reports', { year, members });
+  res.render('download_reports', { year: period.year, month: period.month, period, years, members });
 }));
 
 // Downloadable report endpoints
 app.get('/download/income-expenditure', requireLogin, asyncHandler(async (req, res) => {
   try {
-    const year = Number(req.query.year || selectedYear(req));
-    const month = req.query.month ? Number(req.query.month) : null;
-    let startDate, endDate, label;
-
-    if (month) {
-      const start = new Date(Date.UTC(year, month - 1, 1));
-      const end = new Date(Date.UTC(year, month, 0));
-      startDate = start.toISOString().slice(0, 10);
-      endDate = end.toISOString().slice(0, 10);
-      label = `${start.toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' })} ${year}`;
-    } else {
-      startDate = `${year}-01-01`;
-      endDate = `${year}-12-31`;
-      label = `Full Year ${year}`;
-    }
+    const { startDate, endDate, label } = downloadableReportPeriod(req.query.year || selectedYear(req), req.query.month);
 
     if (req.query.format === 'pdf') {
-      // PDF generation — proper accounting layout using fund_classifications
-      const income = await dal.query(`
-        SELECT t.category, COALESCE(SUM(ra.amount), 0) AS total
-        FROM receipt_allocations ra
-        JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted'
-          AND t.reverses_transaction_id IS NULL AND t.tx_type = 'receipt'
-          AND t.tx_date >= $1 AND t.tx_date <= $2
-        JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'mens_operating'
-        GROUP BY t.category ORDER BY total DESC
-      `, [startDate, endDate]);
-      const expenses = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type IN ('expense', 'welfare_payout') AND status = 'posted' AND reverses_transaction_id IS NULL AND tx_date >= $1 AND tx_date <= $2 GROUP BY category ORDER BY total DESC`, [startDate, endDate]);
-      const totalIncome = income.reduce((s, r) => s + Number(r.total), 0);
-      const totalExpenses = expenses.reduce((s, r) => s + Number(r.total), 0);
-      const surplus = totalIncome - totalExpenses;
+      const report = await incomeAndExpenditureData(startDate, endDate);
 
       const doc = pdf.createDoc({ title: 'Income & Expenditure Statement', period: `For the period: ${label}`, groupName: config.groupName, org: res.locals.org });
 
       // INCOME section
       pdf.sectionHeading(doc, 'Income');
-      income.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 15 }));
+      report.income.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 15 }));
       pdf.subtotalLine(doc);
-      pdf.tableRow(doc, 'TOTAL INCOME', pdf.fmtMoney(totalIncome), { bold: true });
+      pdf.tableRow(doc, 'TOTAL INCOME', pdf.fmtMoney(report.totalIncome), { bold: true });
       doc.moveDown(0.8);
 
       // LESS: EXPENDITURE section
       pdf.sectionHeading(doc, 'Less: Expenditure');
-      expenses.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 15 }));
+      report.expenses.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 15 }));
       pdf.subtotalLine(doc);
-      pdf.tableRow(doc, 'TOTAL EXPENDITURE', pdf.fmtMoney(totalExpenses), { bold: true });
+      pdf.tableRow(doc, 'TOTAL EXPENDITURE', pdf.fmtMoney(report.totalExpenses), { bold: true });
       doc.moveDown(1.0);
 
       // NET SURPLUS / DEFICIT
       pdf.grandTotalLine(doc);
-      pdf.tableRow(doc, surplus >= 0 ? 'NET SURPLUS FOR THE PERIOD' : 'NET DEFICIT FOR THE PERIOD', pdf.fmtMoney(Math.abs(surplus)), { bold: true });
+      pdf.tableRow(doc, report.surplus >= 0 ? 'NET SURPLUS FOR THE PERIOD' : 'NET DEFICIT FOR THE PERIOD', pdf.fmtMoney(Math.abs(report.surplus)), { bold: true });
       pdf.grandTotalLine(doc);
 
       pdf.signatureBlock(doc, res.locals.org);
@@ -3632,6 +3615,7 @@ app.get('/download/income-expenditure', requireLogin, asyncHandler(async (req, r
     }
     await dal.audit(req.session.user.id, 'download', 'income_expenditure', null, label);
   } catch (error) {
+    if (error instanceof TransferValidationError) return res.status(400).render('error', { message: error.message });
     console.error('Download error:', error);
     res.status(500).render('error', { message: 'Failed to generate Income & Expenditure report.' });
   }
@@ -3639,40 +3623,14 @@ app.get('/download/income-expenditure', requireLogin, asyncHandler(async (req, r
 
 app.get('/download/receipts-payments', requireLogin, asyncHandler(async (req, res) => {
   try {
-    const year = Number(req.query.year || selectedYear(req));
-    const month = req.query.month ? Number(req.query.month) : null;
-    let startDate, endDate, label;
-
-    if (month) {
-      const start = new Date(Date.UTC(year, month - 1, 1));
-      const end = new Date(Date.UTC(year, month, 0));
-      startDate = start.toISOString().slice(0, 10);
-      endDate = end.toISOString().slice(0, 10);
-      label = `${start.toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' })} ${year}`;
-    } else {
-      startDate = `${year}-01-01`;
-      endDate = `${year}-12-31`;
-      label = `Full Year ${year}`;
-    }
+    const { startDate, endDate, label } = downloadableReportPeriod(req.query.year || selectedYear(req), req.query.month);
 
     if (req.query.format === 'pdf') {
-      const accounts = await dal.query('SELECT * FROM accounts WHERE active = true ORDER BY name');
+      const report = await receiptsAndPaymentsData(startDate, endDate);
       const doc = pdf.createDoc({ title: 'Receipts & Payments Statement', period: `For the period: ${label}`, groupName: config.groupName, org: res.locals.org });
 
-      let grandOpening = 0, grandReceipts = 0, grandPayments = 0, grandClosing = 0;
-
-      for (const account of accounts) {
-        const receipts = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type = 'receipt' AND status = 'posted' AND reverses_transaction_id IS NULL AND account_id = $1 AND tx_date >= $2 AND tx_date <= $3 GROUP BY category ORDER BY total DESC`, [account.id, startDate, endDate]);
-        const payments = await dal.query(`SELECT category, COALESCE(SUM(amount), 0) AS total FROM transactions WHERE tx_type IN ('expense','welfare_payout') AND status = 'posted' AND reverses_transaction_id IS NULL AND account_id = $1 AND tx_date >= $2 AND tx_date <= $3 GROUP BY category ORDER BY total DESC`, [account.id, startDate, endDate]);
-        const openingBalance = Number(account.opening_balance);
-        const totalReceipts = receipts.reduce((s, r) => s + Number(r.total), 0);
-        const totalPayments = payments.reduce((s, r) => s + Number(r.total), 0);
-        const closing = openingBalance + totalReceipts - totalPayments;
-
-        grandOpening += openingBalance;
-        grandReceipts += totalReceipts;
-        grandPayments += totalPayments;
-        grandClosing += closing;
+      for (const item of report.accounts) {
+        const { account, openingBalance, receipts, payments, totalReceipts, totalPayments, closingBalance } = item;
 
         pdf.sectionHeading(doc, `Account: ${account.name} (${account.type})`);
         pdf.tableRow(doc, 'Opening Balance', pdf.fmtMoney(openingBalance), { bold: true });
@@ -3698,18 +3656,18 @@ app.get('/download/receipts-payments', requireLogin, asyncHandler(async (req, re
 
         // Closing balance with double underline
         pdf.grandTotalLine(doc);
-        pdf.tableRow(doc, 'CLOSING BALANCE', pdf.fmtMoney(closing), { bold: true });
+        pdf.tableRow(doc, 'CLOSING BALANCE', pdf.fmtMoney(closingBalance), { bold: true });
         pdf.grandTotalLine(doc);
         doc.moveDown(0.8);
       }
 
       // Grand totals
       pdf.sectionHeading(doc, 'Grand Totals');
-      pdf.tableRow(doc, 'Total Opening Balances', pdf.fmtMoney(grandOpening));
-      pdf.tableRow(doc, 'Total Receipts', pdf.fmtMoney(grandReceipts));
-      pdf.tableRow(doc, 'Total Payments', pdf.fmtMoney(grandPayments));
+      pdf.tableRow(doc, 'Total Opening Balances', pdf.fmtMoney(report.grandOpeningTotal));
+      pdf.tableRow(doc, 'Total Receipts', pdf.fmtMoney(report.grandReceiptsTotal));
+      pdf.tableRow(doc, 'Total Payments', pdf.fmtMoney(report.grandPaymentsTotal));
       pdf.subtotalLine(doc);
-      pdf.tableRow(doc, 'Total Closing Balances', pdf.fmtMoney(grandClosing), { bold: true });
+      pdf.tableRow(doc, 'Total Closing Balances', pdf.fmtMoney(report.grandClosingTotal), { bold: true });
       pdf.grandTotalLine(doc);
 
       pdf.signatureBlock(doc, res.locals.org);
@@ -3722,6 +3680,7 @@ app.get('/download/receipts-payments', requireLogin, asyncHandler(async (req, re
     }
     await dal.audit(req.session.user.id, 'download', 'receipts_payments', null, label);
   } catch (error) {
+    if (error instanceof TransferValidationError) return res.status(400).render('error', { message: error.message });
     console.error('Download error:', error);
     res.status(500).render('error', { message: 'Failed to generate Receipts & Payments report.' });
   }
@@ -3729,63 +3688,27 @@ app.get('/download/receipts-payments', requireLogin, asyncHandler(async (req, re
 
 app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) => {
   try {
-    const year = Number(req.query.year || selectedYear(req));
-    const month = req.query.month ? Number(req.query.month) : null;
-    let startDate, endDate, label;
-
-    if (month) {
-      const start = new Date(Date.UTC(year, month - 1, 1));
-      const end = new Date(Date.UTC(year, month, 0));
-      startDate = start.toISOString().slice(0, 10);
-      endDate = end.toISOString().slice(0, 10);
-      label = `${start.toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' })} ${year}`;
-    } else {
-      startDate = `${year}-01-01`;
-      endDate = `${year}-12-31`;
-      label = `Full Year ${year}`;
-    }
+    const { startDate, endDate, label } = downloadableReportPeriod(req.query.year || selectedYear(req), req.query.month);
 
     if (req.query.format === 'pdf') {
-      // Welfare collections from receipt_allocations classified as joint_welfare
-      const collected = await dal.query(`
-        SELECT t.category, COALESCE(SUM(ra.amount), 0) AS total
-        FROM receipt_allocations ra
-        JOIN transactions t ON t.id = ra.transaction_id AND t.status = 'posted'
-          AND t.reverses_transaction_id IS NULL AND t.tx_type = 'receipt'
-          AND t.tx_date >= $1 AND t.tx_date <= $2
-        JOIN fund_classifications fc ON fc.id = ra.fund_classification_id AND fc.code = 'joint_welfare'
-        WHERE ra.amount > 0
-        GROUP BY t.category ORDER BY total DESC
-      `, [startDate, endDate]);
-
-      const payouts = await dal.query(`
-        SELECT category, COALESCE(SUM(amount), 0) AS total
-        FROM transactions
-        WHERE tx_type = 'welfare_payout' AND status = 'posted'
-          AND reverses_transaction_id IS NULL
-          AND tx_date >= $1 AND tx_date <= $2
-        GROUP BY category ORDER BY total DESC
-      `, [startDate, endDate]);
-
-      const totalCollected = collected.reduce((s, r) => s + Number(r.total), 0);
-      const totalPaidOut = payouts.reduce((s, r) => s + Number(r.total), 0);
-      const liability = totalCollected - totalPaidOut;
+      const report = await welfareFundData(startDate, endDate);
 
       const doc = pdf.createDoc({ title: 'Welfare Fund Statement', period: `Period: ${label}`, groupName: config.groupName, org: res.locals.org });
+      pdf.tableRow(doc, 'Opening Welfare Balance', pdf.fmtMoney(report.openingBalance), { bold: true, total: true });
       pdf.sectionHeading(doc, 'Welfare Collections');
-      collected.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 10 }));
-      pdf.tableRow(doc, 'Total Welfare Collected', pdf.fmtMoney(totalCollected), { bold: true, total: true });
+      report.collections.forEach(r => pdf.tableRow(doc, r.member || 'Women\'s Section / Other', pdf.fmtMoney(r.total), { indent: 10 }));
+      pdf.tableRow(doc, 'Total Welfare Collected', pdf.fmtMoney(report.totalCollected), { bold: true, total: true });
 
       pdf.sectionHeading(doc, 'Welfare Payouts');
-      if (payouts.length) {
-        payouts.forEach(r => pdf.tableRow(doc, r.category, pdf.fmtMoney(r.total), { indent: 10 }));
+      if (report.payouts.length) {
+        report.payouts.forEach(r => pdf.tableRow(doc, `${r.tx_date} ${r.description || 'Welfare payout'}`, pdf.fmtMoney(r.amount), { indent: 10 }));
       } else {
         pdf.tableRow(doc, 'No payouts in period', 'GHS 0.00', { indent: 10 });
       }
-      pdf.tableRow(doc, 'Total Payouts', pdf.fmtMoney(totalPaidOut), { bold: true, total: true });
+      pdf.tableRow(doc, 'Total Payouts', pdf.fmtMoney(report.totalPaidOut), { bold: true, total: true });
 
       doc.moveDown(0.8);
-      pdf.tableRow(doc, 'Net Welfare Liability (still payable)', pdf.fmtMoney(liability), { bold: true, total: true });
+      pdf.tableRow(doc, 'Closing Welfare Balance', pdf.fmtMoney(report.closingBalance), { bold: true, total: true });
       pdf.signatureBlock(doc, res.locals.org);
       pdf.sendPdf(res, doc, `Welfare-Fund-${label.replace(/\s+/g, '-')}.pdf`);
     } else {
@@ -3796,6 +3719,7 @@ app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) =>
     }
     await dal.audit(req.session.user.id, 'download', 'welfare_fund', null, label);
   } catch (error) {
+    if (error instanceof TransferValidationError) return res.status(400).render('error', { message: error.message });
     console.error('Download error:', error);
     res.status(500).render('error', { message: 'Failed to generate Welfare Fund report.' });
   }
@@ -3803,19 +3727,9 @@ app.get('/download/welfare-fund', requireLogin, asyncHandler(async (req, res) =>
 
 app.get('/download/financial-position', requireLogin, asyncHandler(async (req, res) => {
   try {
-    const year = Number(req.query.year || selectedYear(req));
-    const month = req.query.month ? Number(req.query.month) : null;
-    let asOfDate, label;
-
-    if (month) {
-      const end = new Date(Date.UTC(year, month, 0));
-      asOfDate = end.toISOString().slice(0, 10);
-      const start = new Date(Date.UTC(year, month - 1, 1));
-      label = `${start.toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' })} ${year}`;
-    } else {
-      asOfDate = `${year}-12-31`;
-      label = `31 December ${year}`;
-    }
+    const selectedPeriod = downloadableReportPeriod(req.query.year || selectedYear(req), req.query.month);
+    const asOfDate = selectedPeriod.endDate;
+    const label = selectedPeriod.month ? selectedPeriod.label : `31 December ${selectedPeriod.year}`;
 
     if (req.query.format === 'pdf') {
       const balances = await accountBalances(asOfDate);
@@ -3854,6 +3768,7 @@ app.get('/download/financial-position', requireLogin, asyncHandler(async (req, r
     }
     await dal.audit(req.session.user.id, 'download', 'financial_position', null, label);
   } catch (error) {
+    if (error instanceof TransferValidationError) return res.status(400).render('error', { message: error.message });
     console.error('Download error:', error);
     res.status(500).render('error', { message: 'Failed to generate Financial Position report.' });
   }
@@ -4007,7 +3922,7 @@ app.get('/export/cashbook', allow('admin', 'finance_secretary', 'treasurer', 'au
 
 app.get('/export/transfers', requireLogin, asyncHandler(async (req, res) => {
   try {
-    const year = selectedYear(req);
+    const year = Number(req.query.year || selectedYear(req));
     const period = normalizeTransferPeriod(year, req.query.startDate, req.query.endDate);
     const format = req.query.format === 'pdf' ? 'pdf' : 'csv';
     if (format === 'pdf') {
