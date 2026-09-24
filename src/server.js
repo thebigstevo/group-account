@@ -360,10 +360,13 @@ function monthPeriod(year, month) {
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 20,
+  // Officers may share an office or mobile-network IP. Successful sign-ins
+  // should not consume the failure allowance for everyone on that connection.
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
-  message: 'Too many login attempts, please try again later.'
+  message: 'Too many failed login attempts. Please wait 15 minutes and try again.'
 });
 
 app.get('/login', (req, res) => res.render('login', { error: null }));
