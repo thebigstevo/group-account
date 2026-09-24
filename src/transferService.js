@@ -87,6 +87,39 @@ function normalizeTransferPeriod(year, startDate = '', endDate = '') {
   return { startDate: start, endDate: end };
 }
 
+function downloadableReportPeriod(yearValue, monthValue) {
+  const year = Number(yearValue);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    throw new TransferValidationError('Select a valid report year.');
+  }
+  const month = monthValue === undefined || monthValue === null || monthValue === ''
+    ? null
+    : Number(monthValue);
+  if (month !== null && (!Number.isInteger(month) || month < 1 || month > 12)) {
+    throw new TransferValidationError('Select a valid report month.');
+  }
+
+  if (month) {
+    const start = new Date(Date.UTC(year, month - 1, 1));
+    const end = new Date(Date.UTC(year, month, 0));
+    return {
+      year,
+      month,
+      startDate: start.toISOString().slice(0, 10),
+      endDate: end.toISOString().slice(0, 10),
+      label: `${start.toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' })} ${year}`
+    };
+  }
+
+  return {
+    year,
+    month: null,
+    startDate: `${year}-01-01`,
+    endDate: `${year}-12-31`,
+    label: `Full Year ${year}`
+  };
+}
+
 async function createAccountTransfer(input) {
   const transfer = normalizeTransferInput(input);
 
@@ -184,6 +217,7 @@ async function createAccountTransfer(input) {
 
 module.exports = {
   TransferValidationError,
+  downloadableReportPeriod,
   normalizeTransferInput,
   normalizeTransferPeriod,
   createAccountTransfer

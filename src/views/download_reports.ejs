@@ -1,12 +1,37 @@
 <%- include('partials/header') %>
 <% locals.title = 'Downloads' %>
+<%
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const periodQuery = 'year=' + encodeURIComponent(year) + (month ? '&month=' + encodeURIComponent(month) : '');
+%>
 
 <div class="page-container">
   <section class="page-title">
     <div>
       <h1>Download Reports</h1>
-      <p>Download formal financial reports as PDF or CSV for fiscal year <%= year %>.</p>
+      <p>Download formal financial reports as PDF or CSV for <strong><%= period.label %></strong>.</p>
     </div>
+  </section>
+
+  <section class="panel no-print">
+    <form method="get" action="/download-reports" class="report-toolbar" aria-label="Download report period">
+      <div class="report-toolbar__fields">
+        <div class="form-group">
+          <label for="download-year">Fiscal year</label>
+          <select id="download-year" name="year" required>
+            <% years.forEach(function(item) { %><option value="<%= item.year %>" <%= Number(year) === Number(item.year) ? 'selected' : '' %>><%= item.year %></option><% }) %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="download-month">Period</label>
+          <select id="download-month" name="month">
+            <option value="" <%= !month ? 'selected' : '' %>>Full year</option>
+            <% monthNames.forEach(function(name, index) { const value = index + 1; %><option value="<%= value %>" <%= Number(month) === value ? 'selected' : '' %>><%= name %></option><% }) %>
+          </select>
+        </div>
+      </div>
+      <div class="report-toolbar__actions"><button class="btn btn--primary" type="submit">Apply period</button></div>
+    </form>
   </section>
 
   <section class="panel">
@@ -18,45 +43,46 @@
         <tr>
           <td><strong>Detailed Cashbook</strong></td>
           <td>Every income and expense entry with date, payer/payee detail, reference, account, category, recorder, status and amount</td>
-          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/export/cashbook?year=<%= year %>&amp;startDate=<%= year %>-01-01&amp;endDate=<%= year %>-12-31&amp;entryType=all" download>CSV</a></td>
-          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/export/cashbook?year=<%= year %>&amp;startDate=<%= year %>-01-01&amp;endDate=<%= year %>-12-31&amp;entryType=all&amp;format=pdf" download style="color:var(--danger-base)">PDF</a></td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/export/cashbook?year=<%= year %>&amp;startDate=<%= period.startDate %>&amp;endDate=<%= period.endDate %>&amp;entryType=all" download>CSV</a></td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/export/cashbook?year=<%= year %>&amp;startDate=<%= period.startDate %>&amp;endDate=<%= period.endDate %>&amp;entryType=all&amp;format=pdf" download style="color:var(--danger-base)">PDF</a></td>
         </tr>
         <tr>
           <td><strong>Income &amp; Expenditure</strong></td>
           <td>Income less expenses, surplus or deficit</td>
-          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/income-expenditure?year=<%= year %>" download>CSV</a></td>
-          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/income-expenditure?year=<%= year %>&format=pdf" download style="color:var(--danger-base)">PDF</a></td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/income-expenditure?<%= periodQuery %>" download>CSV</a></td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/income-expenditure?<%= periodQuery %>&amp;format=pdf" download style="color:var(--danger-base)">PDF</a></td>
         </tr>
         <tr>
           <td><strong>Receipts &amp; Payments</strong></td>
           <td>Cash movements per account</td>
-          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/receipts-payments?year=<%= year %>" download>CSV</a></td>
-          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/receipts-payments?year=<%= year %>&format=pdf" download style="color:var(--danger-base)">PDF</a></td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/receipts-payments?<%= periodQuery %>" download>CSV</a></td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/receipts-payments?<%= periodQuery %>&amp;format=pdf" download style="color:var(--danger-base)">PDF</a></td>
         </tr>
         <tr>
           <td><strong>Welfare Fund</strong></td>
           <td>Collections, payouts, liability</td>
-          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/welfare-fund?year=<%= year %>" download>CSV</a></td>
-          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/welfare-fund?year=<%= year %>&format=pdf" download style="color:var(--danger-base)">PDF</a></td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/welfare-fund?<%= periodQuery %>" download>CSV</a></td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/welfare-fund?<%= periodQuery %>&amp;format=pdf" download style="color:var(--danger-base)">PDF</a></td>
         </tr>
         <tr>
           <td><strong>Financial Position</strong></td>
           <td>Assets, liabilities, net assets</td>
-          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/financial-position?year=<%= year %>" download>CSV</a></td>
-          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/financial-position?year=<%= year %>&format=pdf" download style="color:var(--danger-base)">PDF</a></td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/financial-position?<%= periodQuery %>" download>CSV</a></td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/download/financial-position?<%= periodQuery %>&amp;format=pdf" download style="color:var(--danger-base)">PDF</a></td>
         </tr>
         <tr>
           <td><strong>Transfer Register</strong></td>
           <td>Account-to-account transfers for comparison with cashbooks, deposit slips, and bank statements</td>
-          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/export/transfers?startDate=<%= year %>-01-01&amp;endDate=<%= year %>-12-31" download>CSV</a></td>
-          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/export/transfers?startDate=<%= year %>-01-01&amp;endDate=<%= year %>-12-31&amp;format=pdf" download style="color:var(--danger-base)">PDF</a></td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/export/transfers?year=<%= year %>&amp;startDate=<%= period.startDate %>&amp;endDate=<%= period.endDate %>" download>CSV</a></td>
+          <td style="text-align:center"><a class="btn btn--secondary btn--sm" href="/export/transfers?year=<%= year %>&amp;startDate=<%= period.startDate %>&amp;endDate=<%= period.endDate %>&amp;format=pdf" download style="color:var(--danger-base)">PDF</a></td>
         </tr>
       </tbody>
     </table>
 
-    <p style="margin-top:var(--space-4)"><a class="btn btn--primary" href="/finance/cashbook?year=<%= year %>&amp;startDate=<%= year %>-01-01&amp;endDate=<%= year %>-12-31">Open detailed cashbook with filters</a></p>
+    <p style="margin-top:var(--space-4)"><a class="btn btn--primary" href="/finance/cashbook?year=<%= year %>&amp;startDate=<%= period.startDate %>&amp;endDate=<%= period.endDate %>">Open detailed cashbook with filters</a></p>
 
     <h2 style="margin-top: var(--space-5);">Member Statement</h2>
+    <p>Member statements remain annual because assessment dues and arrears are calculated for the full fiscal year.</p>
     <form method="get" action="/download/member-statement" style="display:flex; align-items:end; gap: var(--space-3); flex-wrap:wrap;">
       <div class="form-group" style="margin:0; min-width:200px;">
         <label for="ms-member">Member</label>

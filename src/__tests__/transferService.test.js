@@ -8,6 +8,7 @@ jest.mock('../dal', () => ({
 const dal = require('../dal');
 const {
   TransferValidationError,
+  downloadableReportPeriod,
   normalizeTransferInput,
   normalizeTransferPeriod,
   createAccountTransfer
@@ -61,6 +62,25 @@ describe('transfer report period validation', () => {
   ])('rejects an invalid report period %#', (year, start, end, message) => {
     expect(() => normalizeTransferPeriod(year, start, end)).toThrow(message);
   });
+});
+
+describe('download report period selection', () => {
+  test('builds a full-year period', () => {
+    expect(downloadableReportPeriod(2024, '')).toEqual({
+      year: 2024, month: null, startDate: '2024-01-01', endDate: '2024-12-31', label: 'Full Year 2024'
+    });
+  });
+
+  test('builds an exact calendar-month period including leap years', () => {
+    expect(downloadableReportPeriod('2024', '2')).toEqual({
+      year: 2024, month: 2, startDate: '2024-02-01', endDate: '2024-02-29', label: 'February 2024'
+    });
+  });
+
+  test.each([[1999, null], [2024, 0], [2024, 13], [2024, 'May']])(
+    'rejects invalid year or month values %#',
+    (year, month) => expect(() => downloadableReportPeriod(year, month)).toThrow(TransferValidationError)
+  );
 });
 
 describe('atomic account transfer', () => {

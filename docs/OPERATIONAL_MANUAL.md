@@ -630,6 +630,11 @@ Reversed original entries remain visible as audit evidence and are excluded from
 Path: `Reports → Downloads`  
 Direct page: [Downloads](https://ksji825.tilcsaas.com/download-reports)
 
+1. Select the fiscal year.
+2. Select **Full year** or a specific month.
+3. Select **Apply period**.
+4. Confirm the selected period shown at the top before downloading CSV or PDF.
+
 Available in PDF or CSV:
 
 - Detailed Cashbook
@@ -640,6 +645,7 @@ Available in PDF or CSV:
 - Individual Member Statement
 
 Use PDF for signed meeting/audit packs and CSV for analysis.
+Member statements remain annual because assessment dues and arrears are calculated for the full fiscal year.
 
 ## Suggested monthly meeting pack
 

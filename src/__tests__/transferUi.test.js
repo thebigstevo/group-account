@@ -61,14 +61,38 @@ describe('account transfer workflow', () => {
     const html = await ejs.renderFile(path.join(views, 'download_reports.ejs'), {
       ...locals,
       year: 2024,
+      month: null,
+      period: { year: 2024, month: null, startDate: '2024-01-01', endDate: '2024-12-31', label: 'Full Year 2024' },
+      years: [{ year: 2024 }, { year: 2023 }],
       members: []
     });
     expect(html).toContain('Transfer Register');
     expect(html).toContain('Detailed Cashbook');
     expect(html).toContain('/export/cashbook?year=2024&amp;startDate=2024-01-01&amp;endDate=2024-12-31&amp;entryType=all');
     expect(html).toContain('/finance/cashbook?year=2024&amp;startDate=2024-01-01&amp;endDate=2024-12-31');
-    expect(html).toContain('/export/transfers?startDate=2024-01-01&amp;endDate=2024-12-31');
-    expect(html).toContain('/export/transfers?startDate=2024-01-01&amp;endDate=2024-12-31&amp;format=pdf');
+    expect(html).toContain('name="year"');
+    expect(html).toContain('name="month"');
+    expect(html).toContain('Full year');
+    expect(html).toContain('/export/transfers?year=2024&amp;startDate=2024-01-01&amp;endDate=2024-12-31');
+    expect(html).toContain('/export/transfers?year=2024&amp;startDate=2024-01-01&amp;endDate=2024-12-31&amp;format=pdf');
+  });
+
+  test('downloads page applies a selected month to compatible reports', async () => {
+    const html = await ejs.renderFile(path.join(views, 'download_reports.ejs'), {
+      ...locals,
+      year: 2024,
+      month: 5,
+      period: { year: 2024, month: 5, startDate: '2024-05-01', endDate: '2024-05-31', label: 'May 2024' },
+      years: [{ year: 2024 }, { year: 2023 }],
+      members: []
+    });
+    expect(html).toContain('<strong>May 2024</strong>');
+    expect(html).toContain('<option value="5" selected>May</option>');
+    expect(html).toContain('/export/cashbook?year=2024&amp;startDate=2024-05-01&amp;endDate=2024-05-31');
+    expect(html).toContain('/download/income-expenditure?year=2024&amp;month=5');
+    expect(html).toContain('/download/financial-position?year=2024&amp;month=5&amp;format=pdf');
+    expect(html).toContain('/export/transfers?year=2024&amp;startDate=2024-05-01&amp;endDate=2024-05-31');
+    expect(html).toContain('Member statements remain annual');
   });
 
   test('server uses the atomic service and returns validation errors to the transfer page', () => {
@@ -77,6 +101,7 @@ describe('account transfer workflow', () => {
     expect(serverSource).toContain('error instanceof TransferValidationError');
     expect(serverSource).toContain("res.redirect('/finance/transfers')");
     expect(serverSource).toContain("app.get('/export/transfers', requireLogin");
+    expect(serverSource).toContain('Number(req.query.year || selectedYear(req))');
     expect(serverSource).toContain('pdf.createTransferRegisterDoc');
     expect(serverSource).toContain("'export', 'transfer_register'");
   });
