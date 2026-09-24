@@ -48,6 +48,16 @@ describe('production security contracts', () => {
     expect(serverSource).toContain("app.post('/transactions/:id/reconcile', allow('admin', 'finance_secretary', 'treasurer')");
   });
 
+  test('login throttling counts failures without penalizing successful sign-ins', () => {
+    const loginLimiter = serverSource.slice(
+      serverSource.indexOf('const loginLimiter = rateLimit({'),
+      serverSource.indexOf("app.get('/login'")
+    );
+    expect(loginLimiter).toContain('max: 20');
+    expect(loginLimiter).toContain('skipSuccessfulRequests: true');
+    expect(loginLimiter).toContain('Too many failed login attempts');
+  });
+
   test('setup is CSRF-protected, atomic, and activates the configured fiscal year', () => {
     expect(setupSource).toContain("router.use('/setup', setupCsrf)");
     expect(setupSource).toContain('dal.transaction(async (client)');
