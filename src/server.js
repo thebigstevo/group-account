@@ -81,11 +81,15 @@ const { helpForRole } = require('./helpContent');
 const {
   YearEndValidationError,
   approveAuditAdjustment,
+  approveAuditReversal,
   finalizeFiscalYear,
   listAuditAdjustments,
+  listAuditReversals,
   listAuditSignoffs,
   proposeAuditAdjustment,
+  proposeAuditReversal,
   rejectAuditAdjustment,
+  rejectAuditReversal,
   submitYearForAudit
 } = require('./yearEndService');
 
@@ -3068,13 +3072,30 @@ app.get('/trustee-audit', allow('admin', 'auditor', 'trustee', 'treasurer'), asy
     WHERE i.review_id=$1 ORDER BY i.id
   `, [review.id]) : [];
   const itemByKey = Object.fromEntries(items.map((item) => [item.item_key, item]));
-  const [adjustments, signoffs] = await Promise.all([
+  const [adjustments, reversalRequests, eligibleReversalTransactions, signoffs] = await Promise.all([
     listAuditAdjustments(year),
+    listAuditReversals(year),
+    dal.query(`
+      SELECT t.id, t.tx_date, t.tx_type, t.category, t.description, t.amount, t.reference,
+        account.name AS account_name, destination.name AS to_account_name, member.name AS member_name
+      FROM transactions t
+      LEFT JOIN accounts account ON account.id=t.account_id
+      LEFT JOIN accounts destination ON destination.id=t.to_account_id
+      LEFT JOIN members member ON member.id=t.member_id
+      WHERE SUBSTRING(t.tx_date FROM 1 FOR 4)=$1 AND t.status='posted'
+        AND t.reverses_transaction_id IS NULL AND t.reversal_transaction_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM audit_reversal_requests rr
+          WHERE rr.original_transaction_id=t.id AND rr.status='proposed'
+        )
+      ORDER BY t.tx_date DESC, t.id DESC
+    `, [String(year)]),
     listAuditSignoffs(review && review.id)
   ]);
   res.render('trustee_audit', {
     year, years, evidence, budget, review, fiscalYear, accounts, categories, members,
-    adjustments, signoffs, checklist: AUDIT_CHECKLIST, itemByKey,
+    adjustments, reversalRequests, eligibleReversalTransactions, signoffs,
+    checklist: AUDIT_CHECKLIST, itemByKey,
     canReview: ['auditor', 'trustee'].includes(req.session.user.role),
     canProposeAdjustment: ['admin', 'treasurer'].includes(req.session.user.role)
   });
@@ -3152,6 +3173,53 @@ app.post('/trustee-audit/adjustments/:id/reject', allow('auditor', 'trustee'), a
     if (!(error instanceof YearEndValidationError)) throw error;
     req.session.flash = { type: 'error', message: error.message };
     res.redirect(`/trustee-audit?year=${fallbackYear}`);
+  }
+}));
+
+app.post('/trustee-audit/reversals', allow('admin', 'treasurer'), asyncHandler(async (req, res) => {
+  const year = Number(req.body.year);
+  try {
+    const result = await proposeAuditReversal({ year, userId: req.session.user.id, input: req.body });
+    req.session.flash = { type: 'success', message: `Controlled reversal #${result.id} submitted for independent approval.` };
+  } catch (error) {
+    if (!(error instanceof YearEndValidationError)) throw error;
+    req.session.flash = { type: 'error', message: error.message };
+  }
+  res.redirect(`/trustee-audit?year=${year}#audit-reversals`);
+}));
+
+app.post('/trustee-audit/reversals/:id/approve', allow('auditor', 'trustee'), asyncHandler(async (req, res) => {
+  const fallbackYear = Number(req.body.year);
+  try {
+    const result = await approveAuditReversal({
+      requestId: Number(req.params.id), userId: req.session.user.id,
+      decisionNotes: String(req.body.decision_notes || '').trim() || null
+    });
+    req.session.flash = {
+      type: 'success',
+      message: `Controlled reversal approved and posted as transaction #${result.reversalId}.${result.auditReopened ? ' The audit was reopened for a new review and signature.' : ''}`
+    };
+    return res.redirect(`/trustee-audit?year=${result.year}#audit-reversals`);
+  } catch (error) {
+    if (!(error instanceof YearEndValidationError)) throw error;
+    req.session.flash = { type: 'error', message: error.message };
+    res.redirect(`/trustee-audit?year=${fallbackYear}#audit-reversals`);
+  }
+}));
+
+app.post('/trustee-audit/reversals/:id/reject', allow('auditor', 'trustee'), asyncHandler(async (req, res) => {
+  const fallbackYear = Number(req.body.year);
+  try {
+    const result = await rejectAuditReversal({
+      requestId: Number(req.params.id), userId: req.session.user.id,
+      decisionNotes: req.body.decision_notes
+    });
+    req.session.flash = { type: 'success', message: `Controlled reversal #${req.params.id} rejected with a recorded reason.` };
+    return res.redirect(`/trustee-audit?year=${result.year}#audit-reversals`);
+  } catch (error) {
+    if (!(error instanceof YearEndValidationError)) throw error;
+    req.session.flash = { type: 'error', message: error.message };
+    res.redirect(`/trustee-audit?year=${fallbackYear}#audit-reversals`);
   }
 }));
 
@@ -3381,7 +3449,7 @@ app.get('/trustee-audit/report/:year', allow('admin', 'trustee', 'auditor'), asy
   }
 
   // Load checklist items, flagged transactions, adjustments, signatures, and balances.
-  const [items, flags, balances, adjustments, signoffs] = await Promise.all([
+  const [items, flags, balances, adjustments, reversalRequests, signoffs] = await Promise.all([
     dal.query(`
       SELECT i.*, u.name AS reviewed_by_name
       FROM audit_review_items i
@@ -3392,6 +3460,7 @@ app.get('/trustee-audit/report/:year', allow('admin', 'trustee', 'auditor'), asy
     dal.getAuditFlags(review.id),
     accountBalances(`${year}-12-31`),
     listAuditAdjustments(year),
+    listAuditReversals(year),
     listAuditSignoffs(review.id),
   ]);
 
@@ -3470,6 +3539,30 @@ app.get('/trustee-audit/report/:year', allow('admin', 'trustee', 'auditor'), asy
       doc.text(`Requested by: ${adjustment.requested_by_name}` +
         `${adjustment.decided_by_name ? ` · Decided by: ${adjustment.decided_by_name}` : ''}`);
       if (adjustment.decision_notes) doc.text(`Decision note: ${adjustment.decision_notes}`);
+      doc.moveDown(0.4);
+    }
+  }
+  doc.moveDown(1);
+
+  // Section: Controlled Audit Reversals
+  doc.fontSize(14).font('Helvetica-Bold').text('Controlled Audit Reversals');
+  doc.moveDown(0.5);
+  doc.fontSize(10).font('Helvetica');
+  if (reversalRequests.length === 0) {
+    doc.text('No controlled reversals were proposed for this year.');
+  } else {
+    for (const request of reversalRequests) {
+      doc.font('Helvetica-Bold').text(
+        `#${request.id} Transaction #${request.original_transaction_id} ${pdf.fmtMoney(request.amount)} — ${request.status.toUpperCase()}`
+      );
+      doc.font('Helvetica').fontSize(9).text(
+        `${request.tx_date} · ${request.tx_type} · ${request.account_name || 'No account'} · ${request.category}`
+      );
+      doc.text(`Reason: ${request.reason}`);
+      doc.text(`Requested by: ${request.requested_by_name}` +
+        `${request.decided_by_name ? ` · Decided by: ${request.decided_by_name}` : ''}`);
+      if (request.decision_notes) doc.text(`Decision note: ${request.decision_notes}`);
+      if (request.applied_reversal_transaction_id) doc.text(`Reversal transaction: #${request.applied_reversal_transaction_id}`);
       doc.moveDown(0.4);
     }
   }

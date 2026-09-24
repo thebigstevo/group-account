@@ -16,9 +16,12 @@ const allocationService = require('../allocationService');
 const {
   YearEndValidationError,
   approveAuditAdjustment,
+  approveAuditReversal,
   finalizeFiscalYear,
   proposeAuditAdjustment,
+  proposeAuditReversal,
   rejectAuditAdjustment,
+  rejectAuditReversal,
   submitYearForAudit
 } = require('../yearEndService');
 
@@ -137,7 +140,7 @@ describe('safer year-end workflow service', () => {
   test('requester cannot approve their own adjustment', async () => {
     transactionClient([{ rows: [{ id: 9, requested_by: 4, status: 'proposed' }] }]);
     await expect(approveAuditAdjustment({ adjustmentId: 9, userId: 4 }))
-      .rejects.toThrow('The person who proposed an adjustment cannot approve it.');
+      .rejects.toThrow('The person who proposed a correction cannot approve it.');
   });
 
   test('rejection requires and stores a decision reason without posting a transaction', async () => {
@@ -149,5 +152,68 @@ describe('safer year-end workflow service', () => {
       .resolves.toEqual({ year: 2024 });
     expect(client.query.mock.calls[1][0]).toContain("status='rejected'");
     expect(client.query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO transactions'))).toBe(false);
+  });
+
+  test('controlled reversal is proposed without changing the original transaction', async () => {
+    const client = transactionClient([
+      { rows: [{ year: 2024, status: 'pending_audit' }] },
+      { rows: [{ id: 3, status: 'in_progress' }] },
+      { rows: [{ id: 41, tx_date: '2024-05-11', status: 'posted', reversal_transaction_id: null, reverses_transaction_id: null }] },
+      { rows: [] },
+      { rows: [{ id: 12 }] }
+    ]);
+    await expect(proposeAuditReversal({
+      year: 2024, userId: 4,
+      input: { original_transaction_id: '41', reason: 'Duplicate entry found during cashbook review' }
+    })).resolves.toEqual({ id: 12 });
+    expect(client.query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO audit_reversal_requests'))).toBe(true);
+    expect(client.query.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO transactions'))).toBe(false);
+  });
+
+  test('independent approval creates an audit reversal and reopens a signed review', async () => {
+    const request = {
+      id: 12, year: 2024, review_id: 3, review_status: 'completed', review_revision: 1,
+      original_transaction_id: 41, reason: 'Duplicate entry found during cashbook review',
+      requested_by: 4, status: 'proposed'
+    };
+    const original = {
+      id: 41, tx_date: '2024-05-11', tx_type: 'expense', member_id: null,
+      account_id: 2, to_account_id: null, category: 'Transport', description: 'Duplicate',
+      amount: '500.00', welfare_component: '0.00', status: 'posted',
+      reversal_transaction_id: null, reverses_transaction_id: null, category_purpose: 'general'
+    };
+    const client = transactionClient([
+      { rows: [request] },
+      { rows: [] },
+      { rows: [{ year: 2024, status: 'pending_audit' }] },
+      { rows: [original] },
+      { rows: [{ id: 90 }] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [] },
+      { rows: [] }
+    ]);
+    await expect(approveAuditReversal({ requestId: 12, userId: 6, decisionNotes: 'Source evidence checked' }))
+      .resolves.toEqual({ reversalId: 90, auditReopened: true, year: 2024 });
+    const reversalInsert = client.query.mock.calls.find(([sql]) => String(sql).includes('audit_reversal_request_id'));
+    expect(reversalInsert).toBeDefined();
+    expect(reversalInsert[1].slice(-2)).toEqual([true, 12]);
+    expect(client.query.mock.calls.some(([sql]) => String(sql).includes("status='approved'"))).toBe(true);
+    expect(client.query.mock.calls.some(([sql]) => String(sql).includes("status='in_progress'"))).toBe(true);
+  });
+
+  test('controlled reversal requester cannot approve and rejection records a reason', async () => {
+    transactionClient([{ rows: [{ id: 12, requested_by: 4, status: 'proposed' }] }]);
+    await expect(approveAuditReversal({ requestId: 12, userId: 4 }))
+      .rejects.toThrow('The person who proposed a correction cannot approve it.');
+
+    const client = transactionClient([
+      { rows: [{ id: 12, year: 2024, requested_by: 4, status: 'proposed' }] },
+      { rows: [] }
+    ]);
+    await expect(rejectAuditReversal({ requestId: 12, userId: 6, decisionNotes: 'Transaction is valid' }))
+      .resolves.toEqual({ year: 2024 });
+    expect(client.query.mock.calls[1][0]).toContain("status='rejected'");
   });
 });

@@ -191,6 +191,7 @@ const TOPICS = Object.freeze([
       { text: 'Open Trustee audit, select the year, and compare receipts, payments, balances, reconciliations, and budget variances.', href: '/trustee-audit', label: 'Open Trustee audit' },
       { text: 'Trustees or Auditors start the review, inspect transaction evidence and attachments, and add notes or flags.' },
       { text: 'If a genuine receipt or expense was missed, an Administrator or Treasurer proposes it under Controlled audit adjustments with the original date, evidence, and reason.' },
+      { text: 'If an existing transaction is wrong, an Administrator or Treasurer selects it under Controlled audit reversals and records why it must be reversed.' },
       { text: 'A different Trustee or Auditor checks the source evidence and either approves and posts the adjustment or rejects it with a reason. The requester cannot approve their own proposal.' },
       { text: 'An approved adjustment after sign-off reopens the checklist. The previous signature remains in the history and Trustees or Auditors must review and sign the new revision.' },
       { text: 'Work through every checklist item. Mark it passed only when the evidence supports that conclusion.' },
@@ -219,7 +220,7 @@ const TOPICS = Object.freeze([
       { text: 'Before submission: enter all known transactions, attach evidence, reconcile every account, review arrears, and download a backup.' },
       { text: 'Administrator: choose Administration → Fiscal years and use Submit for audit. Routine entries are frozen and provisional member arrears are prepared for the next year.', href: '/fiscal-years', label: 'Open Fiscal years' },
       { text: 'Open the next year. Review copied dues and welfare rules, enter the new budget, verify provisional balances, and continue normal work without waiting for the audit.' },
-      { text: 'Trustees or Auditors complete the audit. Missed items use Controlled audit adjustments; they are never entered through the ordinary income or expense forms for the frozen year.' },
+      { text: 'Trustees or Auditors complete the audit. Missed items use Controlled audit adjustments; wrong existing entries use Controlled audit reversals. Neither is changed through the ordinary forms for the frozen year.' },
       { text: 'If an adjustment is approved after an audit signature, complete and sign the reopened audit revision.' },
       { text: 'Administrator: when the audit is signed and no adjustment is awaiting a decision, return to Fiscal years and permanently close the audited year.' }
     ],

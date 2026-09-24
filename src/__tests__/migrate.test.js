@@ -62,6 +62,8 @@ describe('Phase 1 migration contract', () => {
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS audit_review_items');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS audit_review_signoffs');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS audit_adjustments');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS audit_reversal_requests');
+    expect(sql).toContain('audit_reversal_request_id');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS member_year_openings');
     expect(sql).toContain("CHECK (status IN ('open','pending_audit','closed'))");
     expect(sql).toContain('enforce_transaction_fiscal_year_status');
