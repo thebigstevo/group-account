@@ -39,6 +39,20 @@ function validateAuditAdjustment(input, year) {
   return { errors, values };
 }
 
+function validateAuditReversal(input) {
+  const values = {
+    original_transaction_id: Number(input.original_transaction_id),
+    reason: String(input.reason || '').trim()
+  };
+  const errors = [];
+  if (!Number.isInteger(values.original_transaction_id) || values.original_transaction_id < 1) {
+    errors.push('Select a transaction to reverse.');
+  }
+  if (values.reason.length < 10) errors.push('Reversal reason must be at least 10 characters.');
+  if (values.reason.length > 2000) errors.push('Reversal reason must not exceed 2000 characters.');
+  return { errors, values };
+}
+
 function pendingAuditTransitionError(fiscalYear) {
   if (!fiscalYear || fiscalYear.status !== 'open' || !fiscalYear.is_active) {
     return 'Only the active open fiscal year can be submitted for audit.';
@@ -49,13 +63,13 @@ function pendingAuditTransitionError(fiscalYear) {
 function finalCloseError(fiscalYear, review, proposedCount) {
   if (!fiscalYear || fiscalYear.status !== 'pending_audit') return 'Only a year pending audit can be permanently closed.';
   if (!review || review.status !== 'completed') return 'Complete and sign the trustee audit before permanently closing the year.';
-  if (Number(proposedCount) > 0) return 'Approve or reject every proposed audit adjustment before permanently closing the year.';
+  if (Number(proposedCount) > 0) return 'Approve or reject every proposed audit adjustment and controlled reversal before permanently closing the year.';
   return null;
 }
 
 function approvalError(adjustment, approverId) {
-  if (!adjustment || adjustment.status !== 'proposed') return 'Only a proposed audit adjustment can be decided.';
-  if (Number(adjustment.requested_by) === Number(approverId)) return 'The person who proposed an adjustment cannot approve it.';
+  if (!adjustment || adjustment.status !== 'proposed') return 'Only a proposed audit correction can be decided.';
+  if (Number(adjustment.requested_by) === Number(approverId)) return 'The person who proposed a correction cannot approve it.';
   return null;
 }
 
@@ -65,5 +79,6 @@ module.exports = {
   finalCloseError,
   isIsoDateInYear,
   pendingAuditTransitionError,
-  validateAuditAdjustment
+  validateAuditAdjustment,
+  validateAuditReversal
 };

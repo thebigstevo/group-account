@@ -681,6 +681,26 @@ async function migrate() {
   await run(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS audit_adjustment_id INTEGER REFERENCES audit_adjustments(id) ON DELETE RESTRICT`);
   await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_audit_adjustment ON transactions(audit_adjustment_id) WHERE audit_adjustment_id IS NOT NULL`);
   await run(`
+    CREATE TABLE IF NOT EXISTS audit_reversal_requests (
+      id SERIAL PRIMARY KEY,
+      year INTEGER NOT NULL REFERENCES fiscal_years(year) ON DELETE RESTRICT,
+      review_id INTEGER NOT NULL REFERENCES audit_reviews(id) ON DELETE RESTRICT,
+      original_transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE RESTRICT,
+      reason TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','approved','rejected')),
+      requested_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      requested_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      decided_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      decided_at TIMESTAMP,
+      decision_notes TEXT,
+      applied_reversal_transaction_id INTEGER REFERENCES transactions(id) ON DELETE RESTRICT
+    )
+  `);
+  await run(`CREATE INDEX IF NOT EXISTS idx_audit_reversal_requests_year_status ON audit_reversal_requests(year, status)`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_reversal_requests_one_pending ON audit_reversal_requests(original_transaction_id) WHERE status='proposed'`);
+  await run(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS audit_reversal_request_id INTEGER REFERENCES audit_reversal_requests(id) ON DELETE RESTRICT`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_audit_reversal_request ON transactions(audit_reversal_request_id) WHERE audit_reversal_request_id IS NOT NULL`);
+  await run(`
     CREATE OR REPLACE FUNCTION enforce_transaction_fiscal_year_status()
     RETURNS TRIGGER AS $$
     DECLARE year_status VARCHAR(20);

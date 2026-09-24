@@ -12,10 +12,14 @@ const dal = require('./dal');
  * @param {object} original - The posted transaction record to reverse
  * @param {string} reason - Required reversal reason
  * @param {number} userId - User performing the reversal
+ * @param {object} [options]
+ * @param {import('pg').PoolClient} [options.client] - Existing transaction client.
+ * @param {boolean} [options.isAuditAdjustment] - Permit posting in a pending-audit year.
+ * @param {number|null} [options.auditReversalRequestId] - Approved controlled reversal request.
  * @returns {Promise<{reversalId: number}>}
  * @throws {Error} If original is not posted, already reversed, or reason is empty
  */
-async function createReversal(original, reason, userId) {
+async function createReversal(original, reason, userId, options = {}) {
   // ─── Input Validation ─────────────────────────────────────────────────────
   if (!original || typeof original !== 'object') {
     throw new Error('Original transaction is required');
@@ -40,19 +44,19 @@ async function createReversal(original, reason, userId) {
   const trimmedReason = reason.trim();
 
   // ─── Execute in a DB Transaction ──────────────────────────────────────────
-  const reversalId = await dal.transaction(async (client) => {
+  const execute = async (client) => {
     // 1. Create the reversal transaction
     const insertReversalSql = `
       INSERT INTO transactions (
         tx_date, tx_type, member_id, account_id, to_account_id,
         category, description, amount, welfare_component,
         status, reverses_transaction_id, reversed_by_user, reversal_reason,
-        created_by, created_at
+        created_by, created_at, is_audit_adjustment, audit_reversal_request_id
       ) VALUES (
         $1, $2, $3, $4, $5,
         $6, $7, $8, $9,
         'posted', $10, $11, $12,
-        $11, NOW()
+        $11, NOW(), $13, $14
       ) RETURNING id
     `;
     const reversalParams = [
@@ -67,7 +71,9 @@ async function createReversal(original, reason, userId) {
       original.welfare_component || 0,
       original.id,        // reverses_transaction_id
       userId,             // reversed_by_user / created_by
-      trimmedReason       // reversal_reason
+      trimmedReason,      // reversal_reason
+      Boolean(options.isAuditAdjustment),
+      options.auditReversalRequestId || null
     ];
 
     const reversalResult = await client.query(insertReversalSql, reversalParams);
@@ -137,7 +143,11 @@ async function createReversal(original, reason, userId) {
     );
 
     return newReversalId;
-  });
+  };
+
+  const reversalId = options.client
+    ? await execute(options.client)
+    : await dal.transaction(execute);
 
   return { reversalId };
 }

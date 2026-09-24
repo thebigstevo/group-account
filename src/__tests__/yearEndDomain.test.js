@@ -5,7 +5,8 @@ const {
   finalCloseError,
   isIsoDateInYear,
   pendingAuditTransitionError,
-  validateAuditAdjustment
+  validateAuditAdjustment,
+  validateAuditReversal
 } = require('../yearEndDomain');
 
 describe('safe fiscal year and audit adjustment rules', () => {
@@ -52,5 +53,15 @@ describe('safe fiscal year and audit adjustment rules', () => {
     expect(approvalError({ status: 'proposed', requested_by: 7 }, 8)).toBeNull();
     expect(approvalError({ status: 'proposed', requested_by: 7 }, 7)).toMatch(/cannot approve/);
     expect(approvalError({ status: 'approved', requested_by: 7 }, 8)).toMatch(/proposed/);
+  });
+
+  test('controlled reversal requires a transaction and meaningful reason', () => {
+    expect(validateAuditReversal({ original_transaction_id: '42', reason: 'Duplicate cashbook entry' }))
+      .toEqual({ errors: [], values: { original_transaction_id: 42, reason: 'Duplicate cashbook entry' } });
+    expect(validateAuditReversal({ original_transaction_id: '', reason: 'short' }).errors)
+      .toEqual(expect.arrayContaining([
+        'Select a transaction to reverse.',
+        'Reversal reason must be at least 10 characters.'
+      ]));
   });
 });

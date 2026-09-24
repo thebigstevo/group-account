@@ -697,9 +697,21 @@ Path: `Reports → Trustee Audit → Controlled audit adjustments`
 4. The Trustee or Auditor selects **Approve and post**, or enters a rejection reason and selects **Reject**. The requester cannot approve their own proposal.
 5. If the audit had already been signed, approval reopens it. The previous signature remains in **Audit signature history**; review the checklist and sign the new revision.
 
+## If the audit finds an existing transaction that is wrong
+
+Path: `Reports → Trustee Audit → Controlled audit reversals`
+
+1. An Administrator or Treasurer selects the original transaction and records a clear reason for reversing it.
+2. Check the transaction number, original date, account, category, member and amount against the receipt, voucher or cashbook.
+3. Select **Submit reversal for approval**. The transaction is not changed yet.
+4. A different Trustee or Auditor reviews the source evidence and selects **Approve and reverse**, or records a rejection reason and selects **Reject**.
+5. Approval preserves the original entry, marks it reversed, and posts a linked reversal transaction. The requester cannot approve their own proposal.
+6. If the original entry must be replaced, propose the correct receipt or expense separately under **Controlled audit adjustments**.
+7. If the audit had already been signed, complete the reopened checklist and sign the new revision.
+
 ## Permanently close the audited year
 
-After the audit is signed and no adjustment is awaiting a decision:
+After the audit is signed and no adjustment or controlled reversal is awaiting a decision:
 
 1. Return to `Administration → Fiscal years`.
 2. Select the year under **Permanently close audited year**.
