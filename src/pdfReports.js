@@ -418,10 +418,11 @@ function createTransferRegisterDoc({ rows, postedTotal, startDate, endDate, grou
  * with handwritten source books. The PDF is intentionally split into income
  * and expense sections so payer/source and payee/detail labels stay clear.
  */
-function createCashbookRegisterDoc({ rows, incomeTotal, expenseTotal, netMovement, startDate, endDate, groupName, org, accountName }) {
+function createCashbookRegisterDoc({ rows, incomeTotal, expenseTotal, netMovement, startDate, endDate, groupName, org, accountName, categoryName }) {
+  const filters = [accountName ? `Account: ${accountName}` : '', categoryName ? `Category: ${categoryName}` : ''].filter(Boolean);
   const doc = createDoc({
     title: 'Detailed Cashbook Register',
-    period: `For the period: ${startDate} to ${endDate}${accountName ? ` | Account: ${accountName}` : ''}`,
+    period: `For the period: ${startDate} to ${endDate}${filters.length ? ` | ${filters.join(' | ')}` : ''}`,
     groupName,
     org,
     bufferPages: true

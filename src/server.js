@@ -3532,10 +3532,20 @@ app.get('/finance/cashbook', allow('admin', 'finance_secretary', 'treasurer', 'a
   }
   const entryType = ['income', 'expense'].includes(req.query.entryType) ? req.query.entryType : 'all';
   const accountId = req.query.accountId ? Number(req.query.accountId) : null;
+  const category = String(req.query.category || '').trim() || null;
   const accounts = await dal.query('SELECT id, name FROM accounts WHERE active=true ORDER BY name');
+  const categories = await dal.query(`
+    SELECT DISTINCT category
+    FROM transactions
+    WHERE tx_type IN ('receipt', 'expense', 'welfare_payout')
+      AND reverses_transaction_id IS NULL
+    ORDER BY category
+  `);
   const selectedAccount = accountId ? accounts.find((account) => Number(account.id) === accountId) : null;
+  const selectedCategory = category ? categories.find((item) => item.category === category) : null;
   if (accountId && !selectedAccount) return res.status(400).render('error', { message: 'Select a valid account.' });
-  const report = await cashbookRegisterReport({ ...period, entryType, accountId });
+  if (category && !selectedCategory) return res.status(400).render('error', { message: 'Select a valid category.' });
+  const report = await cashbookRegisterReport({ ...period, entryType, accountId, category });
   res.render('cashbook', {
     year,
     period,
@@ -3543,6 +3553,8 @@ app.get('/finance/cashbook', allow('admin', 'finance_secretary', 'treasurer', 'a
     accountId,
     accountName: selectedAccount ? selectedAccount.name : null,
     accounts,
+    category,
+    categories,
     ...report
   });
 }));
@@ -3948,11 +3960,22 @@ app.get('/export/cashbook', allow('admin', 'finance_secretary', 'treasurer', 'au
     const period = normalizeTransferPeriod(year, req.query.startDate, req.query.endDate);
     const entryType = ['income', 'expense'].includes(req.query.entryType) ? req.query.entryType : 'all';
     const accountId = req.query.accountId ? Number(req.query.accountId) : null;
+    const category = String(req.query.category || '').trim() || null;
     const account = accountId
       ? await dal.queryOne('SELECT id, name FROM accounts WHERE id=$1 AND active=true', [accountId])
       : null;
     if (accountId && !account) return res.status(400).render('error', { message: 'Select a valid account.' });
-    const filters = { ...period, entryType, accountId };
+    const categoryExists = category
+      ? await dal.queryOne(`
+          SELECT category FROM transactions
+          WHERE category=$1
+            AND tx_type IN ('receipt', 'expense', 'welfare_payout')
+            AND reverses_transaction_id IS NULL
+          LIMIT 1
+        `, [category])
+      : null;
+    if (category && !categoryExists) return res.status(400).render('error', { message: 'Select a valid category.' });
+    const filters = { ...period, entryType, accountId, category };
     const format = req.query.format === 'pdf' ? 'pdf' : 'csv';
 
     if (format === 'pdf') {
@@ -3961,6 +3984,7 @@ app.get('/export/cashbook', allow('admin', 'finance_secretary', 'treasurer', 'au
         ...report,
         ...period,
         accountName: account ? account.name : null,
+        categoryName: category,
         groupName: config.groupName,
         org: res.locals.org
       });

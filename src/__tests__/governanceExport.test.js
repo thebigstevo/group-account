@@ -95,4 +95,16 @@ describe('governance evidence exports', () => {
     expect(dal.query.mock.calls[0][0]).toContain("t.tx_type IN ('receipt','expense','welfare_payout')");
     expect(dal.query.mock.calls[0][0]).toContain('t.reverses_transaction_id IS NULL');
   });
+
+  test('detailed cashbook applies a parameterized category filter', async () => {
+    dal.query.mockResolvedValue([]);
+
+    await exportCashbookCsv({
+      startDate: '2024-01-01', endDate: '2024-12-31', entryType: 'expense',
+      category: 'Stationery'
+    });
+
+    expect(dal.query.mock.calls[0][0]).toContain('AND t.category = $3');
+    expect(dal.query.mock.calls[0][1]).toEqual(['2024-01-01', '2024-12-31', 'Stationery']);
+  });
 });
