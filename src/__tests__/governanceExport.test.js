@@ -80,7 +80,15 @@ describe('governance evidence exports', () => {
         amount: 25, reference: 'VCH-43', description: 'Duplicate voucher', status: 'reversed',
         reconciled: false, reversal_reason: 'Duplicate', is_audit_adjustment: false,
         member_name: null, account_name: 'Cash', recorded_by: 'Administrator',
-        created_at: '2024-05-13T12:00:00Z'
+        created_at: '2024-05-13T12:00:00Z', reversal_transaction_id: 44
+      },
+      {
+        id: 44, tx_date: '2024-05-13', tx_type: 'expense', category: 'Stationery',
+        amount: 25, reference: 'VCH-43', description: 'Duplicate voucher', status: 'posted',
+        reconciled: false, reversal_reason: 'Duplicate', is_audit_adjustment: false,
+        reverses_transaction_id: 43, reversal_transaction_id: null,
+        member_name: null, account_name: 'Cash', recorded_by: 'Administrator',
+        created_at: '2024-05-13T12:05:00Z'
       }
     ]);
 
@@ -91,9 +99,12 @@ describe('governance evidence exports', () => {
     expect(csv).toContain('Paid to Print House');
     expect(csv).toContain('2024-05-12 12:00 UTC');
     expect(csv).toContain('Included in Totals');
+    expect(csv).toContain('Record Role');
+    expect(csv).toContain('Reversed original');
+    expect(csv).toContain('Reversal,43');
     expect(csv).toContain('Income 3100.00 | Expenses 50.00 | Net 3050.00');
     expect(dal.query.mock.calls[0][0]).toContain("t.tx_type IN ('receipt','expense','welfare_payout')");
-    expect(dal.query.mock.calls[0][0]).toContain('t.reverses_transaction_id IS NULL');
+    expect(dal.query.mock.calls[0][0]).not.toContain('AND t.reverses_transaction_id IS NULL');
   });
 
   test('detailed cashbook applies a parameterized category filter', async () => {

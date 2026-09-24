@@ -431,6 +431,8 @@ function createCashbookRegisterDoc({ rows, incomeTotal, expenseTotal, netMovemen
   sectionHeading(doc, 'Register summary');
   tableRow(doc, 'Income entries shown', String(rows.filter((row) => row.tx_type === 'receipt').length));
   tableRow(doc, 'Expense entries shown', String(rows.filter((row) => ['expense', 'welfare_payout'].includes(row.tx_type)).length));
+  tableRow(doc, 'Reversed originals shown', String(rows.filter((row) => row.status === 'reversed' && !row.reverses_transaction_id).length));
+  tableRow(doc, 'Linked reversal entries shown', String(rows.filter((row) => row.reverses_transaction_id).length));
   tableRow(doc, 'Total posted income', fmtMoney(incomeTotal), { bold: true });
   tableRow(doc, 'Total posted expenses', fmtMoney(expenseTotal), { bold: true });
   subtotalLine(doc);
@@ -438,7 +440,7 @@ function createCashbookRegisterDoc({ rows, incomeTotal, expenseTotal, netMovemen
 
   const columns = [
     { label: 'Date', width: 48 },
-    { label: 'Reference', width: 66 },
+    { label: 'ID / reference', width: 66 },
     { label: 'Payer / payee / detail', width: 86 },
     { label: 'Category', width: 78 },
     { label: 'Account', width: 54 },
@@ -463,14 +465,15 @@ function createCashbookRegisterDoc({ rows, incomeTotal, expenseTotal, netMovemen
         tableHeader(doc, columns);
       }
       const party = [row.member_name, row.description].filter(Boolean).join(' - ') || '-';
+      const status = row.display_status || (row.reverses_transaction_id ? 'Reversal' : row.status === 'posted' ? 'Posted' : 'Reversed');
       dataRow(doc, columns, [
         String(row.tx_date || '').slice(0, 10),
-        compactCell(row.reference || '-', 14),
+        compactCell(`#${row.id}${row.reference ? ` / ${row.reference}` : ''}`, 14),
         compactCell(party, 21),
         compactCell(row.category, 18),
         compactCell(row.account_name, 13),
         compactCell(row.recorded_by || 'System', 13),
-        row.status === 'posted' ? 'Posted' : 'Reversed',
+        status === 'Reversed original' ? 'Reversed' : status,
         fmtMoney(row.amount)
       ], { rowIndex: index, fontSize: 6.8 });
     });
@@ -481,7 +484,7 @@ function createCashbookRegisterDoc({ rows, incomeTotal, expenseTotal, netMovemen
 
   drawSection('Income', rows.filter((row) => row.tx_type === 'receipt'), incomeTotal, 'No income was recorded in the selected period.');
   drawSection('Expenses', rows.filter((row) => ['expense', 'welfare_payout'].includes(row.tx_type)), expenseTotal, 'No expenses were recorded in the selected period.');
-  labelRow(doc, 'Reversed original entries remain visible for audit evidence and are excluded from posted totals. Full descriptions and timestamps are available in the CSV version.');
+  labelRow(doc, 'Posted entries, reversed originals, and linked reversal entries are shown. Only active posted entries are included in totals. Full descriptions, links, and timestamps are available in the CSV version.');
   signatureBlock(doc, org);
   addPageNumbers(doc);
   return doc;

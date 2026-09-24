@@ -25,9 +25,17 @@ describe('detailed cashbook PDF', () => {
       member_name: index % 2 === 0 ? `Member ${index + 1}` : null,
       account_name: 'Cash',
       recorded_by: 'Treasurer',
-      status: index === 5 ? 'reversed' : 'posted'
+      status: index === 5 ? 'reversed' : 'posted',
+      reversal_transaction_id: index === 5 ? 101 : null,
+      reverses_transaction_id: null,
+      display_status: index === 5 ? 'Reversed original' : 'Posted',
+      included_in_totals: index !== 5
     }));
-    const posted = rows.filter((row) => row.status === 'posted');
+    rows.push({
+      ...rows[5], id: 101, status: 'posted', reversal_transaction_id: null,
+      reverses_transaction_id: 6, display_status: 'Reversal', included_in_totals: false
+    });
+    const posted = rows.filter((row) => row.included_in_totals);
     const incomeTotal = posted.filter((row) => row.tx_type === 'receipt').reduce((sum, row) => sum + row.amount, 0);
     const expenseTotal = posted.filter((row) => row.tx_type === 'expense').reduce((sum, row) => sum + row.amount, 0);
     const doc = createCashbookRegisterDoc({
