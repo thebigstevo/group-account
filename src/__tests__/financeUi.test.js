@@ -157,6 +157,8 @@ describe('finance and dashboard template rendering', () => {
       accountId: null,
       accountName: null,
       accounts: [{ id: 1, name: 'Cash' }],
+      category: null,
+      categories: [{ category: 'Assessment' }, { category: 'Stationery' }],
       rows: [
         { ...transaction, tx_date: '2024-05-11', member_name: 'Abraham Lynix', description: 'Assessment payment', account_name: 'Cash', amount: 3100, is_audit_adjustment: false },
         { ...transaction, id: 2, tx_date: '2024-05-12', tx_type: 'expense', member_name: null, description: 'Paid to Print House', category: 'Stationery', account_name: 'Cash', amount: 50, is_audit_adjustment: false }
@@ -172,6 +174,8 @@ describe('finance and dashboard template rendering', () => {
     expect(html).toContain('Paid to Print House');
     expect(html).toContain('Download CSV');
     expect(html).toContain('Download PDF');
+    expect(html).toContain('All categories');
+    expect(html).toContain('name="category"');
     expect(html).toContain('class="mobile-list"');
     expect(serverSource).toContain("app.get('/finance/cashbook'");
     expect(serverSource).toContain("app.get('/export/cashbook'");

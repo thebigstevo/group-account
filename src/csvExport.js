@@ -181,7 +181,7 @@ async function exportTransfersCsv({ startDate, endDate }) {
  * Reversal entries are omitted, while reversed originals remain visible so the
  * report preserves the audit trail without including them in posted totals.
  */
-async function cashbookRegisterReport({ startDate, endDate, entryType = 'all', accountId = null }) {
+async function cashbookRegisterReport({ startDate, endDate, entryType = 'all', accountId = null, category = null }) {
   const params = [startDate, endDate];
   let typeFilter = "t.tx_type IN ('receipt','expense','welfare_payout')";
   if (entryType === 'income') typeFilter = "t.tx_type = 'receipt'";
@@ -190,6 +190,11 @@ async function cashbookRegisterReport({ startDate, endDate, entryType = 'all', a
   if (accountId) {
     params.push(Number(accountId));
     accountFilter = `AND t.account_id = $${params.length}`;
+  }
+  let categoryFilter = '';
+  if (category) {
+    params.push(String(category));
+    categoryFilter = `AND t.category = $${params.length}`;
   }
 
   const rows = await dal.query(`
@@ -218,6 +223,7 @@ async function cashbookRegisterReport({ startDate, endDate, entryType = 'all', a
       AND t.tx_date >= $1
       AND t.tx_date <= $2
       ${accountFilter}
+      ${categoryFilter}
     ORDER BY t.tx_date, t.id
   `, params);
 
