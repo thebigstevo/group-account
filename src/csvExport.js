@@ -178,8 +178,9 @@ async function exportTransfersCsv({ startDate, endDate }) {
 
 /**
  * Detailed cashbook rows for line-by-line comparison with handwritten books.
- * Reversal entries are omitted, while reversed originals remain visible so the
- * report preserves the audit trail without including them in posted totals.
+ * The original, its linked reversal entry, and any replacement remain visible
+ * so an auditor can follow the complete chain. Only active business entries
+ * (posted rows that are not themselves reversals) contribute to totals.
  */
 async function cashbookRegisterReport({ startDate, endDate, entryType = 'all', accountId = null, category = null }) {
   const params = [startDate, endDate];
@@ -209,6 +210,8 @@ async function cashbookRegisterReport({ startDate, endDate, entryType = 'all', a
       t.status,
       t.reconciled,
       t.reversal_reason,
+      t.reverses_transaction_id,
+      t.reversal_transaction_id,
       t.is_audit_adjustment,
       m.name AS member_name,
       a.name AS account_name,
@@ -219,7 +222,6 @@ async function cashbookRegisterReport({ startDate, endDate, entryType = 'all', a
     JOIN accounts a ON a.id = t.account_id
     LEFT JOIN users u ON u.id = t.created_by
     WHERE ${typeFilter}
-      AND t.reverses_transaction_id IS NULL
       AND t.tx_date >= $1
       AND t.tx_date <= $2
       ${accountFilter}
@@ -227,7 +229,14 @@ async function cashbookRegisterReport({ startDate, endDate, entryType = 'all', a
     ORDER BY t.tx_date, t.id
   `, params);
 
-  const postedRows = rows.filter((row) => row.status === 'posted');
+  const reportRows = rows.map((row) => ({
+    ...row,
+    display_status: row.reverses_transaction_id
+      ? 'Reversal'
+      : row.status === 'reversed' ? 'Reversed original' : 'Posted',
+    included_in_totals: row.status === 'posted' && !row.reverses_transaction_id
+  }));
+  const postedRows = reportRows.filter((row) => row.included_in_totals);
   const incomeTotal = postedRows
     .filter((row) => row.tx_type === 'receipt')
     .reduce((sum, row) => sum + Number(row.amount), 0);
@@ -235,7 +244,14 @@ async function cashbookRegisterReport({ startDate, endDate, entryType = 'all', a
     .filter((row) => ['expense', 'welfare_payout'].includes(row.tx_type))
     .reduce((sum, row) => sum + Number(row.amount), 0);
 
-  return { rows, incomeTotal, expenseTotal, netMovement: incomeTotal - expenseTotal };
+  return {
+    rows: reportRows,
+    incomeTotal,
+    expenseTotal,
+    netMovement: incomeTotal - expenseTotal,
+    reversedOriginalCount: reportRows.filter((row) => row.status === 'reversed' && !row.reverses_transaction_id).length,
+    reversalEntryCount: reportRows.filter((row) => row.reverses_transaction_id).length
+  };
 }
 
 async function exportCashbookCsv(filters) {
@@ -251,8 +267,11 @@ async function exportCashbookCsv(filters) {
     Category: row.category,
     Account: row.account_name,
     Amount: formatCurrency(row.amount),
+    'Record Role': row.display_status,
+    'Reverses Transaction ID': row.reverses_transaction_id || '',
+    'Reversal Transaction ID': row.reversal_transaction_id || '',
     Status: row.status,
-    'Included in Totals': row.status === 'posted' ? 'Yes' : 'No',
+    'Included in Totals': row.included_in_totals ? 'Yes' : 'No',
     Reconciled: row.reconciled ? 'Yes' : 'No',
     'Audit Adjustment': row.is_audit_adjustment ? 'Yes' : 'No',
     'Reversal Reason': row.reversal_reason || '',
@@ -266,7 +285,8 @@ async function exportCashbookCsv(filters) {
     'Entry Type': '',
     'Receipt / Voucher Reference': '',
     'Payer / Payee / Source': `Income ${formatCurrency(report.incomeTotal)} | Expenses ${formatCurrency(report.expenseTotal)} | Net ${formatCurrency(report.netMovement)}`,
-    Member: '', Description: '', Category: '', Account: '', Amount: '', Status: '',
+    Member: '', Description: '', Category: '', Account: '', Amount: '',
+    'Record Role': '', 'Reverses Transaction ID': '', 'Reversal Transaction ID': '', Status: '',
     'Included in Totals': '', Reconciled: '', 'Audit Adjustment': '',
     'Reversal Reason': '', 'Recorded By': '', 'Recorded At': ''
   });
