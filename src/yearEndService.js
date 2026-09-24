@@ -3,11 +3,13 @@
 const dal = require('./dal');
 const { arrearsReport, calculateWelfareComponent } = require('./services');
 const { calculateAllocations, calculateExpenseAllocations } = require('./allocationService');
+const { createReversal } = require('./reversalService');
 const {
   approvalError,
   finalCloseError,
   pendingAuditTransitionError,
-  validateAuditAdjustment
+  validateAuditAdjustment,
+  validateAuditReversal
 } = require('./yearEndDomain');
 
 class YearEndValidationError extends Error {}
@@ -66,7 +68,12 @@ async function finalizeFiscalYear({ year, userId, notes }) {
     const fyResult = await client.query('SELECT * FROM fiscal_years WHERE year=$1 FOR UPDATE', [year]);
     const fiscalYear = fyResult.rows[0];
     const reviewResult = await client.query('SELECT * FROM audit_reviews WHERE year=$1', [year]);
-    const proposedResult = await client.query("SELECT COUNT(*)::int AS count FROM audit_adjustments WHERE year=$1 AND status='proposed'", [year]);
+    const proposedResult = await client.query(`
+      SELECT (
+        (SELECT COUNT(*) FROM audit_adjustments WHERE year=$1 AND status='proposed') +
+        (SELECT COUNT(*) FROM audit_reversal_requests WHERE year=$1 AND status='proposed')
+      )::int AS count
+    `, [year]);
     const closeError = finalCloseError(fiscalYear, reviewResult.rows[0], proposedResult.rows[0].count);
     if (closeError) throw new YearEndValidationError(closeError);
     const arrears = await arrearsReport(year);
@@ -227,6 +234,148 @@ async function rejectAuditAdjustment({ adjustmentId, userId, decisionNotes }) {
   });
 }
 
+async function proposeAuditReversal({ year, userId, input }) {
+  const validated = validateAuditReversal(input);
+  if (validated.errors.length) throw new YearEndValidationError(validated.errors.join(' '));
+  const values = validated.values;
+  return dal.transaction(async (client) => {
+    const fyResult = await client.query('SELECT * FROM fiscal_years WHERE year=$1 FOR UPDATE', [year]);
+    if (!fyResult.rows[0] || fyResult.rows[0].status !== 'pending_audit') {
+      throw new YearEndValidationError('Controlled reversals are only allowed while the fiscal year is pending audit.');
+    }
+    const reviewResult = await client.query('SELECT * FROM audit_reviews WHERE year=$1', [year]);
+    if (!reviewResult.rows[0]) throw new YearEndValidationError('Start the trustee audit before proposing a reversal.');
+    const transactionResult = await client.query(`
+      SELECT * FROM transactions WHERE id=$1 FOR UPDATE
+    `, [values.original_transaction_id]);
+    const original = transactionResult.rows[0];
+    if (!original || Number(String(original.tx_date).slice(0, 4)) !== Number(year)) {
+      throw new YearEndValidationError(`Select a transaction from fiscal year ${year}.`);
+    }
+    if (original.status !== 'posted' || original.reversal_transaction_id || original.reverses_transaction_id) {
+      throw new YearEndValidationError('Only an unreversed posted transaction can be proposed for reversal.');
+    }
+    const existingResult = await client.query(`
+      SELECT id FROM audit_reversal_requests
+      WHERE original_transaction_id=$1 AND status='proposed'
+    `, [original.id]);
+    if (existingResult.rows[0]) {
+      throw new YearEndValidationError(`Transaction #${original.id} already has a reversal awaiting a decision.`);
+    }
+    const result = await client.query(`
+      INSERT INTO audit_reversal_requests (
+        year, review_id, original_transaction_id, reason, requested_by
+      ) VALUES ($1,$2,$3,$4,$5) RETURNING id
+    `, [year, reviewResult.rows[0].id, original.id, values.reason, userId]);
+    await dal.audit(userId, 'propose', 'audit_reversal_request', result.rows[0].id, {
+      year, original_transaction_id: original.id, reason: values.reason
+    }, { client });
+    return { id: result.rows[0].id };
+  });
+}
+
+async function reopenAuditAfterApprovedCorrection(client, request, userId, label) {
+  if (request.review_status !== 'completed') return false;
+  await client.query(`
+    UPDATE audit_reviews SET status='in_progress', revision=revision+1,
+      completed_by=NULL, completed_at=NULL, overall_conclusion=NULL, overall_notes=NULL,
+      recommendation=NULL, reopened_at=NOW(), reopened_by=$1, reopen_reason=$2
+    WHERE id=$3
+  `, [userId, label, request.review_id]);
+  await client.query(`
+    UPDATE audit_review_items SET status='pending', notes=NULL, reviewed_by=NULL, reviewed_at=NULL
+    WHERE review_id=$1
+  `, [request.review_id]);
+  return true;
+}
+
+async function approveAuditReversal({ requestId, userId, decisionNotes }) {
+  return dal.transaction(async (client) => {
+    const requestResult = await client.query(`
+      SELECT rr.*, ar.status AS review_status, ar.revision AS review_revision
+      FROM audit_reversal_requests rr
+      JOIN audit_reviews ar ON ar.id=rr.review_id
+      WHERE rr.id=$1 FOR UPDATE OF rr
+    `, [requestId]);
+    const request = requestResult.rows[0];
+    const decisionError = approvalError(request, userId);
+    if (decisionError) throw new YearEndValidationError(decisionError);
+    await client.query('SELECT pg_advisory_xact_lock(92301,$1)', [request.year]);
+    const fyResult = await client.query('SELECT * FROM fiscal_years WHERE year=$1 FOR UPDATE', [request.year]);
+    if (!fyResult.rows[0] || fyResult.rows[0].status !== 'pending_audit') {
+      throw new YearEndValidationError('The fiscal year is no longer pending audit.');
+    }
+    const originalResult = await client.query(`
+      SELECT t.*, tc.purpose AS category_purpose
+      FROM transactions t
+      LEFT JOIN transaction_categories tc ON tc.name=t.category
+      WHERE t.id=$1 FOR UPDATE OF t
+    `, [request.original_transaction_id]);
+    const original = originalResult.rows[0];
+    if (!original || original.status !== 'posted' || original.reversal_transaction_id || original.reverses_transaction_id) {
+      throw new YearEndValidationError('The original transaction is no longer eligible for reversal.');
+    }
+    const { reversalId } = await createReversal(original, request.reason, request.requested_by, {
+      client, isAuditAdjustment: true, auditReversalRequestId: request.id
+    });
+    await client.query(`
+      UPDATE audit_reversal_requests SET status='approved', decided_by=$1, decided_at=NOW(),
+        decision_notes=$2, applied_reversal_transaction_id=$3 WHERE id=$4
+    `, [userId, decisionNotes || null, reversalId, request.id]);
+
+    if (original.tx_type === 'receipt' && original.category_purpose === 'assessment' && original.member_id) {
+      await client.query(`
+        UPDATE member_year_openings SET opening_arrears=opening_arrears+$1,
+          provisional=true, updated_by=$2, updated_at=NOW()
+        WHERE member_id=$3 AND year=$4
+      `, [original.amount, userId, original.member_id, Number(request.year) + 1]);
+    }
+    const auditReopened = await reopenAuditAfterApprovedCorrection(
+      client, request, userId, `Approved controlled reversal #${request.id}`
+    );
+    await dal.audit(userId, 'approve', 'audit_reversal_request', request.id, {
+      year: request.year, original_transaction_id: original.id,
+      reversal_transaction_id: reversalId, audit_reopened: auditReopened,
+      decision_notes: decisionNotes || null
+    }, { client });
+    return { reversalId, auditReopened, year: request.year };
+  });
+}
+
+async function rejectAuditReversal({ requestId, userId, decisionNotes }) {
+  if (!String(decisionNotes || '').trim()) throw new YearEndValidationError('Give a reason for rejecting the reversal.');
+  return dal.transaction(async (client) => {
+    const result = await client.query('SELECT * FROM audit_reversal_requests WHERE id=$1 FOR UPDATE', [requestId]);
+    const request = result.rows[0];
+    const decisionError = approvalError(request, userId);
+    if (decisionError) throw new YearEndValidationError(decisionError);
+    await client.query(`
+      UPDATE audit_reversal_requests SET status='rejected', decided_by=$1, decided_at=NOW(), decision_notes=$2
+      WHERE id=$3
+    `, [userId, String(decisionNotes).trim(), requestId]);
+    await dal.audit(userId, 'reject', 'audit_reversal_request', requestId, {
+      year: request.year, decision_notes: String(decisionNotes).trim()
+    }, { client });
+    return { year: request.year };
+  });
+}
+
+async function listAuditReversals(year) {
+  return dal.query(`
+    SELECT rr.*, requester.name AS requested_by_name, decider.name AS decided_by_name,
+      t.tx_date, t.tx_type, t.category, t.description, t.amount, t.reference,
+      account.name AS account_name, destination.name AS to_account_name, member.name AS member_name
+    FROM audit_reversal_requests rr
+    JOIN transactions t ON t.id=rr.original_transaction_id
+    JOIN users requester ON requester.id=rr.requested_by
+    LEFT JOIN users decider ON decider.id=rr.decided_by
+    LEFT JOIN accounts account ON account.id=t.account_id
+    LEFT JOIN accounts destination ON destination.id=t.to_account_id
+    LEFT JOIN members member ON member.id=t.member_id
+    WHERE rr.year=$1 ORDER BY rr.requested_at DESC, rr.id DESC
+  `, [year]);
+}
+
 async function listAuditAdjustments(year) {
   return dal.query(`
     SELECT aa.*, requester.name AS requested_by_name, decider.name AS decided_by_name,
@@ -252,11 +401,15 @@ async function listAuditSignoffs(reviewId) {
 module.exports = {
   YearEndValidationError,
   approveAuditAdjustment,
+  approveAuditReversal,
   finalizeFiscalYear,
   listAuditAdjustments,
+  listAuditReversals,
   listAuditSignoffs,
   proposeAuditAdjustment,
+  proposeAuditReversal,
   rejectAuditAdjustment,
+  rejectAuditReversal,
   submitYearForAudit,
   writeCarryForward
 };
