@@ -8,6 +8,7 @@
     'entryType=' + encodeURIComponent(entryType)
   ];
   if (accountId) queryParts.push('accountId=' + encodeURIComponent(accountId));
+  if (category) queryParts.push('category=' + encodeURIComponent(category));
   const exportQuery = queryParts.join('&');
   const incomeRows = rows.filter(function(row) { return row.tx_type === 'receipt'; });
   const expenseRows = rows.filter(function(row) { return row.tx_type === 'expense' || row.tx_type === 'welfare_payout'; });
@@ -36,6 +37,7 @@
         <div class="form-group"><label for="cashbook-end">End date</label><input id="cashbook-end" name="endDate" type="date" value="<%= period.endDate %>" required></div>
         <div class="form-group"><label for="cashbook-type">Entries</label><select id="cashbook-type" name="entryType"><option value="all" <%= entryType === 'all' ? 'selected' : '' %>>Income and expenses</option><option value="income" <%= entryType === 'income' ? 'selected' : '' %>>Income only</option><option value="expense" <%= entryType === 'expense' ? 'selected' : '' %>>Expenses only</option></select></div>
         <div class="form-group"><label for="cashbook-account">Account</label><select id="cashbook-account" name="accountId"><option value="">All accounts</option><% accounts.forEach(function(account) { %><option value="<%= account.id %>" <%= Number(accountId) === Number(account.id) ? 'selected' : '' %>><%= account.name %></option><% }) %></select></div>
+        <div class="form-group"><label for="cashbook-category">Category</label><select id="cashbook-category" name="category"><option value="">All categories</option><% categories.forEach(function(item) { %><option value="<%= item.category %>" <%= category === item.category ? 'selected' : '' %>><%= item.category %></option><% }) %></select></div>
       </div>
       <div class="report-toolbar__actions"><button class="btn btn--primary" type="submit">View report</button></div>
     </form>

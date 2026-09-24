@@ -617,9 +617,11 @@ Direct page: [Detailed cashbook](https://ksji825.tilcsaas.com/finance/cashbook)
 1. Select the fiscal year and exact start and end dates.
 2. Choose all accounts or one account such as Cash, Republic Bank, or MOMO.
 3. Choose income, expenses, or both.
-4. Compare each transaction ID, date, reference, payer/payee detail, category, account, recorder, status, and amount with the handwritten book and source document.
-5. Download PDF for a readable comparison pack or CSV for full descriptions, timestamps, sorting, and annotations.
-6. Investigate every difference. Do not add a second entry until you have confirmed that the source transaction is genuinely missing.
+4. Choose **All categories** or one category, such as Assessment, Offertory, or Stationery.
+5. Select **View report**. The displayed entries and totals now cover only the selected category and other filters.
+6. Compare each transaction ID, date, reference, payer/payee detail, category, account, recorder, status, and amount with the handwritten book and source document.
+7. Download PDF for a readable comparison pack or CSV for full descriptions, timestamps, sorting, and annotations. Downloads retain the selected category.
+8. Investigate every difference. Do not add a second entry until you have confirmed that the source transaction is genuinely missing.
 
 Reversed original entries remain visible as audit evidence and are excluded from posted totals.
 
